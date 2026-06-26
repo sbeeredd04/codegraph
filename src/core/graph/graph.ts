@@ -29,6 +29,11 @@ export class CodeGraph {
     return this.nodes.get(address);
   }
 
+  /** All nodes, read-only (for projections, summaries, export). */
+  allNodes(): GraphNode[] {
+    return [...this.nodes.values()];
+  }
+
   addEdge(edge: GraphEdge): void {
     let outs = this.outbound.get(edge.from);
     if (!outs) {
