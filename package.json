@@ -1,0 +1,40 @@
+{
+  "name": "codegraph",
+  "displayName": "codegraph",
+  "description": "A live semantic knowledge graph of your codebase, beside your editor.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "codegraph",
+  "engines": {
+    "vscode": "^1.105.0",
+    "node": ">=20"
+  },
+  "categories": ["Visualization", "Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codegraph.open",
+        "title": "codegraph: Open Graph Panel"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:boundaries": "depcruise \"src/**/*.ts\" --config .dependency-cruiser.cjs",
+    "verify": "npm run typecheck && npm run lint:boundaries && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.105.0",
+    "dependency-cruiser": "^16.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}
