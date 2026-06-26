@@ -9,7 +9,10 @@
     "vscode": "^1.105.0",
     "node": ">=20"
   },
-  "categories": ["Visualization", "Other"],
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
@@ -28,6 +31,9 @@
     "test:watch": "vitest",
     "lint:boundaries": "depcruise \"src/**/*.ts\" --config .dependency-cruiser.cjs",
     "verify": "npm run typecheck && npm run lint:boundaries && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@vscode/tree-sitter-wasm": "^0.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
