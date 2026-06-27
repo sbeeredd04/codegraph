@@ -4,6 +4,7 @@ import forceAtlas2 from "graphology-layout-forceatlas2";
 import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webview/render-model.js";
 import type { RankedChange } from "../src/core/graph/change-feed.js";
 import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
+import { reconcilePositions, type XY } from "../src/adapters/surfaces/webview/layout.js";
 import type { NodeKind } from "../src/core/graph/types.js";
 
 const vscode = acquireVsCodeApi();
@@ -19,6 +20,10 @@ const CHANGE_COLORS: Record<RankedChange["change"], string> = {
 };
 let renderer: Sigma | undefined;
 let graph: Graph | undefined;
+// Force a fresh force-directed layout on the next paint. True for the first paint
+// and whenever the user switches projection (the node set changes wholesale); a
+// host-driven live delta leaves it false so surviving nodes keep their place.
+let relayout = true;
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
@@ -108,6 +113,12 @@ function renderFeed(feed: readonly RankedChange[] | undefined): void {
 }
 
 function render(model: RenderModel): void {
+  // Snapshot where every node currently sits BEFORE we tear the graph down, so a
+  // repaint can preserve those positions instead of jumping (stable live layout).
+  const prev = new Map<string, XY>();
+  if (graph) graph.forEachNode((id: string, a: Record<string, number>) => prev.set(id, { x: a.x, y: a.y }));
+  const fresh = relayout || prev.size === 0;
+
   const d = model.delta;
   if (d && (d.added || d.removed || d.changed || d.moved)) {
     badge.innerHTML =
@@ -131,12 +142,15 @@ function render(model: RenderModel): void {
   }
   container.innerHTML = "";
 
+  // Live repaint: keep surviving nodes put, seed new ones near their neighbours.
+  const positions = fresh ? undefined : reconcilePositions(model.nodes, model.edges, prev);
   const g = new Graph({ type: "directed" });
   for (const n of model.nodes) {
+    const p = positions?.get(n.id);
     g.addNode(n.id, {
       label: n.label,
-      x: n.x,
-      y: n.y,
+      x: p ? p.x : n.x,
+      y: p ? p.y : n.y,
       size: n.size,
       color: n.color,
       kind: n.kind,
@@ -149,14 +163,16 @@ function render(model: RenderModel): void {
       g.addEdgeWithKey(e.id, e.source, e.target, { color: "#333a4d", size: 1, relation: e.type });
     }
   }
-  // Force-directed layout for legibility (circular seed -> real positions).
-  if (g.order > 2) {
+  // Force-directed layout only on a fresh paint (circular seed -> real positions);
+  // a live delta reuses the reconciled positions so the graph never jumps.
+  if (fresh && g.order > 2) {
     forceAtlas2.assign(g, {
       iterations: Math.min(400, 100 + g.order),
       settings: forceAtlas2.inferSettings(g),
     });
   }
   graph = g;
+  relayout = false;
 
   renderer?.kill();
   renderer = new Sigma(g, container, {
@@ -198,6 +214,7 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg 
   btn.addEventListener("click", () => {
     for (const b of Array.from(document.querySelectorAll(".seg button"))) b.classList.remove("active");
     btn.classList.add("active");
+    relayout = true; // a new projection is a new node set — lay it out fresh
     vscode.postMessage({ type: "setProjection", kind: btn.dataset.projection });
   });
 }
