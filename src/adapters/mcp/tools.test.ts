@@ -68,3 +68,55 @@ describe("MCP graph tools", () => {
     expect(createGraphMcpServer(() => fixture())).toBeTruthy();
   });
 });
+
+describe("MCP recent_changes tool", () => {
+  const recentFixture = {
+    ref: "HEAD",
+    summary: { added: 1, removed: 0, changed: 0, moved: 0 },
+    changes: [
+      { address: "ts:m.ts#new", name: "new", kind: "function", change: "added", blastRadius: 0, dependents: [] },
+    ],
+  };
+
+  it("appears only when a change provider is injected", () => {
+    expect([...toolMap(fixture()).keys()]).not.toContain("recent_changes"); // graph-only mode
+    const withProvider = graphTools(() => fixture(), async () => recentFixture).map((t) => t.name);
+    expect(withProvider).toContain("recent_changes");
+  });
+
+  it("returns the provider's ranked feed and forwards the requested ref", async () => {
+    let asked: string | undefined;
+    const tools = new Map(
+      graphTools(() => fixture(), async (ref) => {
+        asked = ref;
+        return recentFixture;
+      }).map((t) => [t.name, t]),
+    );
+    const r = await tools.get("recent_changes")!.handler({ ref: "main" });
+    expect(asked).toBe("main");
+    expect(parse(r.content[0].text).summary.added).toBe(1);
+  });
+
+  it("defaults the baseline ref to HEAD", async () => {
+    let asked: string | undefined;
+    const tools = new Map(
+      graphTools(() => fixture(), async (ref) => {
+        asked = ref;
+        return recentFixture;
+      }).map((t) => [t.name, t]),
+    );
+    await tools.get("recent_changes")!.handler({});
+    expect(asked).toBe("HEAD");
+  });
+
+  it("reports a clean error result when the provider throws (e.g. not a git repo)", async () => {
+    const tools = new Map(
+      graphTools(() => fixture(), async () => {
+        throw new Error("codegraph: not a git repository.");
+      }).map((t) => [t.name, t]),
+    );
+    const r = await tools.get("recent_changes")!.handler({});
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain("not a git repository");
+  });
+});

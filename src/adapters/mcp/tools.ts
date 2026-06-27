@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CodeGraph } from "../../core/graph/graph.js";
 import type { NodeKind } from "../../core/graph/types.js";
+import type { RankedChange } from "../../core/graph/change-feed.js";
 import {
   findNodes,
   describeNode,
@@ -28,8 +29,27 @@ export interface GraphTool {
   readonly title: string;
   readonly description: string;
   readonly inputSchema: Record<string, z.ZodTypeAny>;
-  readonly handler: (args: Record<string, unknown>) => McpToolResult;
+  readonly handler: (args: Record<string, unknown>) => McpToolResult | Promise<McpToolResult>;
 }
+
+/** A ranked "what just changed" feed: the diff of the working tree against a git ref. */
+export interface RecentChanges {
+  readonly ref: string;
+  readonly summary: {
+    readonly added: number;
+    readonly removed: number;
+    readonly changed: number;
+    readonly moved: number;
+  };
+  readonly changes: readonly RankedChange[];
+}
+
+/**
+ * Supplies the live change feed. Injected by the launchable server (it does the
+ * I/O: re-scan the working tree, build the git baseline, diff and rank) so the
+ * pure tool layer here stays I/O-free and testable (AD-1).
+ */
+export type RecentChangesProvider = (ref: string) => Promise<RecentChanges>;
 
 const KIND = z.enum(["module", "class", "function", "method", "workflow"]);
 const ADDRESS = z.string().min(1).describe("A node address, e.g. ts:src/auth.ts#login");
@@ -42,9 +62,17 @@ const fail = (message: string): McpToolResult => ({
   isError: true,
 });
 
-/** Build the graph tools bound to a graph accessor (re-read each call so live updates show). */
-export function graphTools(getGraph: () => CodeGraph): GraphTool[] {
-  return [
+/**
+ * Build the graph tools bound to a graph accessor (re-read each call so live
+ * updates show). Pass `recentChanges` to also expose the `recent_changes` tool —
+ * the live "what just changed" feed (omitted in graph-only contexts that have no
+ * git baseline to diff against).
+ */
+export function graphTools(
+  getGraph: () => CodeGraph,
+  recentChanges?: RecentChangesProvider,
+): GraphTool[] {
+  const tools: GraphTool[] = [
     {
       name: "find_nodes",
       title: "Find nodes",
@@ -125,4 +153,28 @@ export function graphTools(getGraph: () => CodeGraph): GraphTool[] {
       handler: () => ok(graphStats(getGraph())),
     },
   ];
+
+  if (recentChanges) {
+    tools.push({
+      name: "recent_changes",
+      title: "Recent changes",
+      description:
+        "What changed in the working tree versus a git ref (default HEAD): the ranked " +
+        "change feed — added, changed, removed and moved nodes ordered by blast radius. " +
+        "Use this to see what you (or another agent) just changed and what it impacts.",
+      inputSchema: {
+        ref: z.string().min(1).optional().describe("Git ref to diff against (default HEAD)."),
+      },
+      handler: async (args) => {
+        try {
+          const ref = args.ref ? String(args.ref) : "HEAD";
+          return ok(await recentChanges(ref));
+        } catch (e) {
+          return fail(e instanceof Error ? e.message : "codegraph: could not compute recent changes.");
+        }
+      },
+    });
+  }
+
+  return tools;
 }

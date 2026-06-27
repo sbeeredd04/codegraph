@@ -2,7 +2,11 @@ import * as path from "node:path";
 import { createRequire } from "node:module";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { bootstrapRepo } from "../lang/bootstrap.js";
+import { baselineGraph } from "../git/baseline.js";
+import { diffGraphs } from "../../core/graph/diff.js";
+import { rankedChangeFeed } from "../../core/graph/change-feed.js";
 import { createGraphMcpServer } from "./server.js";
+import type { RecentChanges } from "./tools.js";
 import type { CodeGraph } from "../../core/graph/graph.js";
 
 // Launchable MCP server (FR-13): `node codegraph-mcp.js <repoRoot>`. The user's
@@ -10,6 +14,8 @@ import type { CodeGraph } from "../../core/graph/graph.js";
 // moat. Logs go to stderr; stdout is reserved for the MCP protocol channel.
 
 const require = createRequire(__filename);
+// Cap the change-feed payload; `summary` still reports the true totals.
+const MAX_FEED = 50;
 
 function wasmDir(): string {
   return path.dirname(require.resolve("@vscode/tree-sitter-wasm"));
@@ -20,13 +26,33 @@ async function main(): Promise<void> {
   const { graph, coverage } = await bootstrapRepo(root, wasmDir());
   let current: CodeGraph = graph;
 
-  const server = createGraphMcpServer(() => current);
+  // The `recent_changes` provider does the I/O the pure tool layer can't: re-scan
+  // the working tree (and refresh `current` so every tool sees the latest), build
+  // the git baseline at `ref`, then diff and rank. Read-only w.r.t. the tree (FR-9).
+  const recentChanges = async (ref: string): Promise<RecentChanges> => {
+    const fresh = await bootstrapRepo(root, wasmDir());
+    current = fresh.graph;
+    const baseline = await baselineGraph(root, ref, wasmDir());
+    const delta = diffGraphs(baseline, current);
+    const changes = rankedChangeFeed(delta, baseline, current).slice(0, MAX_FEED);
+    return {
+      ref,
+      summary: {
+        added: delta.added.length,
+        removed: delta.removed.length,
+        changed: delta.changed.length,
+        moved: delta.movedRenamed.length,
+      },
+      changes,
+    };
+  };
+
+  const server = createGraphMcpServer(() => current, recentChanges);
   await server.connect(new StdioServerTransport());
   process.stderr.write(
     `codegraph MCP ready on ${root} — ${coverage.parsed}/${coverage.found} files, ` +
       `${graph.order} nodes, ${graph.size} edges\n`,
   );
-  void current; // reserved: a future re-scan tool will reassign `current`.
 }
 
 main().catch((err: unknown) => {
