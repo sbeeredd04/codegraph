@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { Project } from "ts-morph";
 import { CodeGraph } from "../../../core/graph/graph.js";
 import { createTypeScriptAdapter } from "./index.js";
-import { resolveImportEdges } from "./edges.js";
+import { resolveImportEdges, resolveCallEdges } from "./edges.js";
 
 // Whole-repo bootstrap (FR-1): tree-sitter skeleton across every source file +
 // ts-morph import edges, assembled into one graph. I/O lives here (adapter), not
@@ -65,8 +65,9 @@ export async function bootstrapTypeScriptRepo(rootDir: string, wasmDir: string):
     const project = new Project();
     for (const file of files) project.addSourceFileAtPath(file);
     for (const edge of resolveImportEdges(project, rootDir)) graph.addEdge(edge);
+    for (const edge of resolveCallEdges(project, rootDir)) graph.addEdge(edge);
   } catch {
-    // Import-edge resolution is best-effort; the skeleton still stands.
+    // Edge resolution is best-effort; the skeleton still stands.
   }
 
   return { graph, coverage: { found: files.length, parsed, failed, skipped } };

@@ -17,14 +17,15 @@ async function benchmark(target: string, wasmDir: string): Promise<void> {
 
   const s = summarizeGraph(graph);
   const dependsOn = graph.allEdges().filter((e) => e.type === "depends-on").length;
-  const contains = s.edgeCount - dependsOn;
+  const calls = graph.allEdges().filter((e) => e.type === "calls").length;
+  const contains = s.edgeCount - dependsOn - calls;
   const pct = coverage.found ? Math.round((coverage.parsed / coverage.found) * 100) : 0;
 
   console.log(`\n=== ${target} ===`);
   console.log(`files:    ${coverage.found} found, ${coverage.parsed} parsed, ${coverage.failed} failed`);
   console.log(`coverage: ${pct}%`);
   console.log(`nodes:    ${s.nodeCount}  (module ${s.byKind.module}, class ${s.byKind.class}, function ${s.byKind.function}, method ${s.byKind.method})`);
-  console.log(`edges:    ${s.edgeCount}  (${contains} contains, ${dependsOn} depends-on)`);
+  console.log(`edges:    ${s.edgeCount}  (${contains} contains, ${dependsOn} depends-on, ${calls} calls)`);
   console.log(`orphans:  ${s.orphanCount}`);
   console.log(`time:     ${ms}ms`);
 }

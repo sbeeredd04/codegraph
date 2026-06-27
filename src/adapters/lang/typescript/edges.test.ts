@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Project } from "ts-morph";
-import { resolveImportEdges } from "./edges.js";
+import { resolveImportEdges, resolveCallEdges } from "./edges.js";
 
 function projectWith(files: Record<string, string>): Project {
   const project = new Project({ useInMemoryFileSystem: true });
@@ -40,5 +40,37 @@ describe("resolveImportEdges", () => {
 
   it("emits nothing for a file with no imports", () => {
     expect(resolveImportEdges(projectWith({ "solo.ts": `export const x = 1;` }), "/")).toEqual([]);
+  });
+});
+
+describe("resolveCallEdges", () => {
+  it("resolves intra-file function and method calls", () => {
+    const project = projectWith({
+      "a.ts": [
+        "export function helper() { return 1; }",
+        "export function main() { return helper(); }",
+        "export class S { run() { return this.help(); } help() { return 2; } }",
+      ].join("\n"),
+    });
+    const edges = resolveCallEdges(project, "/");
+    expect(edges).toContainEqual({ from: "ts:a.ts#main", to: "ts:a.ts#helper", type: "calls" });
+    expect(edges).toContainEqual({ from: "ts:a.ts#S.run", to: "ts:a.ts#S.help", type: "calls" });
+  });
+
+  it("resolves cross-file calls to the imported function", () => {
+    const project = projectWith({
+      "b.ts": "export function b() { return 1; }",
+      "a.ts": 'import { b } from "./b";\nexport function a() { return b(); }',
+    });
+    expect(resolveCallEdges(project, "/")).toContainEqual({
+      from: "ts:a.ts#a",
+      to: "ts:b.ts#b",
+      type: "calls",
+    });
+  });
+
+  it("skips calls to external/library functions", () => {
+    const project = projectWith({ "a.ts": "export function f() { console.log('x'); }" });
+    expect(resolveCallEdges(project, "/")).toEqual([]);
   });
 });
