@@ -28,6 +28,10 @@
       {
         "command": "codegraph.refresh",
         "title": "codegraph: Refresh & Diff (show what changed)"
+      },
+      {
+        "command": "codegraph.diffBaseline",
+        "title": "codegraph: Diff Against Git Ref (HEAD, branch, tag)"
       }
     ],
     "configuration": {

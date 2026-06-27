@@ -7,6 +7,7 @@ import { bootstrapRepo, type BootstrapOptions } from "../adapters/lang/bootstrap
 import { diffGraphs } from "../core/graph/diff.js";
 import { rankedChangeFeed } from "../core/graph/change-feed.js";
 import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
+import { baselineGraph } from "../adapters/git/baseline.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import type { GraphDelta } from "../core/graph/types.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
@@ -23,6 +24,15 @@ const WATCH_IGNORE = /[/\\](node_modules|\.git|dist|\.venv|__pycache__)[/\\]/;
 
 function wasmDir(): string {
   return path.dirname(require.resolve("@vscode/tree-sitter-wasm"));
+}
+
+function deltaSummary(delta: GraphDelta, none: string): string {
+  const total =
+    delta.added.length + delta.removed.length + delta.changed.length + delta.movedRenamed.length;
+  return total === 0
+    ? none
+    : `codegraph: +${delta.added.length} added · ~${delta.changed.length} changed · ` +
+        `${delta.movedRenamed.length} moved · −${delta.removed.length} removed`;
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -146,19 +156,51 @@ export function activate(context: vscode.ExtensionContext): void {
       { location: vscode.ProgressLocation.Notification, title: "codegraph: re-scanning…" },
       async () => {
         const delta = await runScan(false);
-        if (!delta) return;
-        const total =
-          delta.added.length + delta.removed.length + delta.changed.length + delta.movedRenamed.length;
-        void vscode.window.showInformationMessage(
-          total === 0
-            ? "codegraph: no changes since the last view."
-            : `codegraph: +${delta.added.length} added · ~${delta.changed.length} changed · ${delta.movedRenamed.length} moved · −${delta.removed.length} removed`,
-        );
+        if (delta) {
+          void vscode.window.showInformationMessage(
+            deltaSummary(delta, "codegraph: no changes since the last view."),
+          );
+        }
       },
     );
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh, {
+  // Diff the working tree against a git ref (Story 2.5): see what changed since
+  // HEAD / a branch the moment the graph opens, no in-session edit needed.
+  const diffBaseline = vscode.commands.registerCommand("codegraph.diffBaseline", async () => {
+    if (!current) {
+      void vscode.window.showWarningMessage("codegraph: open the workspace graph first.");
+      return;
+    }
+    const ref = await vscode.window.showInputBox({
+      title: "codegraph: diff working tree against…",
+      prompt: "A git ref to use as the baseline (commit, branch, or tag).",
+      value: "HEAD",
+      ignoreFocusOut: true,
+    });
+    if (!ref) return; // cancelled
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `codegraph: diffing against ${ref}…` },
+      async () => {
+        const active = current as { folderPath: string; graph: CodeGraph; options: BootstrapOptions };
+        try {
+          const baseline = await baselineGraph(active.folderPath, ref, wasmDir(), active.options);
+          const delta = diffGraphs(baseline, active.graph);
+          const feed = rankedChangeFeed(delta, baseline, active.graph);
+          GraphPanel.show(context, active.graph.allNodes(), active.graph.allEdges(), delta, feed);
+          void vscode.window.showInformationMessage(
+            deltaSummary(delta, `codegraph: working tree matches ${ref}.`),
+          );
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            err instanceof Error ? err.message : `codegraph: could not diff against ${ref}.`,
+          );
+        }
+      },
+    );
+  });
+
+  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, {
     dispose: () => {
       watcher?.dispose();
       coalescer?.dispose();
