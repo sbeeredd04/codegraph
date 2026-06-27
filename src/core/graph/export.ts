@@ -9,6 +9,7 @@
 
 import type { GraphNode, GraphEdge, NodeAddress } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
+import { validateDiagram, type Diagram, type DiagramInput } from "../diagrams/diagram.js";
 
 /** Bump when the snapshot shape changes so consumers can refuse what they can't read. */
 export const GRAPH_SNAPSHOT_VERSION = 1 as const;
@@ -25,10 +26,15 @@ export interface GraphSnapshot {
   readonly edges: readonly GraphEdge[];
   /** Agent-written annotations, keyed by node address — present only when non-empty. */
   readonly enrichments?: Readonly<Record<NodeAddress, NodeEnrichment>>;
+  /** Agent-authored knowledge diagrams (Epic 7) — present only when non-empty. The
+   * narrative companion to the structural graph, carried so a snapshot is a
+   * complete, self-contained picture of the repo a viewer can render offline. */
+  readonly diagrams?: readonly Diagram[];
 }
 
 export interface ExportOptions {
   readonly enrichments?: ReadonlyMap<NodeAddress, NodeEnrichment>;
+  readonly diagrams?: readonly Diagram[];
   readonly generatedAt?: string;
   readonly root?: string;
 }
@@ -43,6 +49,7 @@ export function exportGraphSnapshot(
   opts: ExportOptions = {},
 ): GraphSnapshot {
   const enrichments = enrichmentsRecord(opts.enrichments);
+  const diagrams = opts.diagrams && opts.diagrams.length ? [...opts.diagrams] : undefined;
   return {
     version: GRAPH_SNAPSHOT_VERSION,
     ...(opts.generatedAt ? { generatedAt: opts.generatedAt } : {}),
@@ -52,6 +59,7 @@ export function exportGraphSnapshot(
     nodes: [...nodes],
     edges: [...edges],
     ...(enrichments ? { enrichments } : {}),
+    ...(diagrams ? { diagrams } : {}),
   };
 }
 
@@ -96,5 +104,26 @@ export function parseGraphSnapshot(text: string): ParseSnapshotResult {
   if (!Array.isArray(obj.nodes) || !Array.isArray(obj.edges)) {
     return { ok: false, error: "This snapshot is missing its nodes or edges." };
   }
-  return { ok: true, snapshot: obj as unknown as GraphSnapshot };
+  // Diagrams carry agent-written (untrusted) Mermaid; a snapshot file is also
+  // user-supplied. Re-validate each through the same guard the write path uses,
+  // dropping any malformed one rather than failing the whole snapshot.
+  const snapshot = { ...(obj as unknown as GraphSnapshot) };
+  const mutable = snapshot as { diagrams?: readonly Diagram[] };
+  const diagrams = validateSnapshotDiagrams(obj.diagrams);
+  if (diagrams) mutable.diagrams = diagrams;
+  else delete mutable.diagrams;
+  return { ok: true, snapshot };
+}
+
+/** Re-validate the (untrusted) diagrams array from a parsed snapshot, mirroring
+ * parseDiagramSet's tolerance: drop the malformed, keep the valid, undefined when
+ * the array is absent or empties out. */
+function validateSnapshotDiagrams(raw: unknown): readonly Diagram[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const diagrams: Diagram[] = [];
+  for (const entry of raw) {
+    const r = validateDiagram((entry ?? {}) as DiagramInput);
+    if (r.ok) diagrams.push(r.diagram);
+  }
+  return diagrams.length ? diagrams : undefined;
 }

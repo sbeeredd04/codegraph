@@ -285,9 +285,13 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     const active = current;
-    const enrichments = await readEnrichments(active.folderPath, active.graph);
+    const [enrichments, diagramSet] = await Promise.all([
+      readEnrichments(active.folderPath, active.graph),
+      readDiagrams(active.folderPath),
+    ]);
     const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
       enrichments,
+      diagrams: diagramSet.diagrams,
       generatedAt: new Date().toISOString(),
       root: active.folderPath,
     });
@@ -300,8 +304,9 @@ export function activate(context: vscode.ExtensionContext): void {
     try {
       const json = JSON.stringify(snapshot, null, 2);
       await vscode.workspace.fs.writeFile(target, Buffer.from(json, "utf8"));
+      const diagramNote = snapshot.diagrams?.length ? ` · ${snapshot.diagrams.length} diagrams` : "";
       void vscode.window.showInformationMessage(
-        `codegraph: exported ${snapshot.nodeCount} nodes · ${snapshot.edgeCount} edges to ${path.basename(target.fsPath)}.`,
+        `codegraph: exported ${snapshot.nodeCount} nodes · ${snapshot.edgeCount} edges${diagramNote} to ${path.basename(target.fsPath)}.`,
       );
     } catch (err) {
       void vscode.window.showErrorMessage(

@@ -3,6 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Defense-in-depth for the agent-authored (untrusted) Mermaid diagrams this
+       viewer renders. Mermaid's strict mode already strips event handlers, but the
+       sanitized SVG can still contain a passive <img>; without the panel's CSP a
+       diagram could fire an off-host beacon. We restrict only the dangerous sinks
+       (no off-host images, no network, no plugins/base hijack) and deliberately do
+       NOT set an origin-based default-src/script-src, so the viewer still opens by
+       double-clicking the file (file:// has an opaque origin that 'self' won't match). -->
+  <meta http-equiv="Content-Security-Policy"
+        content="img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'" />
   <title>codegraph viewer</title>
   <style>
     :root {
@@ -131,6 +140,74 @@
     .cta:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
     .err { margin-top: 16px; color: hsl(2 75% 72%); font: 500 12px var(--sans); }
     .err[hidden] { display: none; }
+
+    /* Diagrams drawer (Epic 7): the agent-authored Mermaid knowledge diagrams,
+       carried in the snapshot and rendered here offline. Mirrors the panel exactly
+       (same shared diagram-drawer glue). A right slide-over, non-modal so the graph
+       stays interactive. The toggle's active accent (violet) differs from the
+       orphan toggle's ochre so the two overlays never read as the same mode. */
+    .tg.dg.active { color: var(--accent); background: hsl(250 60% 18% / .5);
+      border-color: hsl(250 70% 60% / .45); }
+    .tg.dg.active .n { color: var(--accent); }
+
+    .drawer { position: absolute; top: 48px; right: 0; bottom: 0; width: min(560px, 86vw);
+      z-index: 50; display: flex; flex-direction: column;
+      background: linear-gradient(var(--surface-2), var(--surface));
+      border-left: 1px solid var(--border-2); box-shadow: var(--sh-2);
+      transform: translateX(100%); transition: transform .24s cubic-bezier(.22,.61,.36,1);
+      overscroll-behavior: contain; }
+    .drawer.open { transform: translateX(0); }
+    .drawer.gone { display: none; }            /* fully removed until first opened */
+    @media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+
+    .drawer > header { display: flex; align-items: center; gap: 9px; padding: 13px 15px;
+      border-bottom: 1px solid var(--border); }
+    .drawer > header h3 { margin: 0; font: 600 13px var(--sans); letter-spacing: -.01em; }
+    .drawer > header .count { color: var(--text-3); font: 500 11px var(--mono); }
+    .drawer .close { margin-left: auto; appearance: none; cursor: pointer; line-height: 1;
+      background: transparent; color: var(--text-2); border: 1px solid var(--border);
+      border-radius: 8px; width: 27px; height: 27px; font: 16px var(--sans);
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: color .12s ease, background .12s ease; }
+    .drawer .close:hover { color: var(--text); background: var(--surface-3); }
+    .drawer .close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .dg-index { max-height: 38%; overflow: auto; padding: 6px 8px 10px;
+      border-bottom: 1px solid var(--border); }
+    .dg-group { margin-bottom: 4px; }
+    .dg-cat { display: flex; align-items: center; gap: 8px; margin: 9px 6px 4px;
+      color: var(--text-2); font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+    .dg-cat .dg-n { color: var(--text-3); font: 600 10px var(--mono); }
+    .dg-item { display: block; width: 100%; text-align: left; appearance: none;
+      background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+      color: var(--text); box-shadow: inset 2px 0 0 0 transparent; transition: background .12s ease; }
+    @media (hover: hover) { .dg-item:hover:not(.active) { background: var(--surface-3); } }
+    .dg-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .dg-item.active { background: var(--surface-3); box-shadow: inset 2px 0 0 0 var(--accent); }
+    .dg-title { display: block; font: 500 12px var(--sans); }
+    .dg-desc { display: block; margin-top: 2px; color: var(--text-3); font: 11px/1.45 var(--sans);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .dg-stage { flex: 1; min-height: 0; overflow: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px; }
+    .dg-stage-head { display: flex; align-items: baseline; gap: 9px; }
+    .dg-stage-head h4 { margin: 0; font: 600 14px var(--sans); letter-spacing: -.01em; word-break: break-word; }
+    .dg-stage-head .cat { color: var(--text-3); font: 600 9px var(--sans);
+      text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+    .dg-render { flex: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
+    .dg-render svg { max-width: 100%; height: auto; }
+    .dg-placeholder, .dg-empty { color: var(--text-3); font: 12px/1.6 var(--sans); align-self: center; }
+    .dg-empty { align-self: stretch; }
+    .dg-empty-title { margin: 2px 0 7px; color: var(--text-2); font: 600 13px var(--sans); }
+    .dg-empty-body { margin: 0; max-width: 42ch; }
+    .dg-empty code, .dg-err code { font: 11px var(--mono); color: var(--accent);
+      background: hsl(250 45% 16% / .42); padding: 1px 5px; border-radius: 5px; }
+    .dg-err { color: hsl(2 72% 74%); font: 12px/1.6 var(--sans); align-self: stretch; }
+    .dg-err b { display: block; margin-bottom: 5px; color: hsl(2 72% 78%); font-weight: 600; }
+    .dg-err pre { margin: 8px 0 0; padding: 9px 11px; overflow: auto; border-radius: 8px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
+      font: 11px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+
     @media (max-width: 600px) { .brand small, .legend, .meta { display: none; } }
   </style>
 </head>
@@ -146,6 +223,11 @@
     <button id="orphan-toggle" class="tg" type="button" aria-pressed="false" disabled
       title="Dim everything except dead-code candidates (nodes with no inbound references).">
       <i class="tgdot" aria-hidden="true"></i>Orphans<span class="n" id="orphan-count">0</span>
+    </button>
+    <button id="diagrams-toggle" class="tg dg" type="button" aria-pressed="false"
+      aria-controls="diagrams" aria-expanded="false"
+      title="Agent-authored Mermaid diagrams — the workflows, architecture, and sequences your AI drew from the graph.">
+      <i class="tgdot" aria-hidden="true"></i>Diagrams<span class="n" id="diagrams-count">0</span>
     </button>
     <span class="meta" id="meta"></span>
     <button class="load" id="load" type="button">Load snapshot…</button>
@@ -167,7 +249,19 @@
       <p class="err" id="err" role="alert" hidden></p>
     </div>
   </section>
+  <aside id="diagrams" class="drawer gone" role="region" aria-label="Agent-authored diagrams">
+    <header>
+      <h3>Diagrams</h3><span class="count" id="dg-count">0 diagrams</span>
+      <button class="close" id="dg-close" type="button" aria-label="Close diagrams panel" title="Close (Esc)">&times;</button>
+    </header>
+    <div class="dg-index" id="dg-index"></div>
+    <div class="dg-stage">
+      <div class="dg-stage-head" id="dg-stage-head" hidden></div>
+      <div class="dg-render" id="dg-render"></div>
+    </div>
+  </aside>
   <input type="file" id="file" accept="application/json,.json" hidden />
+  <script src="./mermaid.min.js"></script>
   <script src="./viewer.js"></script>
 </body>
 </html>

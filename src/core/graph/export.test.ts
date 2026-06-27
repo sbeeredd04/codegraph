@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { exportGraphSnapshot, parseGraphSnapshot, GRAPH_SNAPSHOT_VERSION } from "./export.js";
 import type { GraphNode, GraphEdge } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
+import type { Diagram } from "../diagrams/diagram.js";
 
 const node = (address: string, kind: GraphNode["kind"]): GraphNode => ({
   address,
@@ -51,6 +52,19 @@ describe("exportGraphSnapshot", () => {
     expect(exportGraphSnapshot(nodes, edges).enrichments).toBeUndefined();
     expect(exportGraphSnapshot(nodes, edges, { enrichments: new Map() }).enrichments).toBeUndefined();
   });
+
+  it("folds the agent's diagrams into the snapshot so the artifact carries the narrative", () => {
+    const diagrams: Diagram[] = [
+      { id: "workflow/login", title: "Login", category: "workflow", mermaid: "flowchart TD\n A-->B" },
+    ];
+    const snap = exportGraphSnapshot(nodes, edges, { diagrams });
+    expect(snap.diagrams).toEqual(diagrams);
+  });
+
+  it("omits the diagrams key entirely when there are none", () => {
+    expect(exportGraphSnapshot(nodes, edges).diagrams).toBeUndefined();
+    expect(exportGraphSnapshot(nodes, edges, { diagrams: [] }).diagrams).toBeUndefined();
+  });
 });
 
 describe("parseGraphSnapshot", () => {
@@ -91,5 +105,39 @@ describe("parseGraphSnapshot", () => {
   it("accepts a minimal valid snapshot", () => {
     const result = parseGraphSnapshot(JSON.stringify({ version: GRAPH_SNAPSHOT_VERSION, nodes: [], edges: [] }));
     expect(result.ok).toBe(true);
+  });
+
+  it("round-trips the diagrams carried by a snapshot", () => {
+    const diagrams: Diagram[] = [
+      { id: "workflow/login", title: "Login", category: "workflow", mermaid: "flowchart TD\n A-->B" },
+    ];
+    const text = JSON.stringify(exportGraphSnapshot(nodes, edges, { diagrams }));
+    const result = parseGraphSnapshot(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.snapshot.diagrams).toEqual(diagrams);
+  });
+
+  it("re-validates diagrams (untrusted file): drops the malformed, keeps the valid, never fails the snapshot", () => {
+    const raw = {
+      version: GRAPH_SNAPSHOT_VERSION,
+      nodes: [],
+      edges: [],
+      diagrams: [
+        { title: "OK", category: "workflow", mermaid: "flowchart TD\n A-->B" },
+        { title: "", mermaid: "" }, // invalid: no title, no source
+        "not even an object",
+      ],
+    };
+    const result = parseGraphSnapshot(JSON.stringify(raw));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.diagrams).toHaveLength(1);
+      expect(result.snapshot.diagrams?.[0]?.title).toBe("OK");
+    }
+  });
+
+  it("leaves diagrams undefined when a snapshot carries none", () => {
+    const result = parseGraphSnapshot(JSON.stringify(exportGraphSnapshot(nodes, edges)));
+    expect(result.ok && result.snapshot.diagrams).toBeUndefined();
   });
 });

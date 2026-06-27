@@ -16,7 +16,10 @@ import {
 import { projectGraph, type ProjectionKind } from "../src/core/graph/projection.js";
 import { parseGraphSnapshot, type GraphSnapshot } from "../src/core/graph/export.js";
 import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
+import { DIAGRAM_SET_VERSION } from "../src/core/diagrams/diagram.js";
+import { buildDiagramPanel } from "../src/adapters/surfaces/webview/diagram-view.js";
 import { showCard, installLensReducers, createOrphanToggle } from "../webview/graph-view.js";
+import { createDiagramDrawer } from "../webview/diagram-drawer.js";
 
 const container = document.getElementById("app") as HTMLElement;
 const card = document.getElementById("card") as HTMLElement;
@@ -25,6 +28,19 @@ const errEl = document.getElementById("err") as HTMLElement;
 const fileInput = document.getElementById("file") as HTMLInputElement;
 const orphanToggleEl = document.getElementById("orphan-toggle") as HTMLButtonElement;
 const orphanCountEl = document.getElementById("orphan-count") as HTMLElement;
+
+// The agent-authored diagrams ride along in the snapshot (Epic 7.5); the drawer is
+// the same shared glue the panel uses, rendering Mermaid with strict security.
+const diagrams = createDiagramDrawer({
+  toggle: document.getElementById("diagrams-toggle") as HTMLButtonElement,
+  toggleCount: document.getElementById("diagrams-count") as HTMLElement,
+  drawer: document.getElementById("diagrams") as HTMLElement,
+  drawerCount: document.getElementById("dg-count") as HTMLElement,
+  close: document.getElementById("dg-close") as HTMLButtonElement,
+  index: document.getElementById("dg-index") as HTMLElement,
+  stageHead: document.getElementById("dg-stage-head") as HTMLElement,
+  render: document.getElementById("dg-render") as HTMLElement,
+});
 
 let snapshot: GraphSnapshot | undefined;
 let projection: ProjectionKind = "full";
@@ -113,6 +129,8 @@ function loadText(text: string): void {
   metaEl.textContent = `${snapshot.nodeCount} nodes · ${snapshot.edgeCount} edges${when}`;
   document.body.classList.add("loaded");
   card.classList.add("hidden");
+  // Diagrams are projection-independent, so reconcile the drawer once per load.
+  diagrams.update(buildDiagramPanel({ version: DIAGRAM_SET_VERSION, diagrams: snapshot.diagrams ?? [] }));
   rebuild();
 }
 
