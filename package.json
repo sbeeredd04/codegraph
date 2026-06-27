@@ -40,6 +40,10 @@
       {
         "command": "codegraph.exportGraph",
         "title": "codegraph: Export Graph Snapshot (portable JSON)"
+      },
+      {
+        "command": "codegraph.exportReport",
+        "title": "codegraph: Export Architecture Report (Markdown + diagrams)"
       }
     ],
     "configuration": {

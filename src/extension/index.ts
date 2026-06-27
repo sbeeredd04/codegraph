@@ -11,6 +11,7 @@ import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
 import { baselineGraph } from "../adapters/git/baseline.js";
 import { mcpConfigSnippet } from "../adapters/mcp/config.js";
 import { exportGraphSnapshot } from "../core/graph/export.js";
+import { buildMarkdownReport } from "../core/report/report.js";
 import { createNodeAnnotations } from "../core/semantic/annotations.js";
 import { diskEnrichmentCache } from "../adapters/semantic/disk-cache.js";
 import { enrichmentCachePath } from "../adapters/semantic/cache-path.js";
@@ -315,7 +316,47 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, {
+  // Export a shareable Markdown architecture report: the snapshot's structure plus
+  // the agent's annotations and Mermaid diagrams, in one doc that renders natively
+  // on GitHub and in the VS Code preview — the concrete "knowledge bridge" artifact.
+  const exportReport = vscode.commands.registerCommand("codegraph.exportReport", async () => {
+    if (!current) {
+      void vscode.window.showWarningMessage("codegraph: open the workspace graph first.");
+      return;
+    }
+    const active = current;
+    const [enrichments, diagramSet] = await Promise.all([
+      readEnrichments(active.folderPath, active.graph),
+      readDiagrams(active.folderPath),
+    ]);
+    const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
+      enrichments,
+      diagrams: diagramSet.diagrams,
+      generatedAt: new Date().toISOString(),
+      root: active.folderPath,
+    });
+    const markdown = buildMarkdownReport(snapshot);
+    const target = await vscode.window.showSaveDialog({
+      title: "codegraph: export architecture report",
+      defaultUri: vscode.Uri.joinPath(vscode.Uri.file(active.folderPath), "ARCHITECTURE.md"),
+      filters: { Markdown: ["md"] },
+    });
+    if (!target) return; // cancelled
+    try {
+      await vscode.workspace.fs.writeFile(target, Buffer.from(markdown, "utf8"));
+      const diagramNote = snapshot.diagrams?.length ? ` · ${snapshot.diagrams.length} diagrams` : "";
+      const annotationNote = enrichments?.size ? ` · ${enrichments.size} annotations` : "";
+      void vscode.window.showInformationMessage(
+        `codegraph: wrote architecture report (${snapshot.nodeCount} nodes${diagramNote}${annotationNote}) to ${path.basename(target.fsPath)}.`,
+      );
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        err instanceof Error ? err.message : "codegraph: could not write the report.",
+      );
+    }
+  });
+
+  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, exportReport, {
     dispose: () => {
       watcher?.dispose();
       coalescer?.dispose();
