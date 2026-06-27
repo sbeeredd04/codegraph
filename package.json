@@ -34,7 +34,9 @@
     "bench": "tsx bench/benchmark.ts"
   },
   "dependencies": {
-    "@vscode/tree-sitter-wasm": "^0.3.1"
+    "@vscode/tree-sitter-wasm": "^0.3.1",
+    "graphology": "^0.26.0",
+    "sigma": "^3.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

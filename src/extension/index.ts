@@ -1,16 +1,35 @@
 import * as vscode from "vscode";
-import { CodeGraph } from "../core/graph/graph.js";
+import * as path from "node:path";
+import { createRequire } from "node:module";
+import type { LanguageAdapter } from "../core/ports.js";
+import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
+import { buildRenderModel } from "../adapters/surfaces/webview/render-model.js";
+import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
-// Extension host = composition root. It wires adapters to the pure core (AD-1).
-// The core never imports vscode; this file may.
+// Extension host = composition root (AD-1). It wires adapters to the pure core;
+// the core never imports vscode.
+
+const require = createRequire(__filename);
+
+function wasmDir(): string {
+  return path.dirname(require.resolve("@vscode/tree-sitter-wasm"));
+}
 
 export function activate(context: vscode.ExtensionContext): void {
-  const open = vscode.commands.registerCommand("codegraph.open", () => {
-    // Placeholder until the webview surface (Story 1.4). Prove the core is reachable.
-    const graph = new CodeGraph();
-    vscode.window.showInformationMessage(
-      `codegraph: graph ready (${graph.order} nodes). Panel coming in Story 1.4.`,
-    );
+  let adapter: Promise<LanguageAdapter> | undefined;
+
+  const open = vscode.commands.registerCommand("codegraph.open", async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !/typescript|javascript/.test(editor.document.languageId)) {
+      void vscode.window.showWarningMessage("codegraph: open a TypeScript/JavaScript file, then run the command.");
+      return;
+    }
+    adapter ??= createTypeScriptAdapter(wasmDir());
+    const ts = await adapter;
+    const doc = editor.document;
+    const rel = vscode.workspace.asRelativePath(doc.uri);
+    const { nodes, edges } = ts.parseFile(rel, doc.getText());
+    GraphPanel.show(context, buildRenderModel(nodes, edges));
   });
 
   context.subscriptions.push(open);

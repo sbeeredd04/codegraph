@@ -2,25 +2,40 @@ const esbuild = require("esbuild");
 
 const watch = process.argv.includes("--watch");
 
-/** Bundle the extension host entry. `vscode` is provided by the host, never bundled. */
-async function main() {
-  const ctx = await esbuild.context({
+/** Two bundles: the extension host (node) and the webview client (browser). */
+const builds = [
+  {
     entryPoints: ["src/extension/index.ts"],
     bundle: true,
     format: "cjs",
     platform: "node",
     target: "node20",
     outfile: "dist/extension.js",
-    external: ["vscode"],
+    // vscode is provided by the host; tree-sitter-wasm stays external so its
+    // runtime `require.resolve` finds the wasm assets in node_modules.
+    external: ["vscode", "@vscode/tree-sitter-wasm"],
     sourcemap: true,
     logLevel: "info",
-  });
+  },
+  {
+    entryPoints: ["webview/main.ts"],
+    bundle: true,
+    format: "iife",
+    platform: "browser",
+    target: "es2022",
+    outfile: "media/webview.js",
+    sourcemap: true,
+    logLevel: "info",
+  },
+];
 
+async function main() {
+  const contexts = await Promise.all(builds.map((b) => esbuild.context(b)));
   if (watch) {
-    await ctx.watch();
+    await Promise.all(contexts.map((c) => c.watch()));
   } else {
-    await ctx.rebuild();
-    await ctx.dispose();
+    await Promise.all(contexts.map((c) => c.rebuild()));
+    await Promise.all(contexts.map((c) => c.dispose()));
   }
 }
 
