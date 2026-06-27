@@ -52,7 +52,11 @@ export function findSourceFiles(
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) {
-      if (!skip.has(entry.name)) findSourceFiles(full, skip, ts, py, acc);
+      // Skip hidden dot-directories (.git, .claude, .bmad, .venv …): they hold
+      // tooling, not the user's source, and scanning them pollutes the graph and
+      // stalls the Python pass on unrelated scripts.
+      if (entry.name.startsWith(".") || skip.has(entry.name)) continue;
+      findSourceFiles(full, skip, ts, py, acc);
     } else if (isSourceFile(entry.name, ts, py)) {
       acc.push(full);
     }

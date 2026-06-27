@@ -17,6 +17,11 @@ beforeAll(() => {
   fs.writeFileSync(path.join(dir, "calc.py"), "class Calc:\n    def add(self, x):\n        return x\n");
   fs.mkdirSync(path.join(dir, "node_modules", "junk"), { recursive: true });
   fs.writeFileSync(path.join(dir, "node_modules", "junk", "skip.ts"), "export const skip = 1;\n");
+  // Hidden tooling dirs (e.g. .claude, .bmad) must not pollute the graph or
+  // stall Pyright on unrelated scripts — the source walk skips dot-directories.
+  fs.mkdirSync(path.join(dir, ".tooling", "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".tooling", "scripts", "gen.ts"), "export const gen = 1;\n");
+  fs.writeFileSync(path.join(dir, ".tooling", "scripts", "tool.py"), "def t():\n    return 1\n");
 });
 
 afterAll(() => {
@@ -41,6 +46,13 @@ describe("bootstrapRepo (polyglot integration)", () => {
     const { graph } = await bootstrapRepo(dir, wasmDir);
     expect(graph.getNode("py:calc.py#Calc")?.kind).toBe("class");
     expect(graph.getNode("py:calc.py#Calc.add")?.kind).toBe("method");
+  });
+
+  it("skips hidden dot-directories so tooling (.claude, .bmad) never enters the graph", async () => {
+    const { coverage, graph } = await bootstrapRepo(dir, wasmDir);
+    expect(coverage.found).toBe(3); // .tooling/gen.ts and .tooling/tool.py are excluded
+    expect(graph.getNode("ts:.tooling/scripts/gen.ts")).toBeUndefined();
+    expect(graph.getNode("py:.tooling/scripts/tool.py#t")).toBeUndefined();
   });
 
   it("respects the languages option (python disabled skips .py)", async () => {
