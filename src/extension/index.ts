@@ -10,6 +10,7 @@ import { rankedChangeFeed } from "../core/graph/change-feed.js";
 import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
 import { baselineGraph } from "../adapters/git/baseline.js";
 import { mcpConfigSnippet } from "../adapters/mcp/config.js";
+import { exportGraphSnapshot } from "../core/graph/export.js";
 import { createNodeAnnotations } from "../core/semantic/annotations.js";
 import { diskEnrichmentCache } from "../adapters/semantic/disk-cache.js";
 import { enrichmentCachePath } from "../adapters/semantic/cache-path.js";
@@ -257,7 +258,41 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, {
+  // Export a portable JSON snapshot of the graph (Epic 6 foundation): the data
+  // contract the standalone web viewer consumes, and a shareable artifact on its
+  // own. Writes a new file the user picks — never touches source code (FR-9).
+  const exportGraph = vscode.commands.registerCommand("codegraph.exportGraph", async () => {
+    if (!current) {
+      void vscode.window.showWarningMessage("codegraph: open the workspace graph first.");
+      return;
+    }
+    const active = current;
+    const enrichments = await readEnrichments(active.folderPath, active.graph);
+    const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
+      enrichments,
+      generatedAt: new Date().toISOString(),
+      root: active.folderPath,
+    });
+    const target = await vscode.window.showSaveDialog({
+      title: "codegraph: export graph snapshot",
+      defaultUri: vscode.Uri.joinPath(vscode.Uri.file(active.folderPath), "codegraph-graph.json"),
+      filters: { JSON: ["json"] },
+    });
+    if (!target) return; // cancelled
+    try {
+      const json = JSON.stringify(snapshot, null, 2);
+      await vscode.workspace.fs.writeFile(target, Buffer.from(json, "utf8"));
+      void vscode.window.showInformationMessage(
+        `codegraph: exported ${snapshot.nodeCount} nodes · ${snapshot.edgeCount} edges to ${path.basename(target.fsPath)}.`,
+      );
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        err instanceof Error ? err.message : "codegraph: could not write the export.",
+      );
+    }
+  });
+
+  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, {
     dispose: () => {
       watcher?.dispose();
       coalescer?.dispose();

@@ -36,6 +36,10 @@
       {
         "command": "codegraph.copyMcpConfig",
         "title": "codegraph: Copy MCP Config (connect your AI agent)"
+      },
+      {
+        "command": "codegraph.exportGraph",
+        "title": "codegraph: Export Graph Snapshot (portable JSON)"
       }
     ],
     "configuration": {
