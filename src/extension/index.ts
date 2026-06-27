@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { createRequire } from "node:module";
 import type { LanguageAdapter } from "../core/ports.js";
 import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
-import { bootstrapTypeScriptRepo } from "../adapters/lang/typescript/bootstrap.js";
+import { bootstrapRepo } from "../adapters/lang/bootstrap.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
 // Extension host = composition root (AD-1). It wires adapters to the pure core;
@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: "codegraph: bootstrapping graph…" },
       async () => {
-        const { graph, coverage } = await bootstrapTypeScriptRepo(folder.uri.fsPath, wasmDir());
+        const { graph, coverage } = await bootstrapRepo(folder.uri.fsPath, wasmDir());
         GraphPanel.show(context, graph.allNodes(), graph.allEdges());
         void vscode.window.showInformationMessage(
           `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`,

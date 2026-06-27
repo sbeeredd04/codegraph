@@ -8,11 +8,11 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 import { summarizeGraph } from "../src/core/graph/summary.js";
-import { bootstrapTypeScriptRepo } from "../src/adapters/lang/typescript/bootstrap.js";
+import { bootstrapRepo } from "../src/adapters/lang/bootstrap.js";
 
 async function benchmark(target: string, wasmDir: string): Promise<void> {
   const t0 = performance.now();
-  const { graph, coverage } = await bootstrapTypeScriptRepo(target, wasmDir);
+  const { graph, coverage } = await bootstrapRepo(target, wasmDir);
   const ms = Math.round(performance.now() - t0);
 
   const s = summarizeGraph(graph);
