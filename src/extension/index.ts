@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import type { LanguageAdapter } from "../core/ports.js";
 import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
 import { bootstrapTypeScriptRepo } from "../adapters/lang/typescript/bootstrap.js";
-import { buildRenderModel } from "../adapters/surfaces/webview/render-model.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
 // Extension host = composition root (AD-1). It wires adapters to the pure core;
@@ -30,7 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const doc = editor.document;
     const rel = vscode.workspace.asRelativePath(doc.uri);
     const { nodes, edges } = ts.parseFile(rel, doc.getText());
-    GraphPanel.show(context, buildRenderModel(nodes, edges));
+    GraphPanel.show(context, nodes, edges);
   });
 
   const openWorkspace = vscode.commands.registerCommand("codegraph.openWorkspace", async () => {
@@ -43,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
       { location: vscode.ProgressLocation.Notification, title: "codegraph: bootstrapping graph…" },
       async () => {
         const { graph, coverage } = await bootstrapTypeScriptRepo(folder.uri.fsPath, wasmDir());
-        GraphPanel.show(context, buildRenderModel(graph.allNodes(), graph.allEdges()));
+        GraphPanel.show(context, graph.allNodes(), graph.allEdges());
         void vscode.window.showInformationMessage(
           `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`,
         );
