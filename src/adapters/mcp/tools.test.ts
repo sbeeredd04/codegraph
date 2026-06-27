@@ -5,6 +5,12 @@ import { createGraphMcpServer } from "./server.js";
 import { createNodeAnnotations } from "../../core/semantic/annotations.js";
 import type { EnrichmentCache, NodeEnrichment } from "../../core/semantic/enrichment.js";
 import type { GraphNode, GraphEdge } from "../../core/graph/types.js";
+import {
+  emptyDiagramSet,
+  upsertDiagram,
+  removeDiagram,
+  type DiagramStore,
+} from "../../core/diagrams/diagram.js";
 
 const node = (address: string, kind: GraphNode["kind"], name?: string): GraphNode => ({
   address,
@@ -170,5 +176,70 @@ describe("MCP annotate_node tool (agent-driven enrichment)", () => {
   it("describe_node omits enrichment when none was stored", async () => {
     const d = await annTools(fixture()).get("describe_node")!.handler({ address: "ts:m.ts#foo" });
     expect(parse(d.content[0].text).enrichment).toBeUndefined();
+  });
+});
+
+describe("MCP diagram tools (agent-authored knowledge diagrams)", () => {
+  const memStore = (): DiagramStore => {
+    let set = emptyDiagramSet();
+    return {
+      all: () => Promise.resolve(set),
+      save: (d) => {
+        set = upsertDiagram(set, d);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        const had = set.diagrams.some((x) => x.id === id);
+        set = removeDiagram(set, id);
+        return Promise.resolve(had);
+      },
+    };
+  };
+  const dgTools = (g: CodeGraph, store: DiagramStore) =>
+    new Map(graphTools(() => g, undefined, undefined, store).map((t) => [t.name, t]));
+
+  it("appears only when a diagram store is injected", () => {
+    expect([...toolMap(fixture()).keys()]).not.toContain("save_diagram");
+    const names = [...dgTools(fixture(), memStore()).keys()];
+    expect(names).toEqual(expect.arrayContaining(["save_diagram", "list_diagrams", "delete_diagram"]));
+  });
+
+  it("save_diagram validates, stores, and returns the computed id", async () => {
+    const store = memStore();
+    const tools = dgTools(fixture(), store);
+    const r = await tools.get("save_diagram")!.handler({
+      title: "Login flow",
+      category: "Workflow",
+      mermaid: "```mermaid\nflowchart TD\n A-->B\n```",
+    });
+    expect(parse(r.content[0].text).saved).toBe("workflow/login-flow");
+    const set = await store.all();
+    expect(set.diagrams[0].mermaid).toBe("flowchart TD\n A-->B"); // fence stripped
+  });
+
+  it("list_diagrams returns what save_diagram stored", async () => {
+    const store = memStore();
+    const tools = dgTools(fixture(), store);
+    await tools.get("save_diagram")!.handler({ title: "Arch", category: "architecture", mermaid: "graph LR\nA-->B" });
+    const r = await tools.get("list_diagrams")!.handler({});
+    expect(parse(r.content[0].text).diagrams).toHaveLength(1);
+  });
+
+  it("save_diagram errors cleanly on invalid input (empty mermaid)", async () => {
+    const r = await dgTools(fixture(), memStore())
+      .get("save_diagram")!
+      .handler({ title: "X", category: "workflow", mermaid: "   " });
+    expect(r.isError).toBe(true);
+  });
+
+  it("delete_diagram removes a saved diagram and errors on an unknown id", async () => {
+    const store = memStore();
+    const tools = dgTools(fixture(), store);
+    await tools.get("save_diagram")!.handler({ title: "Login flow", category: "workflow", mermaid: "graph LR\nA-->B" });
+    const ok = await tools.get("delete_diagram")!.handler({ id: "workflow/login-flow" });
+    expect(parse(ok.content[0].text).deleted).toBe("workflow/login-flow");
+    expect((await store.all()).diagrams).toHaveLength(0);
+    const miss = await tools.get("delete_diagram")!.handler({ id: "workflow/login-flow" });
+    expect(miss.isError).toBe(true);
   });
 });

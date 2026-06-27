@@ -8,6 +8,8 @@ import { rankedChangeFeed } from "../../core/graph/change-feed.js";
 import { createNodeAnnotations } from "../../core/semantic/annotations.js";
 import { diskEnrichmentCache } from "../semantic/disk-cache.js";
 import { enrichmentCachePath } from "../semantic/cache-path.js";
+import { diskDiagramStore } from "../diagrams/disk-store.js";
+import { diagramsCachePath } from "../diagrams/cache-path.js";
 import { createGraphMcpServer } from "./server.js";
 import type { RecentChanges } from "./tools.js";
 import type { CodeGraph } from "../../core/graph/graph.js";
@@ -59,7 +61,13 @@ async function main(): Promise<void> {
     diskEnrichmentCache(enrichmentCachePath(root)),
   );
 
-  const server = createGraphMcpServer(() => current, recentChanges, annotations);
+  // Agent-authored knowledge diagrams (Epic 7): the connected agent explores the
+  // graph and saves categorized Mermaid diagrams via save_diagram; we persist them
+  // at a per-repo path shared with the extension board (diagramsCachePath) so what
+  // the agent draws, the human sees. Metadata only — never touches source (FR-9).
+  const diagrams = diskDiagramStore(diagramsCachePath(root));
+
+  const server = createGraphMcpServer(() => current, recentChanges, annotations, diagrams);
   await server.connect(new StdioServerTransport());
   process.stderr.write(
     `codegraph MCP ready on ${root} — ${coverage.parsed}/${coverage.found} files, ` +

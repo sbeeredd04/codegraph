@@ -5,6 +5,11 @@ import type { RankedChange } from "../../core/graph/change-feed.js";
 import type { NodeAnnotations } from "../../core/semantic/annotations.js";
 import type { NodeEnrichment } from "../../core/semantic/enrichment.js";
 import {
+  validateDiagram,
+  KNOWN_DIAGRAM_CATEGORIES,
+  type DiagramStore,
+} from "../../core/diagrams/diagram.js";
+import {
   findNodes,
   describeNode,
   blastRadius,
@@ -74,6 +79,7 @@ export function graphTools(
   getGraph: () => CodeGraph,
   recentChanges?: RecentChangesProvider,
   annotations?: NodeAnnotations,
+  diagrams?: DiagramStore,
 ): GraphTool[] {
   const tools: GraphTool[] = [
     {
@@ -215,6 +221,79 @@ export function graphTools(
           : fail(`codegraph: no node at address "${address}".`);
       },
     });
+  }
+
+  if (diagrams) {
+    tools.push(
+      {
+        name: "save_diagram",
+        title: "Save diagram",
+        description:
+          "Save a Mermaid diagram you synthesized from the graph onto the repo's knowledge layer. " +
+          "Explore first (find_nodes, neighborhood, dependencies, blast_radius, graph_stats), then " +
+          "capture a higher-level view the structure graph can't show on its own: a user workflow end " +
+          "to end, the system architecture, a request's sequence, a data flow. Prefer SEVERAL focused " +
+          "diagrams over one giant one, each categorized — you choose the categories (suggested: " +
+          `${KNOWN_DIAGRAM_CATEGORIES.join(", ")}). Re-saving the same title+category updates that ` +
+          "diagram in place. The human board and the standalone viewer render these. Writes graph " +
+          "metadata only; it never touches source files.",
+        inputSchema: {
+          title: z.string().min(1).describe("Short, specific title, e.g. 'Login request sequence'."),
+          category: z
+            .string()
+            .min(1)
+            .describe(`Category — you decide (suggested: ${KNOWN_DIAGRAM_CATEGORIES.join(", ")}).`),
+          mermaid: z
+            .string()
+            .min(1)
+            .describe("Mermaid source (fenced or raw), e.g. a flowchart, sequenceDiagram, or classDiagram."),
+          description: z.string().optional().describe("One or two lines on what this diagram shows."),
+          related: z
+            .array(z.string())
+            .optional()
+            .describe("Graph node addresses this diagram is about, to link it back to the graph."),
+        },
+        handler: async (args) => {
+          const result = validateDiagram({
+            title: args.title,
+            category: args.category,
+            mermaid: args.mermaid,
+            description: args.description,
+            related: args.related,
+            updatedAt: new Date().toISOString(),
+          });
+          if (!result.ok) return fail(`codegraph: ${result.error}`);
+          await diagrams.save(result.diagram);
+          return ok({
+            saved: result.diagram.id,
+            title: result.diagram.title,
+            category: result.diagram.category,
+          });
+        },
+      },
+      {
+        name: "list_diagrams",
+        title: "List diagrams",
+        description:
+          "List the Mermaid diagrams already saved for this repo (id, title, category, description, and " +
+          "source). Review these before adding more so you refine and fill gaps rather than duplicate.",
+        inputSchema: {},
+        handler: async () => ok(await diagrams.all()),
+      },
+      {
+        name: "delete_diagram",
+        title: "Delete diagram",
+        description: "Delete a saved diagram by its id (as returned by save_diagram or list_diagrams).",
+        inputSchema: {
+          id: z.string().min(1).describe("The diagram id, e.g. 'workflow/login-flow'."),
+        },
+        handler: async (args) => {
+          const id = String(args.id);
+          const removed = await diagrams.remove(id);
+          return removed ? ok({ deleted: id }) : fail(`codegraph: no diagram with id "${id}".`);
+        },
+      },
+    );
   }
 
   return tools;
