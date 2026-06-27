@@ -12,9 +12,20 @@ function toRel(rootDir: string, filePath: string): string {
 }
 
 /**
+ * A repo-relative path is first-party when it lives inside the root and isn't a
+ * dependency or a declaration file. Edges to external packages (node_modules) and
+ * `.d.ts` files are noise — and, worse, unstable: a baseline worktree resolves
+ * them to a different absolute path than the working tree, so they read as
+ * phantom changes. The graph stays first-party only.
+ */
+function isFirstParty(rel: string): boolean {
+  return !rel.startsWith("..") && !rel.includes("node_modules") && !rel.endsWith(".d.ts");
+}
+
+/**
  * Resolve module-level dependency edges for every source file in the project.
- * Imports that don't resolve to an in-project file (external packages, missing
- * modules) are skipped — only real intra-project dependencies become edges.
+ * Imports that don't resolve to a first-party file (external packages, missing
+ * modules, .d.ts) are skipped — only real intra-project dependencies become edges.
  */
 export function resolveImportEdges(project: Project, rootDir: string): GraphEdge[] {
   const edges: GraphEdge[] = [];
@@ -23,7 +34,9 @@ export function resolveImportEdges(project: Project, rootDir: string): GraphEdge
     for (const decl of sourceFile.getImportDeclarations()) {
       const target = decl.getModuleSpecifierSourceFile();
       if (!target) continue;
-      const to = `ts:${toRel(rootDir, target.getFilePath())}`;
+      const rel = toRel(rootDir, target.getFilePath());
+      if (!isFirstParty(rel)) continue;
+      const to = `ts:${rel}`;
       if (from !== to) edges.push({ from, to, type: "depends-on" });
     }
   }
@@ -35,7 +48,7 @@ export function resolveImportEdges(project: Project, rootDir: string): GraphEdge
 function declarationAddress(node: Node | undefined, rootDir: string): string | undefined {
   if (!node) return undefined;
   const rel = toRel(rootDir, node.getSourceFile().getFilePath());
-  if (rel.startsWith("..") || rel.includes("node_modules") || rel.endsWith(".d.ts")) return undefined;
+  if (!isFirstParty(rel)) return undefined;
   if (Node.isFunctionDeclaration(node)) {
     const name = node.getName();
     return name ? `ts:${rel}#${name}` : undefined;

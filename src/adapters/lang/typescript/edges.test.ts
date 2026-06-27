@@ -41,6 +41,14 @@ describe("resolveImportEdges", () => {
   it("emits nothing for a file with no imports", () => {
     expect(resolveImportEdges(projectWith({ "solo.ts": `export const x = 1;` }), "/")).toEqual([]);
   });
+
+  it("skips imports that resolve to a .d.ts / node_modules file (first-party graph only)", () => {
+    const project = projectWith({
+      "vendor.d.ts": `export declare const v: number;`,
+      "a.ts": `import { v } from "./vendor";\nexport const a = v;`,
+    });
+    expect(resolveImportEdges(project, "/")).toEqual([]);
+  });
 });
 
 describe("resolveCallEdges", () => {
