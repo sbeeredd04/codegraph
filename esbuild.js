@@ -66,8 +66,22 @@ function copyViewerHtml() {
   fs.copyFileSync(path.join(__dirname, "web", "viewer.html"), path.join(out, "viewer.html"));
 }
 
+// Vendor Mermaid for the agent-authored diagrams (Epic 7). We ship the prebuilt,
+// fully self-contained global build (mermaid.min.js — already esbuild-bundled by
+// the package, with zero runtime dynamic import()s) and load it via a <script>
+// tag rather than bundling it into our IIFEs, which would re-introduce the very
+// dynamic imports the webview CSP forbids. It exposes window.__esbuild_esm_mermaid_nm.mermaid.
+function copyMermaid() {
+  const src = path.join(__dirname, "node_modules", "mermaid", "dist", "mermaid.min.js");
+  for (const dir of [path.join(__dirname, "media"), path.join(__dirname, "dist", "web")]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(src, path.join(dir, "mermaid.min.js"));
+  }
+}
+
 async function main() {
   copyViewerHtml();
+  copyMermaid();
   const contexts = await Promise.all(builds.map((b) => esbuild.context(b)));
   if (watch) {
     await Promise.all(contexts.map((c) => c.watch()));

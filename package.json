@@ -57,7 +57,9 @@
         },
         "codegraph.exclude": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Extra directory names to skip when scanning the workspace (in addition to node_modules, .git, dist, .venv, etc.)."
         },
@@ -87,6 +89,7 @@
     "@vscode/tree-sitter-wasm": "^0.3.1",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
+    "mermaid": "^11.16.0",
     "pyright": "^1.1.411",
     "sigma": "^3.0.3",
     "ts-morph": "^28.0.0",

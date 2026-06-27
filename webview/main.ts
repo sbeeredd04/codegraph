@@ -11,6 +11,7 @@ import {
   createOrphanToggle,
   animateNodeEntrance,
 } from "./graph-view.js";
+import { createDiagramDrawer } from "./diagram-drawer.js";
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
@@ -19,6 +20,19 @@ const badge = document.getElementById("badge") as HTMLElement;
 const feedEl = document.getElementById("feed") as HTMLElement;
 const orphanToggleEl = document.getElementById("orphan-toggle") as HTMLButtonElement;
 const orphanCountEl = document.getElementById("orphan-count") as HTMLElement;
+
+// Agent-authored Mermaid diagrams drawer (Epic 7): wired once, fed the diagram
+// panel model on every host repaint.
+const diagrams = createDiagramDrawer({
+  toggle: document.getElementById("diagrams-toggle") as HTMLButtonElement,
+  toggleCount: document.getElementById("diagrams-count") as HTMLElement,
+  drawer: document.getElementById("diagrams") as HTMLElement,
+  drawerCount: document.getElementById("dg-count") as HTMLElement,
+  close: document.getElementById("dg-close") as HTMLButtonElement,
+  index: document.getElementById("dg-index") as HTMLElement,
+  stageHead: document.getElementById("dg-stage-head") as HTMLElement,
+  render: document.getElementById("dg-render") as HTMLElement,
+});
 const CHANGE_COLORS: Record<RankedChange["change"], string> = {
   added: "#3fb950",
   changed: "#e3b341",
@@ -171,7 +185,10 @@ function render(model: RenderModel): void {
 
 window.addEventListener("message", (event: MessageEvent) => {
   const msg = event.data as RenderMessage | undefined;
-  if (msg?.type === "render") render(msg.payload);
+  if (msg?.type === "render") {
+    render(msg.payload);
+    if (msg.diagrams) diagrams.update(msg.diagrams);
+  }
 });
 
 // Projection toolbar: switch the view of the one model (FR-4).

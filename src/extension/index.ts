@@ -14,6 +14,9 @@ import { exportGraphSnapshot } from "../core/graph/export.js";
 import { createNodeAnnotations } from "../core/semantic/annotations.js";
 import { diskEnrichmentCache } from "../adapters/semantic/disk-cache.js";
 import { enrichmentCachePath } from "../adapters/semantic/cache-path.js";
+import { diskDiagramStore } from "../adapters/diagrams/disk-store.js";
+import { diagramsCachePath } from "../adapters/diagrams/cache-path.js";
+import { emptyDiagramSet, type DiagramSet } from "../core/diagrams/diagram.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import type { GraphDelta } from "../core/graph/types.js";
 import type { RankedChange } from "../core/graph/change-feed.js";
@@ -59,7 +62,19 @@ async function readEnrichments(folderPath: string, graph: CodeGraph): Promise<Ma
   return map;
 }
 
-// Repaint the board for a workspace graph, folding in the agent's annotations.
+// The agent's Mermaid diagrams live in a per-repo cache the MCP server writes via
+// save_diagram (Epic 7). Read them back so the board's Diagrams drawer can render
+// them. Returns an empty set immediately when no cache exists yet; the disk store
+// degrades to empty on a corrupt/unreadable file, so the board never breaks on
+// bad input. Read-only — the board renders diagrams, never edits source (FR-9).
+async function readDiagrams(folderPath: string): Promise<DiagramSet> {
+  const cachePath = diagramsCachePath(folderPath);
+  if (!fs.existsSync(cachePath)) return emptyDiagramSet();
+  return diskDiagramStore(cachePath).all();
+}
+
+// Repaint the board for a workspace graph, folding in the agent's annotations and
+// any Mermaid diagrams the agent has authored.
 async function showGraph(
   context: vscode.ExtensionContext,
   folderPath: string,
@@ -67,8 +82,11 @@ async function showGraph(
   delta?: GraphDelta,
   feed?: readonly RankedChange[],
 ): Promise<void> {
-  const enrichments = await readEnrichments(folderPath, graph);
-  GraphPanel.show(context, graph.allNodes(), graph.allEdges(), delta, feed, enrichments);
+  const [enrichments, diagrams] = await Promise.all([
+    readEnrichments(folderPath, graph),
+    readDiagrams(folderPath),
+  ]);
+  GraphPanel.show(context, graph.allNodes(), graph.allEdges(), delta, feed, enrichments, diagrams);
 }
 
 export function activate(context: vscode.ExtensionContext): void {

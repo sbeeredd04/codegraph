@@ -1,6 +1,7 @@
 import type { GraphNode, GraphEdge, NodeKind, EdgeType, GraphDelta } from "../../../core/graph/types.js";
 import type { RankedChange } from "../../../core/graph/change-feed.js";
 import type { NodeEnrichment } from "../../../core/semantic/enrichment.js";
+import type { DiagramPanelModel } from "./diagram-view.js";
 
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
 // A restrained, legible palette — modules anchor, leaves recede.
@@ -101,11 +102,14 @@ export interface RenderModel {
   readonly orphanCount: number;
 }
 
-/** Versioned host->webview message (spine: host<->webview envelope). */
+/** Versioned host->webview message (spine: host<->webview envelope). The diagram
+ * panel rides alongside the graph payload (it is projection-independent, so it is
+ * not part of RenderModel) — an optional field older webviews simply ignore. */
 export interface RenderMessage {
   readonly type: "render";
   readonly version: 1;
   readonly payload: RenderModel;
+  readonly diagrams?: DiagramPanelModel;
 }
 
 /**
