@@ -28,6 +28,20 @@ const builds = [
     sourcemap: true,
     logLevel: "info",
   },
+  {
+    // Standalone MCP server (FR-13): `node dist/mcp-server.js <repoRoot>`.
+    // Same native externals as the extension; the @modelcontextprotocol SDK and
+    // zod are bundled in.
+    entryPoints: ["src/adapters/mcp/index.ts"],
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    target: "node20",
+    outfile: "dist/mcp-server.js",
+    external: ["@vscode/tree-sitter-wasm", "ts-morph", "pyright", "vscode-jsonrpc"],
+    sourcemap: true,
+    logLevel: "info",
+  },
 ];
 
 async function main() {

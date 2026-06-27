@@ -1,5 +1,6 @@
 import type { CodeGraph } from "./graph.js";
 import type { GraphDelta, GraphNode, NodeAddress, NodeKind } from "./types.js";
+import { reverseAdjacency, transitiveClosure, DEPENDENCY_EDGES } from "./reachability.js";
 
 // Ranked change feed (FR-7 triage): turn a GraphDelta into a list of changes
 // ordered by blast radius — how many nodes transitively depend on the changed
@@ -23,43 +24,19 @@ export interface RankedChange {
 const SEVERITY: Record<ChangeType, number> = { removed: 3, changed: 2, moved: 1, added: 0 };
 const MAX_DEPENDENTS = 25;
 
-/** to -> [from...]: who points at a node, for reverse-reachability. */
-function reverseAdjacency(graph: CodeGraph): Map<NodeAddress, NodeAddress[]> {
-  const rev = new Map<NodeAddress, NodeAddress[]>();
-  for (const e of graph.allEdges()) {
-    const list = rev.get(e.to);
-    if (list) list.push(e.from);
-    else rev.set(e.to, [e.from]);
-  }
-  return rev;
-}
-
-/** Every node that can reach `start` by following edges backwards (its transitive dependents). */
-function transitiveDependents(start: NodeAddress, rev: Map<NodeAddress, NodeAddress[]>): NodeAddress[] {
-  const seen = new Set<NodeAddress>();
-  const stack = [...(rev.get(start) ?? [])];
-  while (stack.length > 0) {
-    const cur = stack.pop() as NodeAddress;
-    if (cur === start || seen.has(cur)) continue;
-    seen.add(cur);
-    for (const p of rev.get(cur) ?? []) if (!seen.has(p)) stack.push(p);
-  }
-  return [...seen];
-}
-
 /**
  * Rank a delta's changes by blast radius. Added/changed/moved nodes live in the
  * `after` graph; removed nodes are scored against `before` (where their
  * dependents still existed). Ties break by severity, then address (deterministic).
  */
 export function rankedChangeFeed(delta: GraphDelta, before: CodeGraph, after: CodeGraph): RankedChange[] {
-  const revBefore = reverseAdjacency(before);
-  const revAfter = reverseAdjacency(after);
+  const revBefore = reverseAdjacency(before, DEPENDENCY_EDGES);
+  const revAfter = reverseAdjacency(after, DEPENDENCY_EDGES);
 
   const score = (address: NodeAddress, change: ChangeType): RankedChange => {
     const graph = change === "removed" ? before : after;
     const rev = change === "removed" ? revBefore : revAfter;
-    const dependents = transitiveDependents(address, rev);
+    const dependents = transitiveClosure(address, rev);
     const meta = graph.getNode(address);
     return {
       address,
