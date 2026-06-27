@@ -83,6 +83,13 @@ describe("buildRenderModel", () => {
     expect(model.nodes.find((n) => n.id === "ts:a.ts#A")?.orphan).toBeUndefined();
     expect(model.nodes.find((n) => n.id === "ts:a.ts#A.m")?.orphan).toBeUndefined();
   });
+
+  it("reports orphanCount matching the number of flagged nodes", () => {
+    expect(buildRenderModel(nodes, edges).orphanCount).toBe(0);
+    const orphans = new Set(["ts:a.ts", "ts:a.ts#A.m"]);
+    const model = buildRenderModel(nodes, edges, undefined, undefined, undefined, undefined, orphans);
+    expect(model.orphanCount).toBe(2);
+  });
 });
 
 describe("findOrphanAddresses", () => {

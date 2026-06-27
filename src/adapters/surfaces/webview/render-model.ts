@@ -97,6 +97,8 @@ export interface RenderModel {
   readonly edges: readonly RenderEdge[];
   readonly delta?: DeltaCounts;
   readonly feed?: readonly RankedChange[];
+  /** How many nodes in this view are orphans — drives the overlay toggle (FR-12). */
+  readonly orphanCount: number;
 }
 
 /** Versioned host->webview message (spine: host<->webview envelope). */
@@ -148,5 +150,6 @@ export function buildRenderModel(
     .filter((e) => known.has(e.from) && known.has(e.to))
     .map((e) => ({ id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: e.type }));
 
-  return { nodes: renderNodes, edges: renderEdges, delta, feed };
+  const orphanCount = renderNodes.reduce((sum, node) => sum + (node.orphan ? 1 : 0), 0);
+  return { nodes: renderNodes, edges: renderEdges, delta, feed, orphanCount };
 }

@@ -14,12 +14,19 @@ const container = document.getElementById("app") as HTMLElement;
 const card = document.getElementById("card") as HTMLElement;
 const badge = document.getElementById("badge") as HTMLElement;
 const feedEl = document.getElementById("feed") as HTMLElement;
+const orphanToggle = document.getElementById("orphan-toggle") as HTMLButtonElement;
+const orphanCountEl = document.getElementById("orphan-count") as HTMLElement;
 const CHANGE_COLORS: Record<RankedChange["change"], string> = {
   added: "#3fb950",
   changed: "#e3b341",
   moved: "#a371f7",
   removed: "#f85149",
 };
+// Orphan overlay (FR-12): when on, the nodeReducer dims every non-orphan so the
+// dead-code candidates stand alone. Recessive — still visible, just quiet.
+const ORPHAN_DIM_NODE = "#39414f";
+const ORPHAN_DIM_EDGE = "#262c38";
+let orphanMode = false;
 let renderer: Sigma | undefined;
 let graph: Graph | undefined;
 // Force a fresh force-directed layout on the next paint. True for the first paint
@@ -198,21 +205,50 @@ function render(model: RenderModel): void {
   renderer.on("clickStage", () => card.classList.add("hidden"));
 
   renderFeed(model.feed);
+  syncOrphanToggle(model.orphanCount);
 
-  // Semantic-zoom LOD (FR-5): large graphs hide detail when zoomed out.
-  if (g.order > 300) {
-    const camera = renderer.getCamera();
-    renderer.setSetting("nodeReducer", (_node: string, data: { kind: NodeKind }) => ({
-      ...data,
-      hidden: nodeHiddenAtRatio(data.kind, camera.ratio),
-    }));
-    renderer.setSetting("edgeReducer", (edge: string, data: object) => {
+  // Two view lenses share the reducers (re-run cheaply on refresh()):
+  //  - Semantic-zoom LOD (FR-5): large graphs hide detail when zoomed out.
+  //  - Orphan overlay (FR-12): dim every non-orphan so dead-code candidates pop.
+  const camera = renderer.getCamera();
+  const lod = g.order > 300;
+  renderer.setSetting("nodeReducer", (node: string, data: { kind: NodeKind }) => {
+    const res: { kind: NodeKind; hidden?: boolean; color?: string; label?: string; forceLabel?: boolean } =
+      { ...data };
+    if (lod && nodeHiddenAtRatio(data.kind, camera.ratio)) res.hidden = true;
+    if (orphanMode) {
+      if (g.getNodeAttribute(node, "orphan")) {
+        res.hidden = false; // never lose an orphan you're hunting
+        res.forceLabel = true;
+      } else {
+        res.color = ORPHAN_DIM_NODE;
+        res.label = "";
+      }
+    }
+    return res;
+  });
+  renderer.setSetting("edgeReducer", (edge: string, data: object) => {
+    const res: { hidden?: boolean; color?: string } = { ...data };
+    if (lod) {
       const sk = g.getNodeAttribute(g.source(edge), "kind") as NodeKind;
       const tk = g.getNodeAttribute(g.target(edge), "kind") as NodeKind;
-      return { ...data, hidden: nodeHiddenAtRatio(sk, camera.ratio) || nodeHiddenAtRatio(tk, camera.ratio) };
-    });
-    camera.on("updated", () => renderer?.refresh());
-  }
+      if (nodeHiddenAtRatio(sk, camera.ratio) || nodeHiddenAtRatio(tk, camera.ratio)) res.hidden = true;
+    }
+    if (orphanMode) res.color = ORPHAN_DIM_EDGE; // recede the wiring so nodes lead
+    return res;
+  });
+  if (lod) camera.on("updated", () => renderer?.refresh());
+}
+
+// Keep the topbar toggle honest about the current view: show the count, disable
+// it when there's nothing to highlight, and drop out of orphan mode if the
+// current projection has no orphans to show.
+function syncOrphanToggle(count: number): void {
+  orphanCountEl.textContent = String(count);
+  orphanToggle.disabled = count === 0;
+  if (count === 0 && orphanMode) orphanMode = false;
+  orphanToggle.classList.toggle("active", orphanMode);
+  orphanToggle.setAttribute("aria-pressed", String(orphanMode));
 }
 
 window.addEventListener("message", (event: MessageEvent) => {
@@ -229,6 +265,16 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg 
     vscode.postMessage({ type: "setProjection", kind: btn.dataset.projection });
   });
 }
+
+// Orphan overlay toggle (FR-12): flip the lens and re-run reducers — no relayout,
+// so the camera and node positions stay put while the dimming animates in.
+orphanToggle.addEventListener("click", () => {
+  if (orphanToggle.disabled) return;
+  orphanMode = !orphanMode;
+  orphanToggle.classList.toggle("active", orphanMode);
+  orphanToggle.setAttribute("aria-pressed", String(orphanMode));
+  renderer?.refresh();
+});
 
 // Tell the host we're mounted; it replies with the render model.
 vscode.postMessage({ type: "ready" });

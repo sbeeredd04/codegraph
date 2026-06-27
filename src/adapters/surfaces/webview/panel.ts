@@ -138,6 +138,23 @@ export class GraphPanel {
     .seg button.active { background: var(--surface-3); color: var(--text);
       box-shadow: var(--sh-1), inset 0 1px 0 hsl(228 20% 32% / .4); }
 
+    /* Orphan overlay toggle (FR-12): dim everything except dead-code candidates.
+       Inactive reads as a quiet control; active picks up the same muted ochre as
+       the card's orphan chip so the two surfaces speak the same visual language. */
+    .tg { display: inline-flex; align-items: center; gap: 7px; appearance: none; cursor: pointer;
+      background: var(--bg); color: var(--text-2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 5px 11px; font: 500 12px var(--sans); white-space: nowrap;
+      transition: color .12s ease, background .12s ease, border-color .12s ease; }
+    .tg:hover:not(:disabled) { color: var(--text); }
+    .tg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tg:disabled { color: var(--text-3); cursor: default; }
+    .tg .tgdot { width: 7px; height: 7px; border-radius: 50%;
+      border: 1.5px solid currentColor; box-sizing: border-box; }
+    .tg .n { font: 600 11px var(--mono); color: var(--text-3); }
+    .tg.active { color: hsl(40 82% 72%); background: hsl(40 48% 14% / .5);
+      border-color: hsl(40 60% 52% / .45); }
+    .tg.active .n { color: hsl(40 82% 72%); }
+
     .legend { margin-left: auto; display: flex; gap: 15px; color: var(--text-2);
       font: 500 11px var(--mono); }
     .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -220,6 +237,10 @@ export class GraphPanel {
       <button data-projection="structure">Structure</button>
       <button data-projection="call">Call</button>
     </nav>
+    <button id="orphan-toggle" class="tg" type="button" aria-pressed="false" disabled
+      title="Dim everything except dead-code candidates (nodes with no inbound references).">
+      <i class="tgdot" aria-hidden="true"></i>Orphans<span class="n" id="orphan-count">0</span>
+    </button>
     <span class="badge" id="badge"></span>
     <span class="legend">
       <span style="color:var(--k-module)"><i class="dot"></i>module</span>
