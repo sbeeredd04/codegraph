@@ -9,7 +9,8 @@ export class CodeGraph {
   private readonly nodes = new Map<NodeAddress, GraphNode>();
   private readonly outbound = new Map<NodeAddress, Set<NodeAddress>>();
   private readonly hasInbound = new Set<NodeAddress>();
-  private edgeCount = 0;
+  private readonly edges: GraphEdge[] = [];
+  private readonly edgeKeys = new Set<string>();
 
   /** Number of nodes. */
   get order(): number {
@@ -18,7 +19,7 @@ export class CodeGraph {
 
   /** Number of edges. */
   get size(): number {
-    return this.edgeCount;
+    return this.edges.length;
   }
 
   addNode(node: GraphNode): void {
@@ -35,16 +36,23 @@ export class CodeGraph {
   }
 
   addEdge(edge: GraphEdge): void {
+    const key = `${edge.from}|${edge.to}|${edge.type}`;
+    if (this.edgeKeys.has(key)) return;
+    this.edgeKeys.add(key);
+    this.edges.push(edge);
+
     let outs = this.outbound.get(edge.from);
     if (!outs) {
       outs = new Set();
       this.outbound.set(edge.from, outs);
     }
-    if (!outs.has(edge.to)) {
-      outs.add(edge.to);
-      this.edgeCount += 1;
-    }
+    outs.add(edge.to);
     this.hasInbound.add(edge.to);
+  }
+
+  /** All edges (with type), read-only — for projections and rendering. */
+  allEdges(): GraphEdge[] {
+    return [...this.edges];
   }
 
   /** Outbound neighbor addresses of a node (edge targets, even if not yet a node). */

@@ -12,8 +12,9 @@ const builds = [
     target: "node20",
     outfile: "dist/extension.js",
     // vscode is provided by the host; tree-sitter-wasm stays external so its
-    // runtime `require.resolve` finds the wasm assets in node_modules.
-    external: ["vscode", "@vscode/tree-sitter-wasm"],
+    // runtime `require.resolve` finds the wasm assets; ts-morph wraps the TS
+    // compiler and must not be bundled into the extension.
+    external: ["vscode", "@vscode/tree-sitter-wasm", "ts-morph"],
     sourcemap: true,
     logLevel: "info",
   },

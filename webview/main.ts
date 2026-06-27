@@ -1,5 +1,6 @@
 import Graph from "graphology";
 import Sigma from "sigma";
+import forceAtlas2 from "graphology-layout-forceatlas2";
 import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webview/render-model.js";
 
 const vscode = acquireVsCodeApi();
@@ -16,6 +17,14 @@ function render(model: RenderModel): void {
       graph.addEdgeWithKey(e.id, e.source, e.target, { color: "#30363d", size: 1 });
     }
   }
+  // Force-directed layout for legibility (circular seed -> real positions).
+  if (graph.order > 2) {
+    forceAtlas2.assign(graph, {
+      iterations: Math.min(400, 100 + graph.order),
+      settings: forceAtlas2.inferSettings(graph),
+    });
+  }
+
   renderer?.kill();
   renderer = new Sigma(graph, container, {
     defaultEdgeColor: "#30363d",

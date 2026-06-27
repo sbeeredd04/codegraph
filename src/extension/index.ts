@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { createRequire } from "node:module";
 import type { LanguageAdapter } from "../core/ports.js";
 import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
+import { bootstrapTypeScriptRepo } from "../adapters/lang/typescript/bootstrap.js";
 import { buildRenderModel } from "../adapters/surfaces/webview/render-model.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
@@ -32,7 +33,25 @@ export function activate(context: vscode.ExtensionContext): void {
     GraphPanel.show(context, buildRenderModel(nodes, edges));
   });
 
-  context.subscriptions.push(open);
+  const openWorkspace = vscode.commands.registerCommand("codegraph.openWorkspace", async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showWarningMessage("codegraph: open a folder/workspace first.");
+      return;
+    }
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "codegraph: bootstrapping graph…" },
+      async () => {
+        const { graph, coverage } = await bootstrapTypeScriptRepo(folder.uri.fsPath, wasmDir());
+        GraphPanel.show(context, buildRenderModel(graph.allNodes(), graph.allEdges()));
+        void vscode.window.showInformationMessage(
+          `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`,
+        );
+      },
+    );
+  });
+
+  context.subscriptions.push(open, openWorkspace);
 }
 
 export function deactivate(): void {
