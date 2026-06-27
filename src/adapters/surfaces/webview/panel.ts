@@ -79,6 +79,18 @@ export class GraphPanel {
     .legend { margin-left: auto; color: #6e7681; }
     .legend span { margin-left: 10px; }
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .card { position: absolute; top: 46px; right: 12px; width: 290px; z-index: 4;
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px;
+      box-shadow: 0 8px 24px #00000077; max-height: calc(100% - 60px); overflow: auto; }
+    .card.hidden { display: none; }
+    .card h3 { margin: 0; font-size: 13px; color: #e6edf3; word-break: break-all; }
+    .card .kind { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 4px;
+      font-size: 10px; color: #0d1117; font-weight: 600; }
+    .card .loc { color: #6e7681; margin: 6px 0 8px; word-break: break-all; }
+    .card .group { margin-top: 8px; }
+    .card .group b { color: #8b949e; }
+    .card ul { margin: 3px 0 0; padding-left: 16px; }
+    .card li { color: #9ca3af; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -95,6 +107,7 @@ export class GraphPanel {
     </span>
   </div>
   <div id="app"></div>
+  <div id="card" class="card hidden"></div>
   <script src="${scriptUri}"></script>
 </body>
 </html>`;

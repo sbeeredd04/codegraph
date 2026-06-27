@@ -5,7 +5,52 @@ import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webvie
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
+const card = document.getElementById("card") as HTMLElement;
 let renderer: Sigma | undefined;
+
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
+}
+function shortName(addr: string): string {
+  return addr.includes("#") ? (addr.split("#").pop() as string) : addr;
+}
+
+// Hover capability card (FR-11): node info + its edges grouped by relation.
+function showCard(graph: Graph, id: string): void {
+  const a = graph.getNodeAttributes(id) as {
+    label: string;
+    kind: string;
+    color: string;
+    file: string;
+    line: number;
+  };
+  const out = new Map<string, string[]>();
+  graph.forEachOutEdge(id, (_e: string, attrs: { relation?: string }, _s: string, target: string) => {
+    const rel = attrs.relation ?? "edge";
+    const list = out.get(rel) ?? [];
+    list.push(target);
+    out.set(rel, list);
+  });
+  const callers: string[] = [];
+  graph.forEachInEdge(id, (_e: string, _attrs: unknown, source: string) => callers.push(source));
+
+  let html = `<h3>${esc(a.label)}</h3><span class="kind" style="background:${a.color}">${esc(a.kind)}</span>`;
+  html += `<div class="loc">${esc(a.file)}:${a.line + 1}</div>`;
+  for (const [rel, targets] of out) {
+    html += `<div class="group"><b>${esc(rel)} (${targets.length})</b><ul>${targets
+      .slice(0, 8)
+      .map((t) => `<li>${esc(shortName(t))}</li>`)
+      .join("")}</ul></div>`;
+  }
+  if (callers.length) {
+    html += `<div class="group"><b>used by (${callers.length})</b><ul>${callers
+      .slice(0, 8)
+      .map((c) => `<li>${esc(shortName(c))}</li>`)
+      .join("")}</ul></div>`;
+  }
+  card.innerHTML = html;
+  card.classList.remove("hidden");
+}
 
 function render(model: RenderModel): void {
   renderer?.kill();
@@ -17,13 +62,22 @@ function render(model: RenderModel): void {
   }
   container.innerHTML = "";
 
-  const graph = new Graph();
+  const graph = new Graph({ type: "directed" });
   for (const n of model.nodes) {
-    graph.addNode(n.id, { label: n.label, x: n.x, y: n.y, size: n.size, color: n.color });
+    graph.addNode(n.id, {
+      label: n.label,
+      x: n.x,
+      y: n.y,
+      size: n.size,
+      color: n.color,
+      kind: n.kind,
+      file: n.file,
+      line: n.line,
+    });
   }
   for (const e of model.edges) {
     if (graph.hasNode(e.source) && graph.hasNode(e.target) && !graph.hasEdge(e.source, e.target)) {
-      graph.addEdgeWithKey(e.id, e.source, e.target, { color: "#30363d", size: 1 });
+      graph.addEdgeWithKey(e.id, e.source, e.target, { color: "#30363d", size: 1, relation: e.type });
     }
   }
   // Force-directed layout for legibility (circular seed -> real positions).
@@ -42,6 +96,9 @@ function render(model: RenderModel): void {
     labelSize: 11,
     renderLabels: graph.order <= 200,
   });
+
+  renderer.on("enterNode", ({ node }: { node: string }) => showCard(graph, node));
+  renderer.on("clickStage", () => card.classList.add("hidden"));
 }
 
 window.addEventListener("message", (event: MessageEvent) => {

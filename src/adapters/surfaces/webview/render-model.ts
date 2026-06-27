@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, NodeKind } from "../../../core/graph/types.js";
+import type { GraphNode, GraphEdge, NodeKind, EdgeType } from "../../../core/graph/types.js";
 
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
 // A restrained, legible palette — modules anchor, leaves recede.
@@ -26,12 +26,15 @@ export interface RenderNode {
   readonly size: number;
   readonly x: number;
   readonly y: number;
+  readonly file: string;
+  readonly line: number;
 }
 
 export interface RenderEdge {
   readonly id: string;
   readonly source: string;
   readonly target: string;
+  readonly type: EdgeType;
 }
 
 export interface RenderModel {
@@ -63,11 +66,13 @@ export function buildRenderModel(nodes: readonly GraphNode[], edges: readonly Gr
     size: KIND_SIZE[node.kind],
     x: Math.cos((2 * Math.PI * i) / n),
     y: Math.sin((2 * Math.PI * i) / n),
+    file: node.location.file,
+    line: node.location.line,
   }));
 
   const renderEdges: RenderEdge[] = edges
     .filter((e) => known.has(e.from) && known.has(e.to))
-    .map((e) => ({ id: `${e.from}->${e.to}`, source: e.from, target: e.to }));
+    .map((e) => ({ id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: e.type }));
 
   return { nodes: renderNodes, edges: renderEdges };
 }

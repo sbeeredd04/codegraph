@@ -29,12 +29,15 @@ describe("buildRenderModel", () => {
     expect(a?.color).toBe(KIND_COLORS.class);
     expect(typeof a?.x).toBe("number");
     expect(typeof a?.y).toBe("number");
+    expect(a?.file).toBe("a.ts");
+    expect(a?.line).toBe(0);
   });
 
   it("drops edges whose endpoints are not both known nodes (Sigma safety)", () => {
     const model = buildRenderModel(nodes, edges);
     expect(model.edges).toHaveLength(2);
     expect(model.edges.every((e) => e.source !== "ts:ghost" && e.target !== "ts:ghost")).toBe(true);
+    expect(model.edges.every((e) => e.type === "contains")).toBe(true);
   });
 
   it("gives distinct colors per kind", () => {
