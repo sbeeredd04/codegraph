@@ -6,6 +6,7 @@ import type { LanguageAdapter } from "../../core/ports.js";
 import { createTypeScriptAdapter } from "./typescript/index.js";
 import { createPythonAdapter } from "./python/index.js";
 import { resolveImportEdges, resolveCallEdges } from "./typescript/edges.js";
+import { resolvePythonImportEdges } from "./python/pyright-edges.js";
 
 // Polyglot whole-repo bootstrap (FR-1): tree-sitter skeletons for every TS/JS
 // and Python file + ts-morph accurate edges for the TS files. I/O lives here
@@ -76,6 +77,13 @@ export async function bootstrapRepo(rootDir: string, wasmDir: string): Promise<B
     for (const edge of resolveCallEdges(project, rootDir)) graph.addEdge(edge);
   } catch {
     // Edge resolution is best-effort; the skeleton still stands.
+  }
+
+  // Accurate Python edges (Pyright over LSP); no-op when there are no .py files.
+  try {
+    for (const edge of await resolvePythonImportEdges(rootDir, files, wasmDir)) graph.addEdge(edge);
+  } catch {
+    // best-effort
   }
 
   return { graph, coverage: { found: files.length, parsed, failed, skipped } };

@@ -14,7 +14,7 @@ const builds = [
     // vscode is provided by the host; tree-sitter-wasm stays external so its
     // runtime `require.resolve` finds the wasm assets; ts-morph wraps the TS
     // compiler and must not be bundled into the extension.
-    external: ["vscode", "@vscode/tree-sitter-wasm", "ts-morph"],
+    external: ["vscode", "@vscode/tree-sitter-wasm", "ts-morph", "pyright", "vscode-jsonrpc"],
     sourcemap: true,
     logLevel: "info",
   },

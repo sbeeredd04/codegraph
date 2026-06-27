@@ -100,15 +100,21 @@ function collect(
 
 let runtimeReady = false;
 
-/** Build a skeleton adapter for a language from its config + grammar wasm. */
-export async function createSkeletonAdapter(wasmDir: string, config: LanguageConfig): Promise<LanguageAdapter> {
+/** Load a tree-sitter parser for a grammar wasm (init once; ABI-matched runtime). */
+export async function loadGrammar(wasmDir: string, grammarFile: string): Promise<Parser> {
   if (!runtimeReady) {
     await Parser.init({ locateFile: (file: string) => path.join(wasmDir, file) });
     runtimeReady = true;
   }
-  const language = await Language.load(path.join(wasmDir, config.grammarFile));
+  const language = await Language.load(path.join(wasmDir, grammarFile));
   const parser = new Parser();
   parser.setLanguage(language);
+  return parser;
+}
+
+/** Build a skeleton adapter for a language from its config + grammar wasm. */
+export async function createSkeletonAdapter(wasmDir: string, config: LanguageConfig): Promise<LanguageAdapter> {
+  const parser = await loadGrammar(wasmDir, config.grammarFile);
 
   return {
     language: config.language,
