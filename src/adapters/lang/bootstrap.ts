@@ -26,27 +26,51 @@ export interface BootstrapResult {
   readonly coverage: BootstrapCoverage;
 }
 
-function isSourceFile(name: string): boolean {
-  if (name.endsWith(".d.ts") || name.endsWith(".test.ts")) return false;
-  return name.endsWith(".ts") || name.endsWith(".tsx") || name.endsWith(".py");
+export interface BootstrapOptions {
+  /** Default true. */
+  readonly typescript?: boolean;
+  /** Default true. */
+  readonly python?: boolean;
+  /** Extra directory names to skip (from the watch-scope setting). */
+  readonly exclude?: readonly string[];
 }
 
-export function findSourceFiles(root: string, acc: string[] = []): string[] {
+function isSourceFile(name: string, ts: boolean, py: boolean): boolean {
+  if (name.endsWith(".d.ts") || name.endsWith(".test.ts")) return false;
+  if (ts && (name.endsWith(".ts") || name.endsWith(".tsx"))) return true;
+  if (py && name.endsWith(".py")) return true;
+  return false;
+}
+
+export function findSourceFiles(
+  root: string,
+  skip: ReadonlySet<string>,
+  ts: boolean,
+  py: boolean,
+  acc: string[] = [],
+): string[] {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) findSourceFiles(full, acc);
-    } else if (isSourceFile(entry.name)) {
+      if (!skip.has(entry.name)) findSourceFiles(full, skip, ts, py, acc);
+    } else if (isSourceFile(entry.name, ts, py)) {
       acc.push(full);
     }
   }
   return acc;
 }
 
-export async function bootstrapRepo(rootDir: string, wasmDir: string): Promise<BootstrapResult> {
-  const ts: LanguageAdapter = await createTypeScriptAdapter(wasmDir);
-  const py: LanguageAdapter = await createPythonAdapter(wasmDir);
-  const files = findSourceFiles(rootDir);
+export async function bootstrapRepo(
+  rootDir: string,
+  wasmDir: string,
+  options: BootstrapOptions = {},
+): Promise<BootstrapResult> {
+  const useTs = options.typescript !== false;
+  const usePy = options.python !== false;
+  const skip = new Set([...SKIP_DIRS, ...(options.exclude ?? [])]);
+  const tsAdapter: LanguageAdapter = await createTypeScriptAdapter(wasmDir);
+  const pyAdapter: LanguageAdapter = await createPythonAdapter(wasmDir);
+  const files = findSourceFiles(rootDir, skip, useTs, usePy);
   const graph = new CodeGraph();
   const skipped: string[] = [];
   let parsed = 0;
@@ -56,7 +80,7 @@ export async function bootstrapRepo(rootDir: string, wasmDir: string): Promise<B
     try {
       const source = fs.readFileSync(file, "utf8");
       const rel = path.relative(rootDir, file).split(path.sep).join("/");
-      const adapter = file.endsWith(".py") ? py : ts;
+      const adapter = file.endsWith(".py") ? pyAdapter : tsAdapter;
       const { nodes, edges } = adapter.parseFile(rel, source);
       for (const node of nodes) graph.addNode(node);
       for (const edge of edges) graph.addEdge(edge);

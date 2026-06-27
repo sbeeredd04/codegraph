@@ -41,7 +41,18 @@ export function activate(context: vscode.ExtensionContext): void {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: "codegraph: bootstrapping graph…" },
       async () => {
-        const { graph, coverage } = await bootstrapRepo(folder.uri.fsPath, wasmDir());
+        const cfg = vscode.workspace.getConfiguration("codegraph");
+        const { graph, coverage } = await bootstrapRepo(folder.uri.fsPath, wasmDir(), {
+          typescript: cfg.get<boolean>("languages.typescript", true),
+          python: cfg.get<boolean>("languages.python", true),
+          exclude: cfg.get<string[]>("exclude", []),
+        });
+        if (graph.order === 0) {
+          void vscode.window.showInformationMessage(
+            "codegraph: no source files found for the enabled languages in this workspace.",
+          );
+          return;
+        }
         GraphPanel.show(context, graph.allNodes(), graph.allEdges());
         void vscode.window.showInformationMessage(
           `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`,

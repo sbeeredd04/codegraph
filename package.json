@@ -25,7 +25,39 @@
         "command": "codegraph.openWorkspace",
         "title": "codegraph: Open Workspace Graph"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "codegraph",
+      "properties": {
+        "codegraph.languages.typescript": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include TypeScript / JavaScript files in the graph."
+        },
+        "codegraph.languages.python": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include Python files in the graph (accurate edges via Pyright, no Python runtime needed)."
+        },
+        "codegraph.exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra directory names to skip when scanning the workspace (in addition to node_modules, .git, dist, .venv, etc.)."
+        },
+        "codegraph.model.provider": {
+          "type": "string",
+          "enum": ["none"],
+          "default": "none",
+          "markdownDescription": "Bring-your-own-model for semantic enrichment (workflow naming, summaries). Local-first and opt-in; off by default. Additional providers arrive with the semantic layer."
+        },
+        "codegraph.telemetry": {
+          "type": "boolean",
+          "default": false,
+          "description": "codegraph collects no telemetry. This setting is off and reserved."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.js",

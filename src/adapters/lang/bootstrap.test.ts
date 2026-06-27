@@ -42,4 +42,10 @@ describe("bootstrapRepo (polyglot integration)", () => {
     expect(graph.getNode("py:calc.py#Calc")?.kind).toBe("class");
     expect(graph.getNode("py:calc.py#Calc.add")?.kind).toBe("method");
   });
+
+  it("respects the languages option (python disabled skips .py)", async () => {
+    const { coverage, graph } = await bootstrapRepo(dir, wasmDir, { python: false });
+    expect(coverage.found).toBe(2); // a.ts + b.ts only
+    expect(graph.getNode("py:calc.py#Calc")).toBeUndefined();
+  });
 });
