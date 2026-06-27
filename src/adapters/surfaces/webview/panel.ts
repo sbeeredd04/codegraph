@@ -3,7 +3,13 @@ import type { GraphNode, GraphEdge, GraphDelta } from "../../../core/graph/types
 import type { RankedChange } from "../../../core/graph/change-feed.js";
 import type { NodeEnrichment } from "../../../core/semantic/enrichment.js";
 import { projectGraph, type ProjectionKind } from "../../../core/graph/projection.js";
-import { buildRenderModel, changesFromDelta, deltaCounts, type RenderMessage } from "./render-model.js";
+import {
+  buildRenderModel,
+  changesFromDelta,
+  deltaCounts,
+  findOrphanAddresses,
+  type RenderMessage,
+} from "./render-model.js";
 
 // Outbound surface (AD-2): a webview panel beside the editor. Holds the source
 // graph and re-projects on toggle (FR-4); only renders, never mutates code (FR-9).
@@ -59,10 +65,22 @@ export class GraphPanel {
     const projected = projectGraph(this.nodes, this.edges, this.projection);
     const changes = this.delta ? changesFromDelta(this.delta) : undefined;
     const counts = this.delta ? deltaCounts(this.delta) : undefined;
+    // Orphan status is a property of the whole graph, not the current view — compute
+    // it from the full edge set so a node doesn't look orphaned just because a
+    // projection hid its only inbound edge (FR-12).
+    const orphans = findOrphanAddresses(this.nodes, this.edges);
     const message: RenderMessage = {
       type: "render",
       version: 1,
-      payload: buildRenderModel(projected.nodes, projected.edges, changes, counts, this.feed, this.enrichments),
+      payload: buildRenderModel(
+        projected.nodes,
+        projected.edges,
+        changes,
+        counts,
+        this.feed,
+        this.enrichments,
+        orphans,
+      ),
     };
     void this.panel.webview.postMessage(message);
   }
@@ -149,6 +167,13 @@ export class GraphPanel {
       color: var(--accent); background: hsl(250 92% 71% / .12); border: 1px solid hsl(250 92% 71% / .32); }
     .card .summary { margin: 0; color: var(--text); font: 13px/1.55 var(--sans); text-wrap: pretty; }
     .card .intent { margin: 7px 0 0; color: var(--text-2); font: 12px/1.5 var(--sans); text-wrap: pretty; }
+
+    /* Orphan note (FR-12): a calm caution chip for a dead-code candidate. A muted
+       ochre, deliberately lower-energy than the change-overlay amber and not the
+       only signal (the text carries the meaning), so it reads as a hint, not an alarm. */
+    .card .orphan { display: inline-block; margin: 12px 0 2px; padding: 4px 10px;
+      border-radius: 8px; color: hsl(40 82% 72%); background: hsl(40 48% 14% / .5);
+      border: 1px solid hsl(40 60% 52% / .32); font: 600 11px var(--sans); letter-spacing: .005em; }
 
     .card .group { margin-top: 13px; }
     .card .group b { display: block; margin-bottom: 5px; color: var(--text-2);

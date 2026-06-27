@@ -66,6 +66,23 @@ export interface RenderNode {
   readonly change?: ChangeKind;
   /** The agent's annotation for this node, if one was written (Epic 4). */
   readonly enrichment?: NodeEnrichment;
+  /** No inbound references anywhere in the graph — a dead-code candidate (FR-12, Epic 5). */
+  readonly orphan?: boolean;
+}
+
+/**
+ * Addresses with no inbound edge of any kind — dead-code candidates (FR-12).
+ * Mirrors CodeGraph.orphans for the render layer's node/edge arrays; compute it
+ * from the FULL graph (not a projection) so orphan status is projection-stable.
+ */
+export function findOrphanAddresses(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+): Set<string> {
+  const hasInbound = new Set(edges.map((e) => e.to));
+  const orphans = new Set<string>();
+  for (const n of nodes) if (!hasInbound.has(n.address)) orphans.add(n.address);
+  return orphans;
 }
 
 export interface RenderEdge {
@@ -101,6 +118,7 @@ export function buildRenderModel(
   delta?: DeltaCounts,
   feed?: readonly RankedChange[],
   enrichments?: ReadonlyMap<string, NodeEnrichment>,
+  orphans?: ReadonlySet<string>,
 ): RenderModel {
   const known = new Set(nodes.map((n) => n.address));
   const n = Math.max(nodes.length, 1);
@@ -108,6 +126,7 @@ export function buildRenderModel(
   const renderNodes: RenderNode[] = nodes.map((node, i) => {
     const change = changes?.get(node.address);
     const enrichment = enrichments?.get(node.address);
+    const orphan = orphans?.has(node.address);
     return {
       id: node.address,
       label: node.name,
@@ -121,6 +140,7 @@ export function buildRenderModel(
       line: node.location.line,
       change,
       ...(enrichment ? { enrichment } : {}),
+      ...(orphan ? { orphan: true } : {}),
     };
   });
 

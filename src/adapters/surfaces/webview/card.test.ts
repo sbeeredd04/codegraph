@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { enrichmentSectionHtml } from "./card.js";
+import { enrichmentSectionHtml, orphanNoteHtml } from "./card.js";
 
 describe("enrichmentSectionHtml", () => {
   it("returns empty string when there is no enrichment or no summary", () => {
@@ -36,5 +36,20 @@ describe("enrichmentSectionHtml", () => {
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;img");
     expect(html).toContain("&amp;");
+  });
+});
+
+describe("orphanNoteHtml", () => {
+  it("returns empty string for a node that has callers (not an orphan)", () => {
+    expect(orphanNoteHtml(false)).toBe("");
+    expect(orphanNoteHtml(undefined)).toBe("");
+  });
+
+  it("renders a calm, hedged dead-code-candidate chip for an orphan", () => {
+    const html = orphanNoteHtml(true);
+    expect(html).toContain('class="orphan"');
+    expect(html).toContain("no callers");
+    // Honest microcopy: it's a candidate, not a verdict — entry points are orphans too.
+    expect(html.toLowerCase()).toContain("candidate");
   });
 });

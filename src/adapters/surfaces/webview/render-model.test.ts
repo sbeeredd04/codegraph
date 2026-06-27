@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRenderModel, KIND_COLORS } from "./render-model.js";
+import { buildRenderModel, findOrphanAddresses, KIND_COLORS } from "./render-model.js";
 import type { GraphNode, GraphEdge } from "../../../core/graph/types.js";
 
 const node = (address: string, kind: GraphNode["kind"]): GraphNode => ({
@@ -73,5 +73,37 @@ describe("buildRenderModel", () => {
     expect(model.delta?.changed).toBe(1);
     // an unchanged node keeps its kind color
     expect(model.nodes.find((n) => n.id === "ts:a.ts")?.color).toBe(KIND_COLORS.module);
+  });
+
+  it("flags only nodes present in the orphans set (FR-12)", () => {
+    const orphans = new Set(["ts:a.ts"]); // the module has no inbound edge here
+    const model = buildRenderModel(nodes, edges, undefined, undefined, undefined, undefined, orphans);
+    expect(model.nodes.find((n) => n.id === "ts:a.ts")?.orphan).toBe(true);
+    // nodes with inbound edges carry no orphan flag at all
+    expect(model.nodes.find((n) => n.id === "ts:a.ts#A")?.orphan).toBeUndefined();
+    expect(model.nodes.find((n) => n.id === "ts:a.ts#A.m")?.orphan).toBeUndefined();
+  });
+});
+
+describe("findOrphanAddresses", () => {
+  it("returns addresses with no inbound edge of any kind", () => {
+    const ns: GraphNode[] = [node("ts:a.ts", "module"), node("ts:a.ts#A", "class")];
+    const es: GraphEdge[] = [{ from: "ts:a.ts", to: "ts:a.ts#A", type: "contains" }];
+    const orphans = findOrphanAddresses(ns, es);
+    expect(orphans.has("ts:a.ts")).toBe(true); // never a target
+    expect(orphans.has("ts:a.ts#A")).toBe(false); // contained -> has inbound
+  });
+
+  it("treats inbound edges of any type (including contains) as a reference", () => {
+    const ns: GraphNode[] = [node("ts:a.ts#f", "function"), node("ts:a.ts#g", "function")];
+    const es: GraphEdge[] = [{ from: "ts:a.ts#f", to: "ts:a.ts#g", type: "calls" }];
+    const orphans = findOrphanAddresses(ns, es);
+    expect(orphans.has("ts:a.ts#f")).toBe(true); // calls out but nothing calls it
+    expect(orphans.has("ts:a.ts#g")).toBe(false);
+  });
+
+  it("flags every node when there are no edges", () => {
+    const ns: GraphNode[] = [node("ts:a.ts", "module"), node("ts:b.ts", "module")];
+    expect(findOrphanAddresses(ns, []).size).toBe(2);
   });
 });

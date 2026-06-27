@@ -5,7 +5,7 @@ import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webvie
 import type { RankedChange } from "../src/core/graph/change-feed.js";
 import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
 import { reconcilePositions, type XY } from "../src/adapters/surfaces/webview/layout.js";
-import { enrichmentSectionHtml } from "../src/adapters/surfaces/webview/card.js";
+import { enrichmentSectionHtml, orphanNoteHtml } from "../src/adapters/surfaces/webview/card.js";
 import type { NodeKind } from "../src/core/graph/types.js";
 import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 
@@ -43,6 +43,7 @@ function showCard(graph: Graph, id: string): void {
     file: string;
     line: number;
     enrichment?: NodeEnrichment;
+    orphan?: boolean;
   };
   const out = new Map<string, string[]>();
   graph.forEachOutEdge(id, (_e: string, attrs: { relation?: string }, _s: string, target: string) => {
@@ -70,6 +71,9 @@ function showCard(graph: Graph, id: string): void {
       .map((c) => `<li>${esc(shortName(c))}</li>`)
       .join("")}</ul></div>`;
   }
+  // No callers? Flag it as a dead-code candidate (FR-12). orphan and callers are
+  // mutually exclusive — an orphan is precisely a node with no inbound references.
+  html += orphanNoteHtml(a.orphan);
   card.innerHTML = html;
   card.classList.remove("hidden");
 }
@@ -162,6 +166,7 @@ function render(model: RenderModel): void {
       file: n.file,
       line: n.line,
       enrichment: n.enrichment,
+      orphan: n.orphan,
     });
   }
   for (const e of model.edges) {
