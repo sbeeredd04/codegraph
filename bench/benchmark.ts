@@ -8,9 +8,11 @@ import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
+import { Project } from "ts-morph";
 import { CodeGraph } from "../src/core/graph/graph.js";
 import { summarizeGraph } from "../src/core/graph/summary.js";
 import { createTypeScriptAdapter } from "../src/adapters/lang/typescript/index.js";
+import { resolveImportEdges } from "../src/adapters/lang/typescript/edges.js";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "out", "coverage", "fixtures"]);
 
@@ -51,6 +53,19 @@ async function benchmark(target: string, wasmDir: string): Promise<void> {
       console.error(`  ! failed: ${path.relative(target, file)} — ${(err as Error).message}`);
     }
   }
+  // Accurate import edges via ts-morph (AD-9 two-layer).
+  let importEdges = 0;
+  try {
+    const project = new Project();
+    for (const file of files) project.addSourceFileAtPath(file);
+    for (const edge of resolveImportEdges(project, target)) {
+      graph.addEdge(edge);
+      importEdges += 1;
+    }
+  } catch (err) {
+    console.error(`  ! ts-morph import pass failed: ${(err as Error).message}`);
+  }
+
   const ms = Math.round(performance.now() - t0);
   const s = summarizeGraph(graph);
 
@@ -58,7 +73,7 @@ async function benchmark(target: string, wasmDir: string): Promise<void> {
   console.log(`files:    ${files.length} found, ${parsed} parsed, ${failed} failed`);
   console.log(`coverage: ${files.length ? Math.round((parsed / files.length) * 100) : 0}%`);
   console.log(`nodes:    ${s.nodeCount}  (module ${s.byKind.module}, class ${s.byKind.class}, function ${s.byKind.function}, method ${s.byKind.method})`);
-  console.log(`edges:    ${s.edgeCount} (contains)`);
+  console.log(`edges:    ${s.edgeCount}  (${s.edgeCount - importEdges} contains, ${importEdges} depends-on)`);
   console.log(`orphans:  ${s.orphanCount}`);
   console.log(`time:     ${ms}ms`);
 }
