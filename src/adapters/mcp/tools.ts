@@ -7,6 +7,7 @@ import {
   blastRadius,
   dependencies,
   graphStats,
+  neighborhood,
 } from "../../core/graph/query.js";
 
 // MCP tool surface (Epic 3 / FR-13): the read-only questions the user's AI
@@ -92,6 +93,22 @@ export function graphTools(getGraph: () => CodeGraph): GraphTool[] {
         "following dependency edges only.",
       inputSchema: { address: ADDRESS },
       handler: (args) => ok(dependencies(getGraph(), String(args.address))),
+    },
+    {
+      name: "neighborhood",
+      title: "Neighborhood",
+      description:
+        "The local map around a node: every node within N hops in either direction " +
+        "(callers, callees, container, contents) plus the edges among them. Use to " +
+        "zoom in on a region before reasoning about it.",
+      inputSchema: {
+        address: ADDRESS,
+        radius: z.number().int().min(0).max(5).optional().describe("Hops outward (default 1)."),
+      },
+      handler: (args) => {
+        const hood = neighborhood(getGraph(), String(args.address), args.radius as number | undefined);
+        return hood ? ok(hood) : fail(`codegraph: no node at address "${String(args.address)}".`);
+      },
     },
     {
       name: "list_orphans",

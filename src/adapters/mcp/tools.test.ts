@@ -37,6 +37,7 @@ describe("MCP graph tools", () => {
       "find_nodes",
       "graph_stats",
       "list_orphans",
+      "neighborhood",
     ]);
   });
 

@@ -31,6 +31,13 @@ export interface GraphStats {
   readonly byKind: Record<NodeKind, number>;
 }
 
+export interface Neighborhood {
+  readonly center: NodeAddress;
+  readonly radius: number;
+  readonly nodes: NodeSummary[];
+  readonly edges: { readonly from: NodeAddress; readonly to: NodeAddress; readonly type: EdgeType }[];
+}
+
 function summarize(node: GraphNode): NodeSummary {
   return {
     address: node.address,
@@ -109,4 +116,53 @@ export function graphStats(graph: CodeGraph): GraphStats {
   const byKind = Object.fromEntries(NODE_KINDS.map((k) => [k, 0])) as Record<NodeKind, number>;
   for (const node of graph.allNodes()) byKind[node.kind] += 1;
   return { nodeCount: graph.order, edgeCount: graph.size, byKind };
+}
+
+/**
+ * The local map around a node: every node within `radius` hops in either
+ * direction (callers and callees, container and contents) plus the edges among
+ * them. Lets an agent "zoom in" on a region. Uses all edge types — structure is
+ * part of the local picture. Returns undefined if the center node is unknown.
+ */
+export function neighborhood(graph: CodeGraph, address: NodeAddress, radius = 1): Neighborhood | undefined {
+  if (!graph.getNode(address)) return undefined;
+
+  // Undirected adjacency: the neighborhood spans both directions.
+  const adj = new Map<NodeAddress, Set<NodeAddress>>();
+  const link = (a: NodeAddress, b: NodeAddress): void => {
+    (adj.get(a) ?? adj.set(a, new Set()).get(a)!).add(b);
+  };
+  for (const e of graph.allEdges()) {
+    link(e.from, e.to);
+    link(e.to, e.from);
+  }
+
+  // BFS out to `radius` hops.
+  const included = new Set<NodeAddress>([address]);
+  let frontier: NodeAddress[] = [address];
+  for (let hop = 0; hop < radius; hop += 1) {
+    const next: NodeAddress[] = [];
+    for (const cur of frontier) {
+      for (const nb of adj.get(cur) ?? []) {
+        if (!included.has(nb)) {
+          included.add(nb);
+          next.push(nb);
+        }
+      }
+    }
+    if (next.length === 0) break;
+    frontier = next;
+  }
+
+  const nodes: NodeSummary[] = [];
+  for (const addr of included) {
+    const node = graph.getNode(addr);
+    if (node) nodes.push(summarize(node));
+  }
+  const edges = graph
+    .allEdges()
+    .filter((e) => included.has(e.from) && included.has(e.to))
+    .map((e) => ({ from: e.from, to: e.to, type: e.type }));
+
+  return { center: address, radius, nodes, edges };
 }

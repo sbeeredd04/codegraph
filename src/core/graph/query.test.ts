@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { CodeGraph } from "./graph.js";
-import { findNodes, describeNode, blastRadius, dependencies, graphStats } from "./query.js";
+import {
+  findNodes,
+  describeNode,
+  blastRadius,
+  dependencies,
+  graphStats,
+  neighborhood,
+} from "./query.js";
 import type { GraphNode, GraphEdge } from "./types.js";
 
 const node = (address: string, kind: GraphNode["kind"], name?: string): GraphNode => ({
@@ -70,5 +77,29 @@ describe("graph query layer", () => {
     expect(s.edgeCount).toBe(5);
     expect(s.byKind.function).toBe(3);
     expect(s.byKind.module).toBe(1);
+  });
+
+  it("neighborhood collects nodes within N hops in both directions, with their edges", () => {
+    const n1 = neighborhood(g, "ts:m.ts#foo", 1);
+    const addrs = n1?.nodes.map((x) => x.address).sort();
+    // 1 hop from foo (undirected): the module that contains it + the util it calls
+    expect(addrs).toEqual(["ts:m.ts", "ts:m.ts#foo", "ts:m.ts#util"]);
+    expect(n1?.edges).toContainEqual({ from: "ts:m.ts#foo", to: "ts:m.ts#util", type: "calls" });
+    expect(addrs).not.toContain("ts:m.ts#bar"); // 2 hops away (foo -> m.ts -> bar)
+  });
+
+  it("neighborhood widens with radius", () => {
+    const n2 = neighborhood(g, "ts:m.ts#foo", 2);
+    expect(n2?.nodes.map((x) => x.address)).toContain("ts:m.ts#bar");
+  });
+
+  it("neighborhood with radius 0 is just the center", () => {
+    const n0 = neighborhood(g, "ts:m.ts#foo", 0);
+    expect(n0?.nodes.map((x) => x.address)).toEqual(["ts:m.ts#foo"]);
+    expect(n0?.edges).toEqual([]);
+  });
+
+  it("neighborhood returns undefined for an unknown address", () => {
+    expect(neighborhood(g, "ts:nope#ghost")).toBeUndefined();
   });
 });
