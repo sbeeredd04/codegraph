@@ -1,0 +1,20 @@
+// Typechecks the browser code (webview/, web/) that the main gate does NOT cover.
+// The gate's tsconfig.json is `src/**` only with a DOM-free lib, because the core
+// and adapters must stay DOM-free. The browser surfaces need the DOM lib, so they
+// get their own config here. Run with: `npm run typecheck:webview`.
+//
+// Known artifact (cosmetic, accepted): the shared Sigma nodeReducer in
+// webview/graph-view.ts reports one TS2345 strict-variance mismatch between our
+// `{ kind: NodeKind }` node-attrs shape and Sigma's open `Attributes` index type.
+// It is typecheck-only — esbuild bundles the code correctly — and graphology-types
+// is a transitive dep that does not resolve as a direct import, so we keep the
+// narrow, readable typing rather than depend on it.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["webview/**/*.ts", "web/**/*.ts"]
+}

@@ -3,18 +3,21 @@ import Sigma from "sigma";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webview/render-model.js";
 import type { RankedChange } from "../src/core/graph/change-feed.js";
-import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
 import { reconcilePositions, type XY } from "../src/adapters/surfaces/webview/layout.js";
-import { enrichmentSectionHtml, orphanNoteHtml } from "../src/adapters/surfaces/webview/card.js";
-import type { NodeKind } from "../src/core/graph/types.js";
-import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
+import { esc } from "../src/adapters/surfaces/webview/card.js";
+import {
+  showCard,
+  installLensReducers,
+  createOrphanToggle,
+  animateNodeEntrance,
+} from "./graph-view.js";
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
 const card = document.getElementById("card") as HTMLElement;
 const badge = document.getElementById("badge") as HTMLElement;
 const feedEl = document.getElementById("feed") as HTMLElement;
-const orphanToggle = document.getElementById("orphan-toggle") as HTMLButtonElement;
+const orphanToggleEl = document.getElementById("orphan-toggle") as HTMLButtonElement;
 const orphanCountEl = document.getElementById("orphan-count") as HTMLElement;
 const CHANGE_COLORS: Record<RankedChange["change"], string> = {
   added: "#3fb950",
@@ -22,75 +25,23 @@ const CHANGE_COLORS: Record<RankedChange["change"], string> = {
   moved: "#a371f7",
   removed: "#f85149",
 };
-// Orphan overlay (FR-12): when on, the nodeReducer dims every non-orphan so the
-// dead-code candidates stand alone. Recessive — still visible, just quiet.
-const ORPHAN_DIM_NODE = "#39414f";
-const ORPHAN_DIM_EDGE = "#262c38";
-let orphanMode = false;
+const orphans = createOrphanToggle(orphanToggleEl, orphanCountEl, () => renderer?.refresh());
 let renderer: Sigma | undefined;
 let graph: Graph | undefined;
 // Force a fresh force-directed layout on the next paint. True for the first paint
 // and whenever the user switches projection (the node set changes wholesale); a
 // host-driven live delta leaves it false so surviving nodes keep their place.
 let relayout = true;
-
-function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
-}
-function shortName(addr: string): string {
-  return addr.includes("#") ? (addr.split("#").pop() as string) : addr;
-}
-
-// Hover capability card (FR-11): node info + its edges grouped by relation.
-function showCard(graph: Graph, id: string): void {
-  const a = graph.getNodeAttributes(id) as {
-    label: string;
-    kind: string;
-    color: string;
-    file: string;
-    line: number;
-    enrichment?: NodeEnrichment;
-    orphan?: boolean;
-  };
-  const out = new Map<string, string[]>();
-  graph.forEachOutEdge(id, (_e: string, attrs: { relation?: string }, _s: string, target: string) => {
-    const rel = attrs.relation ?? "edge";
-    const list = out.get(rel) ?? [];
-    list.push(target);
-    out.set(rel, list);
-  });
-  const callers: string[] = [];
-  graph.forEachInEdge(id, (_e: string, _attrs: unknown, source: string) => callers.push(source));
-
-  let html = `<h3>${esc(a.label)}</h3><span class="kind" style="color:${esc(a.color)}">${esc(a.kind)}</span>`;
-  // Agent annotation leads the card — the "what is this" answer above the edges.
-  html += enrichmentSectionHtml(a.enrichment);
-  html += `<div class="loc">${esc(a.file)}:${a.line + 1}</div>`;
-  for (const [rel, targets] of out) {
-    html += `<div class="group"><b>${esc(rel)} (${targets.length})</b><ul>${targets
-      .slice(0, 8)
-      .map((t) => `<li>${esc(shortName(t))}</li>`)
-      .join("")}</ul></div>`;
-  }
-  if (callers.length) {
-    html += `<div class="group"><b>used by (${callers.length})</b><ul>${callers
-      .slice(0, 8)
-      .map((c) => `<li>${esc(shortName(c))}</li>`)
-      .join("")}</ul></div>`;
-  }
-  // No callers? Flag it as a dead-code candidate (FR-12). orphan and callers are
-  // mutually exclusive — an orphan is precisely a node with no inbound references.
-  html += orphanNoteHtml(a.orphan);
-  card.innerHTML = html;
-  card.classList.remove("hidden");
-}
+// Canceller for the in-flight new-node entrance animation. Invoked before any
+// repaint so a queued frame never refresh()es a renderer we are about to kill.
+let cancelEnter: (() => void) | undefined;
 
 // Pan/zoom the camera to a node and surface its capability card (feed -> graph).
 function focusNode(id: string): void {
   if (!renderer || !graph || !graph.hasNode(id)) return;
   const pos = renderer.getNodeDisplayData(id);
   if (pos) void renderer.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.55 }, { duration: 420 });
-  showCard(graph, id);
+  showCard(graph, id, card);
 }
 
 // Ranked change feed (FR-7 triage): highest blast-radius change at the top.
@@ -129,6 +80,8 @@ function renderFeed(feed: readonly RankedChange[] | undefined): void {
 }
 
 function render(model: RenderModel): void {
+  cancelEnter?.(); // stop any entrance animation before we tear the old graph down
+  cancelEnter = undefined;
   // Snapshot where every node currently sits BEFORE we tear the graph down, so a
   // repaint can preserve those positions instead of jumping (stable live layout).
   const prev = new Map<string, XY>();
@@ -154,6 +107,7 @@ function render(model: RenderModel): void {
     container.innerHTML =
       '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:hsl(228 10% 44%);font:13px var(--mono,monospace)">No nodes in this projection yet.</div>';
     renderFeed(model.feed);
+    orphans.sync(model.orphanCount);
     return;
   }
   container.innerHTML = "";
@@ -192,7 +146,6 @@ function render(model: RenderModel): void {
   graph = g;
   relayout = false;
 
-  renderer?.kill();
   renderer = new Sigma(g, container, {
     defaultEdgeColor: "#333a4d",
     labelColor: { color: "#c9d3e3" },
@@ -201,54 +154,19 @@ function render(model: RenderModel): void {
     renderLabels: true,
   });
 
-  renderer.on("enterNode", ({ node }: { node: string }) => showCard(g, node));
+  renderer.on("enterNode", ({ node }: { node: string }) => showCard(g, node, card));
   renderer.on("clickStage", () => card.classList.add("hidden"));
 
   renderFeed(model.feed);
-  syncOrphanToggle(model.orphanCount);
+  orphans.sync(model.orphanCount);
+  installLensReducers({ renderer, graph: g, lod: g.order > 300, isOrphanMode: orphans.isActive });
 
-  // Two view lenses share the reducers (re-run cheaply on refresh()):
-  //  - Semantic-zoom LOD (FR-5): large graphs hide detail when zoomed out.
-  //  - Orphan overlay (FR-12): dim every non-orphan so dead-code candidates pop.
-  const camera = renderer.getCamera();
-  const lod = g.order > 300;
-  renderer.setSetting("nodeReducer", (node: string, data: { kind: NodeKind }) => {
-    const res: { kind: NodeKind; hidden?: boolean; color?: string; label?: string; forceLabel?: boolean } =
-      { ...data };
-    if (lod && nodeHiddenAtRatio(data.kind, camera.ratio)) res.hidden = true;
-    if (orphanMode) {
-      if (g.getNodeAttribute(node, "orphan")) {
-        res.hidden = false; // never lose an orphan you're hunting
-        res.forceLabel = true;
-      } else {
-        res.color = ORPHAN_DIM_NODE;
-        res.label = "";
-      }
-    }
-    return res;
-  });
-  renderer.setSetting("edgeReducer", (edge: string, data: object) => {
-    const res: { hidden?: boolean; color?: string } = { ...data };
-    if (lod) {
-      const sk = g.getNodeAttribute(g.source(edge), "kind") as NodeKind;
-      const tk = g.getNodeAttribute(g.target(edge), "kind") as NodeKind;
-      if (nodeHiddenAtRatio(sk, camera.ratio) || nodeHiddenAtRatio(tk, camera.ratio)) res.hidden = true;
-    }
-    if (orphanMode) res.color = ORPHAN_DIM_EDGE; // recede the wiring so nodes lead
-    return res;
-  });
-  if (lod) camera.on("updated", () => renderer?.refresh());
-}
-
-// Keep the topbar toggle honest about the current view: show the count, disable
-// it when there's nothing to highlight, and drop out of orphan mode if the
-// current projection has no orphans to show.
-function syncOrphanToggle(count: number): void {
-  orphanCountEl.textContent = String(count);
-  orphanToggle.disabled = count === 0;
-  if (count === 0 && orphanMode) orphanMode = false;
-  orphanToggle.classList.toggle("active", orphanMode);
-  orphanToggle.setAttribute("aria-pressed", String(orphanMode));
+  // Motion polish: on a live delta (not a fresh layout), pop the newly-added
+  // nodes in so the change is felt rather than silently appearing.
+  if (!fresh) {
+    const newIds = model.nodes.filter((n) => !prev.has(n.id)).map((n) => n.id);
+    cancelEnter = animateNodeEntrance(renderer, g, newIds);
+  }
 }
 
 window.addEventListener("message", (event: MessageEvent) => {
@@ -265,16 +183,6 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg 
     vscode.postMessage({ type: "setProjection", kind: btn.dataset.projection });
   });
 }
-
-// Orphan overlay toggle (FR-12): flip the lens and re-run reducers — no relayout,
-// so the camera and node positions stay put while the dimming animates in.
-orphanToggle.addEventListener("click", () => {
-  if (orphanToggle.disabled) return;
-  orphanMode = !orphanMode;
-  orphanToggle.classList.toggle("active", orphanMode);
-  orphanToggle.setAttribute("aria-pressed", String(orphanMode));
-  renderer?.refresh();
-});
 
 // Tell the host we're mounted; it replies with the render model.
 vscode.postMessage({ type: "ready" });

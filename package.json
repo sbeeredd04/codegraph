@@ -74,6 +74,7 @@
     "watch": "node esbuild.js --watch",
     "mcp": "node dist/mcp-server.js",
     "typecheck": "tsc --noEmit",
+    "typecheck:webview": "tsc --project tsconfig.webview.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:boundaries": "depcruise \"src/**/*.ts\" --config .dependency-cruiser.cjs",
