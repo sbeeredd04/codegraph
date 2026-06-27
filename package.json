@@ -39,6 +39,7 @@
     "spike:pyright": "tsx bench/pyright-spike.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/tree-sitter-wasm": "^0.3.1",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",

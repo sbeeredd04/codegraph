@@ -66,46 +66,83 @@ export class GraphPanel {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <style>
-    html, body { height: 100%; margin: 0; background: #0d1117; color: #c9d1d9;
-      font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-    #app { position: absolute; inset: 36px 0 0 0; }
-    .toolbar { position: absolute; top: 0; left: 0; right: 0; height: 36px; z-index: 3;
-      display: flex; align-items: center; gap: 6px; padding: 0 10px;
-      background: #161b22; border-bottom: 1px solid #21262d; }
-    .toolbar button { background: #21262d; color: #8b949e; border: 1px solid #30363d;
-      border-radius: 5px; padding: 3px 10px; font: inherit; cursor: pointer; }
-    .toolbar button:hover { color: #c9d1d9; }
-    .toolbar button.active { background: #1f6feb33; color: #58a6ff; border-color: #1f6feb; }
-    .legend { margin-left: auto; color: #6e7681; }
-    .legend span { margin-left: 10px; }
-    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-    .card { position: absolute; top: 46px; right: 12px; width: 290px; z-index: 4;
-      background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px;
-      box-shadow: 0 8px 24px #00000077; max-height: calc(100% - 60px); overflow: auto; }
+    :root {
+      --bg: hsl(228 16% 7%); --surface: hsl(228 15% 9.5%); --surface-2: hsl(228 14% 12%);
+      --surface-3: hsl(228 13% 16%); --border: hsl(228 12% 19%); --border-2: hsl(228 12% 27%);
+      --text: hsl(228 22% 93%); --text-2: hsl(228 12% 62%); --text-3: hsl(228 10% 44%);
+      --accent: hsl(250 92% 71%);
+      --k-module: #6aa3ff; --k-class: #b08cff; --k-function: #5fd39a;
+      --k-method: #5cc8e6; --k-workflow: #f1b45a;
+      --sh-1: 0 1px 2px hsl(228 40% 2% / .5);
+      --sh-2: 0 12px 32px hsl(228 45% 2% / .55), 0 2px 8px hsl(228 40% 2% / .4);
+      --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+      font: 13px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+    #app { position: absolute; inset: 48px 0 0 0; }
+
+    .topbar { position: absolute; top: 0; left: 0; right: 0; height: 48px; z-index: 30;
+      display: flex; align-items: center; gap: 16px; padding: 0 16px; overflow: hidden;
+      background: linear-gradient(var(--surface-2), var(--surface));
+      border-bottom: 1px solid var(--border); box-shadow: var(--sh-1); }
+    .brand { display: flex; align-items: center; gap: 9px; font-weight: 650;
+      letter-spacing: -.01em; white-space: nowrap; }
+    .brand .mark { width: 17px; height: 17px; border-radius: 5px;
+      background: conic-gradient(from 210deg, var(--accent), var(--k-method), var(--accent));
+      box-shadow: 0 0 0 1px hsl(250 80% 70% / .35), 0 0 14px hsl(250 90% 65% / .4); }
+    .brand small { color: var(--text-3); font-weight: 500; font-size: 11px; }
+
+    .seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 10px; }
+    .seg button { appearance: none; background: transparent; color: var(--text-2);
+      border: 0; border-radius: 7px; padding: 4px 13px; font: 500 12px var(--sans);
+      cursor: pointer; transition: color .12s ease, background .12s ease; }
+    .seg button:hover { color: var(--text); }
+    .seg button.active { background: var(--surface-3); color: var(--text);
+      box-shadow: var(--sh-1), inset 0 1px 0 hsl(228 20% 32% / .4); }
+
+    .legend { margin-left: auto; display: flex; gap: 15px; color: var(--text-2);
+      font: 500 11px var(--mono); }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+      box-shadow: 0 0 7px currentColor; }
+
+    .card { position: absolute; top: 60px; right: 16px; width: 304px; z-index: 40;
+      background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 12px;
+      padding: 16px; box-shadow: var(--sh-2); max-height: calc(100% - 80px); overflow: auto; }
     .card.hidden { display: none; }
-    .card h3 { margin: 0; font-size: 13px; color: #e6edf3; word-break: break-all; }
-    .card .kind { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 4px;
-      font-size: 10px; color: #0d1117; font-weight: 600; }
-    .card .loc { color: #6e7681; margin: 6px 0 8px; word-break: break-all; }
-    .card .group { margin-top: 8px; }
-    .card .group b { color: #8b949e; }
-    .card ul { margin: 3px 0 0; padding-left: 16px; }
-    .card li { color: #9ca3af; word-break: break-all; }
+    .card h3 { margin: 0 0 9px; font: 600 14px var(--mono); letter-spacing: -.01em; word-break: break-all; }
+    .card .kind { display: inline-block; padding: 2px 9px; border-radius: 999px;
+      font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .05em;
+      background: hsl(228 14% 16%); border: 1px solid var(--border-2); }
+    .card .loc { color: var(--text-3); margin: 11px 0 2px; font: 12px var(--mono); word-break: break-all; }
+    .card .group { margin-top: 13px; }
+    .card .group b { display: block; margin-bottom: 5px; color: var(--text-2);
+      font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+    .card ul { margin: 0; padding: 0; list-style: none; }
+    .card li { color: var(--text); font: 12px var(--mono); padding: 2px 0 2px 8px; margin: 4px 0;
+      border-left: 2px solid var(--border-2); word-break: break-all; }
+    @media (max-width: 600px) { .brand small, .legend { display: none; } }
   </style>
 </head>
 <body>
-  <div class="toolbar">
-    <button data-projection="full" class="active">Full</button>
-    <button data-projection="dependency">Dependency</button>
-    <button data-projection="structure">Structure</button>
-    <button data-projection="call">Call</button>
+  <header class="topbar">
+    <span class="brand"><i class="mark"></i>codegraph <small>knowledge graph</small></span>
+    <nav class="seg">
+      <button data-projection="full" class="active">Full</button>
+      <button data-projection="dependency">Dependency</button>
+      <button data-projection="structure">Structure</button>
+      <button data-projection="call">Call</button>
+    </nav>
     <span class="legend">
-      <span><i class="dot" style="background:#7aa2f7"></i>module</span>
-      <span><i class="dot" style="background:#bb9af7"></i>class</span>
-      <span><i class="dot" style="background:#9ece6a"></i>function</span>
-      <span><i class="dot" style="background:#7dcfff"></i>method</span>
+      <span style="color:var(--k-module)"><i class="dot"></i>module</span>
+      <span style="color:var(--k-class)"><i class="dot"></i>class</span>
+      <span style="color:var(--k-function)"><i class="dot"></i>function</span>
+      <span style="color:var(--k-method)"><i class="dot"></i>method</span>
     </span>
-  </div>
+  </header>
   <div id="app"></div>
   <div id="card" class="card hidden"></div>
   <script src="${scriptUri}"></script>

@@ -3,11 +3,11 @@ import type { GraphNode, GraphEdge, NodeKind, EdgeType } from "../../../core/gra
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
 // A restrained, legible palette — modules anchor, leaves recede.
 export const KIND_COLORS: Record<NodeKind, string> = {
-  module: "#7aa2f7", // blue — containers
-  class: "#bb9af7", // violet — types
-  function: "#9ece6a", // green — behavior
-  method: "#7dcfff", // cyan — behavior on a type
-  workflow: "#e0af68", // amber — flows
+  module: "#6aa3ff", // blue — containers
+  class: "#b08cff", // violet — types
+  function: "#5fd39a", // green — behavior
+  method: "#5cc8e6", // cyan — behavior on a type
+  workflow: "#f1b45a", // amber — flows
 };
 
 const KIND_SIZE: Record<NodeKind, number> = {

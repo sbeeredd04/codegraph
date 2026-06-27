@@ -36,7 +36,7 @@ function showCard(graph: Graph, id: string): void {
   const callers: string[] = [];
   graph.forEachInEdge(id, (_e: string, _attrs: unknown, source: string) => callers.push(source));
 
-  let html = `<h3>${esc(a.label)}</h3><span class="kind" style="background:${a.color}">${esc(a.kind)}</span>`;
+  let html = `<h3>${esc(a.label)}</h3><span class="kind" style="color:${esc(a.color)}">${esc(a.kind)}</span>`;
   html += `<div class="loc">${esc(a.file)}:${a.line + 1}</div>`;
   for (const [rel, targets] of out) {
     html += `<div class="group"><b>${esc(rel)} (${targets.length})</b><ul>${targets
@@ -59,7 +59,7 @@ function render(model: RenderModel): void {
   renderer = undefined;
   if (model.nodes.length === 0) {
     container.innerHTML =
-      '<div style="color:#6e7681;padding:20px;font:13px ui-monospace,monospace">No nodes in this projection yet.</div>';
+      '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:hsl(228 10% 44%);font:13px var(--mono,monospace)">No nodes in this projection yet.</div>';
     return;
   }
   container.innerHTML = "";
@@ -79,7 +79,7 @@ function render(model: RenderModel): void {
   }
   for (const e of model.edges) {
     if (graph.hasNode(e.source) && graph.hasNode(e.target) && !graph.hasEdge(e.source, e.target)) {
-      graph.addEdgeWithKey(e.id, e.source, e.target, { color: "#30363d", size: 1, relation: e.type });
+      graph.addEdgeWithKey(e.id, e.source, e.target, { color: "#333a4d", size: 1, relation: e.type });
     }
   }
   // Force-directed layout for legibility (circular seed -> real positions).
@@ -92,8 +92,8 @@ function render(model: RenderModel): void {
 
   renderer?.kill();
   renderer = new Sigma(graph, container, {
-    defaultEdgeColor: "#30363d",
-    labelColor: { color: "#c9d1d9" },
+    defaultEdgeColor: "#333a4d",
+    labelColor: { color: "#c9d3e3" },
     labelFont: "ui-monospace, Menlo, monospace",
     labelSize: 11,
     renderLabels: true,
@@ -124,9 +124,9 @@ window.addEventListener("message", (event: MessageEvent) => {
 });
 
 // Projection toolbar: switch the view of the one model (FR-4).
-for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))) {
+for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg button"))) {
   btn.addEventListener("click", () => {
-    for (const b of Array.from(document.querySelectorAll(".toolbar button"))) b.classList.remove("active");
+    for (const b of Array.from(document.querySelectorAll(".seg button"))) b.classList.remove("active");
     btn.classList.add("active");
     vscode.postMessage({ type: "setProjection", kind: btn.dataset.projection });
   });
