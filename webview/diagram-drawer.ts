@@ -13,6 +13,7 @@
 
 import {
   diagramIndexHtml,
+  relatedChipsHtml,
   type DiagramPanelModel,
   type DiagramView,
 } from "../src/adapters/surfaces/webview/diagram-view.js";
@@ -33,8 +34,16 @@ export interface DiagramDrawerEls {
   readonly index: HTMLElement;
   /** Selected diagram's title + category. */
   readonly stageHead: HTMLElement;
+  /** Clickable chips for the open diagram's related graph nodes (Epic 7.5c). */
+  readonly related: HTMLElement;
   /** Where the rendered Mermaid SVG is injected. */
   readonly render: HTMLElement;
+}
+
+export interface DiagramDrawerOptions {
+  /** Jump from a diagram's "related" chip to that graph node. The surface owns the
+   * focus (pan camera + show card); the drawer closes so the node is unobscured. */
+  readonly onSelectNode?: (address: string) => void;
 }
 
 export interface DiagramDrawer {
@@ -54,7 +63,10 @@ function resolveMermaid(): MermaidApi | undefined {
  * the escaped index, selection state (kept across live updates), and the defensive
  * Mermaid render.
  */
-export function createDiagramDrawer(els: DiagramDrawerEls): DiagramDrawer {
+export function createDiagramDrawer(
+  els: DiagramDrawerEls,
+  opts: DiagramDrawerOptions = {},
+): DiagramDrawer {
   const byId = new Map<string, DiagramView>();
   let current: string | undefined;
   let renderSeq = 0;
@@ -124,11 +136,37 @@ export function createDiagramDrawer(els: DiagramDrawerEls): DiagramDrawer {
     }
   };
 
+  // Related-node chips (Epic 7.5c): only shown when the diagram names addresses AND
+  // the surface gave us a way to focus them. Clicking jumps to the node and closes
+  // the drawer so the (right-anchored) panel doesn't cover the node we panned to.
+  const renderRelated = (view: DiagramView): void => {
+    const html = opts.onSelectNode ? relatedChipsHtml(view.related) : "";
+    if (!html) {
+      els.related.hidden = true;
+      els.related.innerHTML = "";
+      return;
+    }
+    els.related.hidden = false;
+    els.related.innerHTML = html;
+    for (const b of Array.from(els.related.querySelectorAll<HTMLButtonElement>(".dg-rel"))) {
+      b.addEventListener("click", () => {
+        opts.onSelectNode?.(b.dataset.addr as string);
+        setOpen(false);
+      });
+    }
+  };
+
+  const clearRelated = (): void => {
+    els.related.hidden = true;
+    els.related.innerHTML = "";
+  };
+
   const select = (id: string): void => {
     const view = byId.get(id);
     if (!view) return;
     current = id;
     markActive(id);
+    renderRelated(view);
     void renderDiagram(view);
   };
 
@@ -148,6 +186,7 @@ export function createDiagramDrawer(els: DiagramDrawerEls): DiagramDrawer {
       if (model.count === 0) {
         els.index.hidden = true;
         els.stageHead.hidden = true;
+        clearRelated();
         els.render.innerHTML = diagramIndexHtml(model); // onboarding empty state
         current = undefined;
         return;
@@ -166,6 +205,7 @@ export function createDiagramDrawer(els: DiagramDrawerEls): DiagramDrawer {
       else {
         current = undefined;
         els.stageHead.hidden = true;
+        clearRelated();
         els.render.innerHTML = `<p class="dg-placeholder">Select a diagram to render it.</p>`;
       }
     },

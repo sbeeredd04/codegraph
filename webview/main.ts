@@ -31,8 +31,9 @@ const diagrams = createDiagramDrawer({
   close: document.getElementById("dg-close") as HTMLButtonElement,
   index: document.getElementById("dg-index") as HTMLElement,
   stageHead: document.getElementById("dg-stage-head") as HTMLElement,
+  related: document.getElementById("dg-related") as HTMLElement,
   render: document.getElementById("dg-render") as HTMLElement,
-});
+}, { onSelectNode: (address) => gotoRelatedNode(address) });
 const CHANGE_COLORS: Record<RankedChange["change"], string> = {
   added: "#3fb950",
   changed: "#e3b341",
@@ -56,6 +57,33 @@ function focusNode(id: string): void {
   const pos = renderer.getNodeDisplayData(id);
   if (pos) void renderer.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.55 }, { duration: 420 });
   showCard(graph, id, card);
+}
+
+// A node address awaiting focus after a projection switch (diagram -> graph, Epic
+// 7.5c): the related node may be hidden by the current projection, so we switch to
+// the full view and focus it once the new model paints.
+let pendingFocus: string | undefined;
+
+// Jump from a diagram's "related" chip to its graph node. If the node is in the
+// current projection, focus it now; otherwise switch to the full view (which has
+// every node) and focus once it repaints.
+function gotoRelatedNode(address: string): void {
+  if (graph?.hasNode(address)) {
+    focusNode(address);
+    return;
+  }
+  pendingFocus = address;
+  setProjection("full");
+}
+
+// Switch the projection from code (mirrors a toolbar click): reflect the active
+// segment and ask the host to re-render. No-op if already on that projection's view.
+function setProjection(kind: string): void {
+  for (const b of Array.from(document.querySelectorAll(".seg button"))) {
+    b.classList.toggle("active", (b as HTMLElement).dataset.projection === kind);
+  }
+  relayout = true; // a new projection is a new node set — lay it out fresh
+  vscode.postMessage({ type: "setProjection", kind });
 }
 
 // Ranked change feed (FR-7 triage): highest blast-radius change at the top.
@@ -188,17 +216,18 @@ window.addEventListener("message", (event: MessageEvent) => {
   if (msg?.type === "render") {
     render(msg.payload);
     if (msg.diagrams) diagrams.update(msg.diagrams);
+    // A related-node click switched projection to reach a hidden node — focus it
+    // now that the full view has painted, then clear (one-shot).
+    if (pendingFocus) {
+      focusNode(pendingFocus);
+      pendingFocus = undefined;
+    }
   }
 });
 
 // Projection toolbar: switch the view of the one model (FR-4).
 for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg button"))) {
-  btn.addEventListener("click", () => {
-    for (const b of Array.from(document.querySelectorAll(".seg button"))) b.classList.remove("active");
-    btn.classList.add("active");
-    relayout = true; // a new projection is a new node set — lay it out fresh
-    vscode.postMessage({ type: "setProjection", kind: btn.dataset.projection });
-  });
+  btn.addEventListener("click", () => setProjection(btn.dataset.projection ?? "full"));
 }
 
 // Tell the host we're mounted; it replies with the render model.

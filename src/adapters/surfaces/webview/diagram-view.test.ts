@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Diagram, DiagramSet } from "../../../core/diagrams/diagram.js";
 import { DIAGRAM_SET_VERSION } from "../../../core/diagrams/diagram.js";
-import { buildDiagramPanel, diagramIndexHtml } from "./diagram-view.js";
+import { buildDiagramPanel, diagramIndexHtml, relatedChipsHtml } from "./diagram-view.js";
 
 const diagram = (over: Partial<Diagram>): Diagram => ({
   id: over.id ?? "workflow/login",
@@ -79,5 +79,33 @@ describe("diagramIndexHtml", () => {
     const html = diagramIndexHtml(buildDiagramPanel(setOf()));
     expect(html).not.toContain("<button");
     expect(html.toLowerCase()).toContain("save_diagram");
+  });
+});
+
+describe("relatedChipsHtml", () => {
+  it("renders one button per related address, carrying the full address and a short label", () => {
+    const html = relatedChipsHtml(["ts:m.ts#foo", "py:pkg/mod.py#Bar.baz"]);
+    expect(html).toContain('data-addr="ts:m.ts#foo"');
+    expect(html).toContain(">foo<"); // short label = the member after '#'
+    expect(html).toContain('data-addr="py:pkg/mod.py#Bar.baz"');
+    expect(html).toContain(">Bar.baz<");
+    expect((html.match(/<button/g) ?? []).length).toBe(2);
+  });
+
+  it("uses the whole address as the label when there is no member (a module)", () => {
+    const html = relatedChipsHtml(["ts:a.ts"]);
+    expect(html).toContain('data-addr="ts:a.ts"');
+    expect(html).toContain(">ts:a.ts<");
+  });
+
+  it("returns an empty string for no related addresses (chip row stays hidden)", () => {
+    expect(relatedChipsHtml([])).toBe("");
+    expect(relatedChipsHtml(undefined)).toBe("");
+  });
+
+  it("escapes a malicious address so it cannot inject markup (agent text is untrusted)", () => {
+    const html = relatedChipsHtml([`ts:a.ts#"><img src=x onerror=alert(1)>`]);
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&quot;&gt;&lt;img src=x");
   });
 });

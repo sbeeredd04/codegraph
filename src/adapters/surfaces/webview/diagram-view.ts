@@ -11,7 +11,7 @@
 
 import type { Diagram, DiagramSet } from "../../../core/diagrams/diagram.js";
 import { diagramsByCategory } from "../../../core/diagrams/diagram.js";
-import { esc } from "./card.js";
+import { esc, shortName } from "./card.js";
 
 /** A single diagram, shaped for the webview: the chrome the index shows plus the
  * raw Mermaid source the renderer needs when the user opens it. */
@@ -97,4 +97,24 @@ function groupHtml(group: DiagramCategoryGroup): string {
 export function diagramIndexHtml(model: DiagramPanelModel): string {
   if (model.count === 0) return emptyStateHtml();
   return model.groups.map(groupHtml).join("");
+}
+
+/**
+ * The clickable "related nodes" chips for an open diagram (Epic 7.5c): one button
+ * per graph address the diagram is about, so the user can jump from the narrative
+ * straight to the node in the graph. The address is carried on `data-addr` (the
+ * surface focuses it) and shown as a compact label. Returns "" when there are
+ * none, so the chip row simply stays hidden. Addresses are agent-written and go
+ * into innerHTML, so both the attribute and the label are escaped.
+ */
+export function relatedChipsHtml(addresses: readonly string[] | undefined): string {
+  if (!addresses || addresses.length === 0) return "";
+  const chips = addresses
+    .map(
+      (a) =>
+        `<button class="dg-rel" type="button" data-addr="${esc(a)}" title="${esc(a)}">` +
+        `${esc(shortName(a))}</button>`,
+    )
+    .join("");
+  return `<span class="dg-rel-label">Related</span>${chips}`;
 }

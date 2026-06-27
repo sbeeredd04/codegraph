@@ -39,8 +39,9 @@ const diagrams = createDiagramDrawer({
   close: document.getElementById("dg-close") as HTMLButtonElement,
   index: document.getElementById("dg-index") as HTMLElement,
   stageHead: document.getElementById("dg-stage-head") as HTMLElement,
+  related: document.getElementById("dg-related") as HTMLElement,
   render: document.getElementById("dg-render") as HTMLElement,
-});
+}, { onSelectNode: (address) => focusNodeByAddress(address) });
 
 let snapshot: GraphSnapshot | undefined;
 let projection: ProjectionKind = "full";
@@ -113,6 +114,30 @@ function rebuild(): void {
   render(buildRenderModel(projected.nodes, projected.edges, undefined, undefined, undefined, enrich, orphanSet));
 }
 
+// Switch the projection and repaint (mirrors a toolbar click), reflecting the
+// active segment. Used by the toolbar and by the diagram related-node jump.
+function setProjection(kind: ProjectionKind): void {
+  projection = kind;
+  for (const b of Array.from(document.querySelectorAll(".seg button"))) b.classList.remove("active");
+  document.querySelector(`.seg button[data-projection="${kind}"]`)?.classList.add("active");
+  card.classList.add("hidden");
+  rebuild();
+}
+
+// Jump from a diagram's "related" chip to its graph node (Epic 7.5c). If the node
+// is hidden by the current projection, fall back to the full view (which has every
+// node) before focusing — but only when the address really is in this snapshot.
+function focusNodeByAddress(address: string): void {
+  if (!graph?.hasNode(address)) {
+    if (!snapshot?.nodes.some((n) => n.address === address)) return; // unknown address: no-op
+    setProjection("full"); // synchronous rebuild — the node is present after this
+  }
+  if (!renderer || !graph || !graph.hasNode(address)) return;
+  const pos = renderer.getNodeDisplayData(address);
+  if (pos) void renderer.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.55 }, { duration: 420 });
+  showCard(graph, address, card);
+}
+
 function loadText(text: string): void {
   const result = parseGraphSnapshot(text);
   if (!result.ok) {
@@ -176,10 +201,6 @@ window.addEventListener("drop", (e: DragEvent) => {
 // Projection toolbar: switch the view of the loaded snapshot (FR-4), all local.
 for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg button"))) {
   btn.addEventListener("click", () => {
-    for (const b of Array.from(document.querySelectorAll(".seg button"))) b.classList.remove("active");
-    btn.classList.add("active");
-    projection = (btn.dataset.projection as ProjectionKind) ?? "full";
-    card.classList.add("hidden");
-    rebuild();
+    setProjection((btn.dataset.projection as ProjectionKind) ?? "full");
   });
 }

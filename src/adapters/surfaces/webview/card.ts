@@ -20,8 +20,10 @@ export function esc(s: string): string {
 }
 
 // A node address is `path#member`; the short name is the member (or the whole
-// address when there is no `#`, e.g. a module). Used for the compact edge lists.
-function shortName(addr: string): string {
+// address when there is no `#`, e.g. a module). Used for the compact edge lists
+// and the diagram drawer's related-node chips. Exported so every surface derives
+// the same compact label from an address.
+export function shortName(addr: string): string {
   return addr.includes("#") ? (addr.split("#").pop() as string) : addr;
 }
 
