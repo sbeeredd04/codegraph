@@ -6,13 +6,20 @@ import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
 import { bootstrapRepo, type BootstrapOptions } from "../adapters/lang/bootstrap.js";
 import { diffGraphs } from "../core/graph/diff.js";
 import { rankedChangeFeed } from "../core/graph/change-feed.js";
+import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
 import type { CodeGraph } from "../core/graph/graph.js";
+import type { GraphDelta } from "../core/graph/types.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
 // Extension host = composition root (AD-1). It wires adapters to the pure core;
 // the core never imports vscode.
 
 const require = createRequire(__filename);
+
+// Quiet window before a burst of saves triggers one re-scan (the live Job B).
+const WATCH_DEBOUNCE_MS = 400;
+// Paths the graph never includes — skip them before debouncing to avoid churn.
+const WATCH_IGNORE = /[/\\](node_modules|\.git|dist|\.venv|__pycache__)[/\\]/;
 
 function wasmDir(): string {
   return path.dirname(require.resolve("@vscode/tree-sitter-wasm"));
@@ -21,6 +28,10 @@ function wasmDir(): string {
 export function activate(context: vscode.ExtensionContext): void {
   let adapter: Promise<LanguageAdapter> | undefined;
   let current: { folderPath: string; graph: CodeGraph; options: BootstrapOptions } | undefined;
+  let watcher: vscode.FileSystemWatcher | undefined;
+  let coalescer: Coalescer | undefined;
+  let scanning = false;
+  let dirty = false;
 
   const readOptions = (): BootstrapOptions => {
     const cfg = vscode.workspace.getConfiguration("codegraph");
@@ -29,6 +40,60 @@ export function activate(context: vscode.ExtensionContext): void {
       python: cfg.get<boolean>("languages.python", true),
       exclude: cfg.get<string[]>("exclude", []),
     };
+  };
+
+  // Re-scan the active workspace, diff against the prior graph, and repaint.
+  // In silent mode (the live watcher) the panel only repaints on a real delta,
+  // so no-op saves never disturb the view. Returns the delta (or undefined).
+  const rescan = async (silent: boolean): Promise<GraphDelta | undefined> => {
+    if (!current) return undefined;
+    const active = current;
+    const { graph: next } = await bootstrapRepo(active.folderPath, wasmDir(), active.options);
+    const delta = diffGraphs(active.graph, next);
+    const changed =
+      delta.added.length + delta.removed.length + delta.changed.length + delta.movedRenamed.length > 0;
+    current = { ...active, graph: next };
+    if (!silent || changed) {
+      const feed = rankedChangeFeed(delta, active.graph, next);
+      GraphPanel.show(context, next.allNodes(), next.allEdges(), delta, feed);
+    }
+    return delta;
+  };
+
+  // Serialize scans: a flush mid-scan marks the run dirty and re-fires once after.
+  const runScan = async (silent: boolean): Promise<GraphDelta | undefined> => {
+    if (scanning) {
+      dirty = true;
+      return undefined;
+    }
+    scanning = true;
+    try {
+      return await rescan(silent);
+    } finally {
+      scanning = false;
+      if (dirty) {
+        dirty = false;
+        void runScan(true);
+      }
+    }
+  };
+
+  // Passive running job (FR-7/FR-9): watch source files, coalesce save bursts,
+  // and re-scan in the background. Read-only — never mutates the workspace.
+  const startWatching = (folderPath: string): void => {
+    watcher?.dispose();
+    coalescer?.dispose();
+    coalescer = createCoalescer(WATCH_DEBOUNCE_MS, () => void runScan(true));
+    watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(folderPath, "**/*.{ts,tsx,mts,cts,js,jsx,py}"),
+    );
+    const onEvent = (uri: vscode.Uri): void => {
+      if (!WATCH_IGNORE.test(uri.fsPath)) coalescer?.notify(uri.fsPath);
+    };
+    watcher.onDidChange(onEvent);
+    watcher.onDidCreate(onEvent);
+    watcher.onDidDelete(onEvent);
+    context.subscriptions.push(watcher);
   };
 
   const open = vscode.commands.registerCommand("codegraph.open", async () => {
@@ -64,8 +129,9 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         current = { folderPath: folder.uri.fsPath, graph, options };
         GraphPanel.show(context, graph.allNodes(), graph.allEdges());
+        startWatching(folder.uri.fsPath);
         void vscode.window.showInformationMessage(
-          `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`,
+          `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges · watching for changes`,
         );
       },
     );
@@ -79,12 +145,8 @@ export function activate(context: vscode.ExtensionContext): void {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: "codegraph: re-scanning…" },
       async () => {
-        const active = current as { folderPath: string; graph: CodeGraph; options: BootstrapOptions };
-        const { graph: next } = await bootstrapRepo(active.folderPath, wasmDir(), active.options);
-        const delta = diffGraphs(active.graph, next);
-        const feed = rankedChangeFeed(delta, active.graph, next);
-        current = { ...active, graph: next };
-        GraphPanel.show(context, next.allNodes(), next.allEdges(), delta, feed);
+        const delta = await runScan(false);
+        if (!delta) return;
         const total =
           delta.added.length + delta.removed.length + delta.changed.length + delta.movedRenamed.length;
         void vscode.window.showInformationMessage(
@@ -96,7 +158,12 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh);
+  context.subscriptions.push(open, openWorkspace, refresh, {
+    dispose: () => {
+      watcher?.dispose();
+      coalescer?.dispose();
+    },
+  });
 }
 
 export function deactivate(): void {
