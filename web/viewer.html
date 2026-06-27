@@ -43,9 +43,31 @@
     .seg button.active { background: var(--surface-3); color: var(--text);
       box-shadow: var(--sh-1), inset 0 1px 0 hsl(228 20% 32% / .4); }
 
-    /* The projection toolbar and the snapshot meta are dead chrome until a graph
-       is loaded — hide them so the empty state's single action leads. */
-    body:not(.loaded) .seg, body:not(.loaded) .meta { display: none; }
+    /* The projection toolbar, orphan toggle, and snapshot meta are dead chrome
+       until a graph is loaded — hide them so the empty state's single action leads. */
+    body:not(.loaded) .seg, body:not(.loaded) .meta, body:not(.loaded) .tg { display: none; }
+
+    /* Orphan overlay toggle (FR-12) — mirrors the panel's control exactly. */
+    .tg { display: inline-flex; align-items: center; gap: 7px; appearance: none; cursor: pointer;
+      background: var(--bg); color: var(--text-2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 5px 11px; font: 500 12px var(--sans); white-space: nowrap;
+      transition: color .12s ease, background .12s ease, border-color .12s ease; }
+    .tg:hover:not(:disabled) { color: var(--text); }
+    .tg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tg:disabled { color: var(--text-3); cursor: default; }
+    .tg .tgdot { width: 7px; height: 7px; border-radius: 50%;
+      border: 1.5px solid currentColor; box-sizing: border-box; }
+    .tg .n { font: 600 11px var(--mono); color: var(--text-3); }
+    .tg.active { color: hsl(40 82% 72%); background: hsl(40 48% 14% / .5);
+      border-color: hsl(40 60% 52% / .45); }
+    .tg.active .n { color: hsl(40 82% 72%); }
+
+    /* Drag-and-drop a snapshot anywhere on the page. */
+    body.dragging::after { content: "Drop snapshot to load"; position: absolute; inset: 48px 12px 12px;
+      z-index: 50; display: flex; align-items: center; justify-content: center;
+      border: 2px dashed hsl(250 92% 71% / .55); border-radius: 14px;
+      background: hsl(250 45% 16% / .35); color: var(--text); font: 600 14px var(--sans);
+      pointer-events: none; }
 
     .meta { color: var(--text-2); font: 500 11px var(--mono); white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; }
@@ -121,6 +143,10 @@
       <button data-projection="structure">Structure</button>
       <button data-projection="call">Call</button>
     </nav>
+    <button id="orphan-toggle" class="tg" type="button" aria-pressed="false" disabled
+      title="Dim everything except dead-code candidates (nodes with no inbound references).">
+      <i class="tgdot" aria-hidden="true"></i>Orphans<span class="n" id="orphan-count">0</span>
+    </button>
     <span class="meta" id="meta"></span>
     <button class="load" id="load" type="button">Load snapshot…</button>
     <span class="legend" aria-hidden="true">
