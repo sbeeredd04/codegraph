@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { CodeGraph } from "../../core/graph/graph.js";
 import type { NodeKind } from "../../core/graph/types.js";
 import type { RankedChange } from "../../core/graph/change-feed.js";
+import type { NodeAnnotations } from "../../core/semantic/annotations.js";
+import type { NodeEnrichment } from "../../core/semantic/enrichment.js";
 import {
   findNodes,
   describeNode,
@@ -71,6 +73,7 @@ const fail = (message: string): McpToolResult => ({
 export function graphTools(
   getGraph: () => CodeGraph,
   recentChanges?: RecentChangesProvider,
+  annotations?: NodeAnnotations,
 ): GraphTool[] {
   const tools: GraphTool[] = [
     {
@@ -100,8 +103,15 @@ export function graphTools(
         "(calls, depends-on, contains, hands-off-to), and its direct dependents.",
       inputSchema: { address: ADDRESS },
       handler: (args) => {
-        const detail = describeNode(getGraph(), String(args.address));
-        return detail ? ok(detail) : fail(`codegraph: no node at address "${String(args.address)}".`);
+        const address = String(args.address);
+        const detail = describeNode(getGraph(), address);
+        if (!detail) return fail(`codegraph: no node at address "${address}".`);
+        // When annotations are available, fold in the node's stored enrichment
+        // (the agent's own summary/intent/role), if any. Stays sync otherwise.
+        if (!annotations) return ok(detail);
+        return annotations
+          .get(address)
+          .then((enrichment) => ok(enrichment ? { ...detail, enrichment } : detail));
       },
     },
     {
@@ -172,6 +182,37 @@ export function graphTools(
         } catch (e) {
           return fail(e instanceof Error ? e.message : "codegraph: could not compute recent changes.");
         }
+      },
+    });
+  }
+
+  if (annotations) {
+    tools.push({
+      name: "annotate_node",
+      title: "Annotate node",
+      description:
+        "Record your understanding of a node onto the graph: a one-line summary of what it does, " +
+        "why it exists (intent), and its architectural role. The human board and describe_node then " +
+        "surface it. It's cached by the node's content hash, so it survives a move/rename but is " +
+        "dropped once the node's signature or call set changes — annotate again when that happens. " +
+        "This writes graph metadata only; it never touches source files.",
+      inputSchema: {
+        address: ADDRESS,
+        summary: z.string().min(1).describe("One sentence: what this node does."),
+        intent: z.string().optional().describe("Why it exists — the purpose it serves in the system."),
+        role: z.string().optional().describe("Its architectural role, e.g. port, adapter, orchestrator."),
+      },
+      handler: async (args) => {
+        const address = String(args.address);
+        const enrichment: NodeEnrichment = {
+          summary: String(args.summary ?? ""),
+          intent: args.intent ? String(args.intent) : "",
+          role: args.role ? String(args.role) : "",
+        };
+        const stored = await annotations.set(address, enrichment);
+        return stored
+          ? ok({ annotated: address, enrichment })
+          : fail(`codegraph: no node at address "${address}".`);
       },
     });
   }

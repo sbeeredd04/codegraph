@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { CodeGraph } from "../../core/graph/graph.js";
 import { graphTools } from "./tools.js";
 import { createGraphMcpServer } from "./server.js";
+import { createNodeAnnotations } from "../../core/semantic/annotations.js";
+import type { EnrichmentCache, NodeEnrichment } from "../../core/semantic/enrichment.js";
 import type { GraphNode, GraphEdge } from "../../core/graph/types.js";
 
 const node = (address: string, kind: GraphNode["kind"], name?: string): GraphNode => ({
@@ -118,5 +120,55 @@ describe("MCP recent_changes tool", () => {
     const r = await tools.get("recent_changes")!.handler({});
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toContain("not a git repository");
+  });
+});
+
+describe("MCP annotate_node tool (agent-driven enrichment)", () => {
+  const memCache = (): EnrichmentCache => {
+    const m = new Map<string, NodeEnrichment>();
+    return { get: (k) => m.get(k), set: (k, v) => void m.set(k, v) };
+  };
+  const annTools = (g: CodeGraph) => {
+    const annotations = createNodeAnnotations(() => g, memCache());
+    return new Map(graphTools(() => g, undefined, annotations).map((t) => [t.name, t]));
+  };
+
+  it("appears only when an annotation store is injected", () => {
+    expect([...toolMap(fixture()).keys()]).not.toContain("annotate_node");
+    expect([...annTools(fixture()).keys()]).toContain("annotate_node");
+  });
+
+  it("stores an annotation that describe_node then surfaces as enrichment", async () => {
+    const tools = annTools(fixture());
+    const w = await tools.get("annotate_node")!.handler({
+      address: "ts:m.ts#util",
+      summary: "a small helper",
+      intent: "shared logic",
+      role: "utility",
+    });
+    expect(parse(w.content[0].text).annotated).toBe("ts:m.ts#util");
+    const d = await tools.get("describe_node")!.handler({ address: "ts:m.ts#util" });
+    expect(parse(d.content[0].text).enrichment).toEqual({
+      summary: "a small helper",
+      intent: "shared logic",
+      role: "utility",
+    });
+  });
+
+  it("defaults intent and role to empty strings when omitted", async () => {
+    const tools = annTools(fixture());
+    await tools.get("annotate_node")!.handler({ address: "ts:m.ts#util", summary: "only a summary" });
+    const d = await tools.get("describe_node")!.handler({ address: "ts:m.ts#util" });
+    expect(parse(d.content[0].text).enrichment).toEqual({ summary: "only a summary", intent: "", role: "" });
+  });
+
+  it("errors cleanly when annotating an unknown address", async () => {
+    const r = await annTools(fixture()).get("annotate_node")!.handler({ address: "ts:nope#ghost", summary: "x" });
+    expect(r.isError).toBe(true);
+  });
+
+  it("describe_node omits enrichment when none was stored", async () => {
+    const d = await annTools(fixture()).get("describe_node")!.handler({ address: "ts:m.ts#foo" });
+    expect(parse(d.content[0].text).enrichment).toBeUndefined();
   });
 });
