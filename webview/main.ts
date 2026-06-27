@@ -2,6 +2,8 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webview/render-model.js";
+import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
+import type { NodeKind } from "../src/core/graph/types.js";
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
@@ -94,11 +96,26 @@ function render(model: RenderModel): void {
     labelColor: { color: "#c9d1d9" },
     labelFont: "ui-monospace, Menlo, monospace",
     labelSize: 11,
-    renderLabels: graph.order <= 200,
+    renderLabels: true,
   });
 
   renderer.on("enterNode", ({ node }: { node: string }) => showCard(graph, node));
   renderer.on("clickStage", () => card.classList.add("hidden"));
+
+  // Semantic-zoom LOD (FR-5): large graphs hide detail when zoomed out.
+  if (graph.order > 300) {
+    const camera = renderer.getCamera();
+    renderer.setSetting("nodeReducer", (_node: string, data: { kind: NodeKind }) => ({
+      ...data,
+      hidden: nodeHiddenAtRatio(data.kind, camera.ratio),
+    }));
+    renderer.setSetting("edgeReducer", (edge: string, data: object) => {
+      const sk = graph.getNodeAttribute(graph.source(edge), "kind") as NodeKind;
+      const tk = graph.getNodeAttribute(graph.target(edge), "kind") as NodeKind;
+      return { ...data, hidden: nodeHiddenAtRatio(sk, camera.ratio) || nodeHiddenAtRatio(tk, camera.ratio) };
+    });
+    camera.on("updated", () => renderer?.refresh());
+  }
 }
 
 window.addEventListener("message", (event: MessageEvent) => {
