@@ -1,7 +1,5 @@
 import * as path from "node:path";
-import * as os from "node:os";
 import { createRequire } from "node:module";
-import { createHash } from "node:crypto";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { bootstrapRepo } from "../lang/bootstrap.js";
 import { baselineGraph } from "../git/baseline.js";
@@ -9,6 +7,7 @@ import { diffGraphs } from "../../core/graph/diff.js";
 import { rankedChangeFeed } from "../../core/graph/change-feed.js";
 import { createNodeAnnotations } from "../../core/semantic/annotations.js";
 import { diskEnrichmentCache } from "../semantic/disk-cache.js";
+import { enrichmentCachePath } from "../semantic/cache-path.js";
 import { createGraphMcpServer } from "./server.js";
 import type { RecentChanges } from "./tools.js";
 import type { CodeGraph } from "../../core/graph/graph.js";
@@ -53,11 +52,12 @@ async function main(): Promise<void> {
 
   // Agent-driven enrichment (Epic 4): the connected agent annotates nodes via the
   // annotate_node tool; we cache by content hash so an annotation survives a move
-  // but goes stale on a signature change. Cache lives in a per-repo temp file —
-  // persistent across restarts, and never written into the user's repo.
-  const cacheKey = createHash("sha1").update(path.resolve(root)).digest("hex").slice(0, 16);
-  const cachePath = path.join(os.tmpdir(), "codegraph", cacheKey, "enrichment.json");
-  const annotations = createNodeAnnotations(() => current, diskEnrichmentCache(cachePath));
+  // but goes stale on a signature change. The cache path is shared with the
+  // extension board (enrichmentCachePath) so what the agent writes, the human sees.
+  const annotations = createNodeAnnotations(
+    () => current,
+    diskEnrichmentCache(enrichmentCachePath(root)),
+  );
 
   const server = createGraphMcpServer(() => current, recentChanges, annotations);
   await server.connect(new StdioServerTransport());
