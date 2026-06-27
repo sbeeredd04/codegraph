@@ -220,6 +220,56 @@
       background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
       font: 11px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
 
+    /* Command palette (PM-backlog #2): a ⌘K spotlight to fuzzy-jump to any node.
+       WAI-ARIA combobox — the input keeps focus, the active row is tracked with
+       aria-activedescendant, so there is no focus trap. */
+    .tg.search { gap: 7px; }
+    .cp-kbd { font: 600 10px var(--mono); color: var(--text-3); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 5px; padding: 2px 5px; line-height: 1; }
+
+    .cp-overlay { position: fixed; inset: 0; z-index: 70; display: flex;
+      align-items: flex-start; justify-content: center; padding: 12vh 16px 16px;
+      background: hsl(228 40% 3% / .55); backdrop-filter: blur(2px);
+      opacity: 0; transition: opacity .14s ease; }
+    .cp-overlay.open { opacity: 1; }
+    .cp-overlay.gone { display: none; }
+    .cp-dialog { width: min(560px, 100%); max-height: 62vh; display: flex; flex-direction: column;
+      background: linear-gradient(var(--surface-2), var(--surface));
+      border: 1px solid var(--border-2); border-radius: 14px; box-shadow: var(--sh-2);
+      overflow: hidden; transform: translateY(-8px) scale(.99); transition: transform .14s ease; }
+    .cp-overlay.open .cp-dialog { transform: none; }
+    @media (prefers-reduced-motion: reduce) { .cp-overlay, .cp-dialog { transition: none; } }
+
+    .cp-input-wrap { display: flex; align-items: center; gap: 10px; padding: 13px 14px;
+      border-bottom: 1px solid var(--border); }
+    .cp-search-icon { color: var(--text-3); flex: none; }
+    .cp-input { flex: 1; min-width: 0; appearance: none; background: transparent; border: 0;
+      outline: none; color: var(--text); font: 15px var(--sans); }
+    .cp-input::placeholder { color: var(--text-3); }
+
+    .cp-list { margin: 0; padding: 6px; list-style: none; overflow: auto; min-height: 0; }
+    .cp-list[hidden] { display: none; }
+    .cp-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+      gap: 10px; padding: 8px 10px; border-radius: 9px; cursor: pointer;
+      box-shadow: inset 2px 0 0 0 transparent; }
+    .cp-row.active { background: var(--surface-3); box-shadow: inset 2px 0 0 0 var(--accent); }
+    .cp-kind { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; }
+    .cp-row[data-kind="module"] .cp-kind { background: var(--k-module); }
+    .cp-row[data-kind="class"] .cp-kind { background: var(--k-class); }
+    .cp-row[data-kind="function"] .cp-kind { background: var(--k-function); }
+    .cp-row[data-kind="method"] .cp-kind { background: var(--k-method); }
+    .cp-row[data-kind="workflow"] .cp-kind { background: var(--k-workflow); }
+    .cp-name { font: 500 13px var(--mono); color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-name mark { background: hsl(250 92% 71% / .24); color: var(--text); border-radius: 3px; padding: 0 1px; }
+    .cp-path { font: 11px var(--mono); color: var(--text-3); justify-self: end; max-width: 46%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-empty { margin: 0; padding: 26px 16px; text-align: center; color: var(--text-2); font: 13px var(--sans); }
+    .cp-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 8px 14px; border-top: 1px solid var(--border); }
+    .cp-hint { color: var(--text-2); font: 600 11px var(--mono); }
+    .cp-tip { color: var(--text-3); font: 11px var(--sans); }
+
     @media (max-width: 600px) { .brand small, .legend, .meta { display: none; } }
   </style>
 </head>
@@ -232,6 +282,13 @@
       <button data-projection="structure">Structure</button>
       <button data-projection="call">Call</button>
     </nav>
+    <button id="search-toggle" class="tg search" type="button"
+      title="Search nodes by name (Cmd/Ctrl K)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
+      </svg>Search<kbd class="cp-kbd">⌘K</kbd>
+    </button>
     <button id="orphan-toggle" class="tg" type="button" aria-pressed="false" disabled
       title="Dim everything except dead-code candidates (nodes with no inbound references).">
       <i class="tgdot" aria-hidden="true"></i>Orphans<span class="n" id="orphan-count">0</span>
@@ -273,6 +330,26 @@
       <div class="dg-render" id="dg-render"></div>
     </div>
   </aside>
+  <div id="palette" class="cp-overlay gone" role="presentation">
+    <div id="cp-dialog" class="cp-dialog" role="dialog" aria-modal="true" aria-label="Search nodes">
+      <div class="cp-input-wrap">
+        <svg class="cp-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
+        </svg>
+        <input id="cp-input" class="cp-input" type="text" role="combobox" aria-expanded="true"
+          aria-controls="cp-list" aria-autocomplete="list" autocomplete="off" spellcheck="false"
+          placeholder="Jump to a node…" aria-label="Search nodes by name" />
+        <kbd class="cp-kbd">Esc</kbd>
+      </div>
+      <ul id="cp-list" class="cp-list" role="listbox" aria-label="Matching nodes"></ul>
+      <p id="cp-empty" class="cp-empty" hidden>No matching nodes.</p>
+      <div class="cp-foot">
+        <span id="cp-hint" class="cp-hint"></span>
+        <span class="cp-tip" aria-hidden="true">↑↓ navigate · ↵ open · Esc close</span>
+      </div>
+    </div>
+  </div>
   <input type="file" id="file" accept="application/json,.json" hidden />
   <script src="./mermaid.min.js"></script>
   <script src="./viewer.js"></script>

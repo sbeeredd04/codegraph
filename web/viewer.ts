@@ -20,6 +20,7 @@ import { DIAGRAM_SET_VERSION } from "../src/core/diagrams/diagram.js";
 import { buildDiagramPanel } from "../src/adapters/surfaces/webview/diagram-view.js";
 import { showCard, installLensReducers, createOrphanToggle } from "../webview/graph-view.js";
 import { createDiagramDrawer } from "../webview/diagram-drawer.js";
+import { createCommandPalette } from "../webview/command-palette.js";
 
 const container = document.getElementById("app") as HTMLElement;
 const card = document.getElementById("card") as HTMLElement;
@@ -48,6 +49,26 @@ let projection: ProjectionKind = "full";
 let renderer: Sigma | undefined;
 let graph: Graph | undefined;
 const orphans = createOrphanToggle(orphanToggleEl, orphanCountEl, () => renderer?.refresh());
+
+// Command palette (PM-backlog #2): ⌘K fuzzy jump to any node in the snapshot. It
+// searches the FULL snapshot node set (not the current projection), and the jump
+// reuses focusNodeByAddress, which falls back to the full view when the target is
+// hidden by the active projection — so a search hit is always reachable.
+createCommandPalette(
+  {
+    overlay: document.getElementById("palette") as HTMLElement,
+    dialog: document.getElementById("cp-dialog") as HTMLElement,
+    input: document.getElementById("cp-input") as HTMLInputElement,
+    list: document.getElementById("cp-list") as HTMLElement,
+    empty: document.getElementById("cp-empty") as HTMLElement,
+    hint: document.getElementById("cp-hint") as HTMLElement,
+  },
+  {
+    getNodes: () => snapshot?.nodes ?? [],
+    onSelect: (address) => focusNodeByAddress(address),
+    trigger: document.getElementById("search-toggle") as HTMLButtonElement,
+  },
+);
 
 function render(model: RenderModel): void {
   renderer?.kill();
