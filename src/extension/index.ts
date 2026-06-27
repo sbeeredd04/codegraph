@@ -5,6 +5,7 @@ import type { LanguageAdapter } from "../core/ports.js";
 import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
 import { bootstrapRepo, type BootstrapOptions } from "../adapters/lang/bootstrap.js";
 import { diffGraphs } from "../core/graph/diff.js";
+import { rankedChangeFeed } from "../core/graph/change-feed.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
@@ -81,8 +82,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const active = current as { folderPath: string; graph: CodeGraph; options: BootstrapOptions };
         const { graph: next } = await bootstrapRepo(active.folderPath, wasmDir(), active.options);
         const delta = diffGraphs(active.graph, next);
+        const feed = rankedChangeFeed(delta, active.graph, next);
         current = { ...active, graph: next };
-        GraphPanel.show(context, next.allNodes(), next.allEdges(), delta);
+        GraphPanel.show(context, next.allNodes(), next.allEdges(), delta, feed);
         const total =
           delta.added.length + delta.removed.length + delta.changed.length + delta.movedRenamed.length;
         void vscode.window.showInformationMessage(

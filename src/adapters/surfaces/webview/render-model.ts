@@ -1,4 +1,5 @@
 import type { GraphNode, GraphEdge, NodeKind, EdgeType, GraphDelta } from "../../../core/graph/types.js";
+import type { RankedChange } from "../../../core/graph/change-feed.js";
 
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
 // A restrained, legible palette — modules anchor, leaves recede.
@@ -75,6 +76,7 @@ export interface RenderModel {
   readonly nodes: readonly RenderNode[];
   readonly edges: readonly RenderEdge[];
   readonly delta?: DeltaCounts;
+  readonly feed?: readonly RankedChange[];
 }
 
 /** Versioned host->webview message (spine: host<->webview envelope). */
@@ -94,6 +96,7 @@ export function buildRenderModel(
   edges: readonly GraphEdge[],
   changes?: ReadonlyMap<string, ChangeKind>,
   delta?: DeltaCounts,
+  feed?: readonly RankedChange[],
 ): RenderModel {
   const known = new Set(nodes.map((n) => n.address));
   const n = Math.max(nodes.length, 1);
@@ -119,5 +122,5 @@ export function buildRenderModel(
     .filter((e) => known.has(e.from) && known.has(e.to))
     .map((e) => ({ id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: e.type }));
 
-  return { nodes: renderNodes, edges: renderEdges, delta };
+  return { nodes: renderNodes, edges: renderEdges, delta, feed };
 }

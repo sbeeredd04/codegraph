@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { GraphNode, GraphEdge, GraphDelta } from "../../../core/graph/types.js";
+import type { RankedChange } from "../../../core/graph/change-feed.js";
 import { projectGraph, type ProjectionKind } from "../../../core/graph/projection.js";
 import { buildRenderModel, changesFromDelta, deltaCounts, type RenderMessage } from "./render-model.js";
 
@@ -11,16 +12,19 @@ export class GraphPanel {
   private static edges: readonly GraphEdge[] = [];
   private static projection: ProjectionKind = "full";
   private static delta: GraphDelta | undefined;
+  private static feed: readonly RankedChange[] | undefined;
 
   static show(
     context: vscode.ExtensionContext,
     nodes: readonly GraphNode[],
     edges: readonly GraphEdge[],
     delta?: GraphDelta,
+    feed?: readonly RankedChange[],
   ): void {
     this.nodes = nodes;
     this.edges = edges;
     this.delta = delta;
+    this.feed = feed;
     this.projection = "full";
     const column = vscode.ViewColumn.Beside;
 
@@ -54,7 +58,7 @@ export class GraphPanel {
     const message: RenderMessage = {
       type: "render",
       version: 1,
-      payload: buildRenderModel(projected.nodes, projected.edges, changes, counts),
+      payload: buildRenderModel(projected.nodes, projected.edges, changes, counts, this.feed),
     };
     void this.panel.webview.postMessage(message);
   }
@@ -136,7 +140,34 @@ export class GraphPanel {
     .card ul { margin: 0; padding: 0; list-style: none; }
     .card li { color: var(--text); font: 12px var(--mono); padding: 2px 0 2px 8px; margin: 4px 0;
       border-left: 2px solid var(--border-2); word-break: break-all; }
-    @media (max-width: 600px) { .brand small, .legend { display: none; } }
+
+    /* Ranked change feed (FR-7 triage): highest blast-radius change first. */
+    .feed { position: absolute; top: 60px; left: 16px; width: 288px; z-index: 40;
+      display: flex; flex-direction: column; max-height: calc(100% - 80px);
+      background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 12px;
+      box-shadow: var(--sh-2); overflow: hidden; }
+    .feed.hidden { display: none; }
+    .feed header { display: flex; align-items: baseline; gap: 8px; padding: 13px 15px 11px;
+      border-bottom: 1px solid var(--border); }
+    .feed header h3 { margin: 0; font: 600 13px var(--sans); letter-spacing: -.01em; }
+    .feed header .count { color: var(--text-3); font: 500 11px var(--mono); }
+    .feed header .hint { margin-left: auto; color: var(--text-3); font: 600 9px var(--sans);
+      text-transform: uppercase; letter-spacing: .07em; }
+    .feed ol { margin: 0; padding: 6px; list-style: none; overflow: auto; }
+    .feed .row { display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+      gap: 10px; width: 100%; text-align: left; appearance: none; background: transparent;
+      border: 0; border-radius: 8px; padding: 8px 9px; cursor: pointer; color: var(--text);
+      box-shadow: inset 2px 0 0 0 transparent; transition: background .12s ease; }
+    @media (hover: hover) { .feed .row:hover:not(.active) { background: var(--surface-3); } }
+    .feed .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .feed .row.active { background: var(--surface-3); box-shadow: inset 2px 0 0 0 var(--accent); }
+    .feed .chip { width: 7px; height: 7px; border-radius: 2px; box-shadow: 0 0 7px currentColor; }
+    .feed .name { font: 500 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .feed .name em { font-style: normal; color: var(--text-3); }
+    .feed .blast { font: 600 11px var(--mono); color: var(--text-2); padding: 2px 7px;
+      border-radius: 999px; background: var(--bg); border: 1px solid var(--border); white-space: nowrap; }
+    .feed .blast.hot { color: var(--text); border-color: var(--accent); }
+    @media (max-width: 600px) { .brand small, .legend, .feed { display: none; } }
   </style>
 </head>
 <body>
@@ -157,6 +188,7 @@ export class GraphPanel {
     </span>
   </header>
   <div id="app"></div>
+  <aside id="feed" class="feed hidden" aria-label="Ranked changes"></aside>
   <div id="card" class="card hidden"></div>
   <script src="${scriptUri}"></script>
 </body>
