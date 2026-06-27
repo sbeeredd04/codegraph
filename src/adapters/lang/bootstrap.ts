@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Project } from "ts-morph";
 import { CodeGraph } from "../../core/graph/graph.js";
 import type { LanguageAdapter } from "../../core/ports.js";
@@ -42,6 +44,32 @@ function isSourceFile(name: string, ts: boolean, py: boolean): boolean {
   return false;
 }
 
+const execFileAsync = promisify(execFile);
+
+/**
+ * Drop git-ignored paths so the in-memory graph matches what a git baseline
+ * worktree contains (tracked files only) — without this, gitignored tooling
+ * (e.g. `_bmad/`, `.claude/`) inflates the working scan and shows up as phantom
+ * "added" nodes when diffing against a ref. `ls-files --cached --others
+ * --exclude-standard` is exactly "tracked + untracked-but-not-ignored". No-op
+ * outside a git repo / when git is unavailable (the call throws → keep the walk).
+ */
+async function filterGitIgnored(rootDir: string, files: string[]): Promise<string[]> {
+  if (files.length === 0) return files;
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", rootDir, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    const allowed = new Set(stdout.split("\0").filter(Boolean).map((rel) => path.resolve(rootDir, rel)));
+    if (allowed.size === 0) return files; // empty / bare repo — keep the raw walk
+    return files.filter((f) => allowed.has(path.resolve(f)));
+  } catch {
+    return files;
+  }
+}
+
 export function findSourceFiles(
   root: string,
   skip: ReadonlySet<string>,
@@ -74,7 +102,7 @@ export async function bootstrapRepo(
   const skip = new Set([...SKIP_DIRS, ...(options.exclude ?? [])]);
   const tsAdapter: LanguageAdapter = await createTypeScriptAdapter(wasmDir);
   const pyAdapter: LanguageAdapter = await createPythonAdapter(wasmDir);
-  const files = findSourceFiles(rootDir, skip, useTs, usePy);
+  const files = await filterGitIgnored(rootDir, findSourceFiles(rootDir, skip, useTs, usePy));
   const graph = new CodeGraph();
   const skipped: string[] = [];
   let parsed = 0;

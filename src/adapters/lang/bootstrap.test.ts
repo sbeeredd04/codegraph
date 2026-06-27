@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -59,5 +60,30 @@ describe("bootstrapRepo (polyglot integration)", () => {
     const { coverage, graph } = await bootstrapRepo(dir, wasmDir, { python: false });
     expect(coverage.found).toBe(2); // a.ts + b.ts only
     expect(graph.getNode("py:calc.py#Calc")).toBeUndefined();
+  });
+});
+
+describe("bootstrapRepo honors .gitignore", () => {
+  let gitDir: string;
+
+  beforeAll(() => {
+    gitDir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-gi-"));
+    execFileSync("git", ["init", "-q"], { cwd: gitDir });
+    fs.writeFileSync(path.join(gitDir, "real.ts"), "export const real = 1;\n");
+    // A gitignored tooling dir (underscore-prefixed, so the dot-dir skip misses it).
+    fs.mkdirSync(path.join(gitDir, "_tooling"), { recursive: true });
+    fs.writeFileSync(path.join(gitDir, "_tooling", "gen.ts"), "export const gen = 1;\n");
+    fs.writeFileSync(path.join(gitDir, ".gitignore"), "_tooling/\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(gitDir, { recursive: true, force: true });
+  });
+
+  it("excludes gitignored files so the scan matches the git baseline (no phantom diffs)", async () => {
+    const { coverage, graph } = await bootstrapRepo(gitDir, wasmDir);
+    expect(coverage.found).toBe(1); // real.ts only; _tooling/gen.ts is ignored
+    expect(graph.getNode("ts:real.ts")?.kind).toBe("module");
+    expect(graph.getNode("ts:_tooling/gen.ts")).toBeUndefined();
   });
 });
