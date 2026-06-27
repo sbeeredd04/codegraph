@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import type { GraphNode, GraphEdge } from "../../../core/graph/types.js";
+import type { GraphNode, GraphEdge, GraphDelta } from "../../../core/graph/types.js";
 import { projectGraph, type ProjectionKind } from "../../../core/graph/projection.js";
-import { buildRenderModel, type RenderMessage } from "./render-model.js";
+import { buildRenderModel, changesFromDelta, deltaCounts, type RenderMessage } from "./render-model.js";
 
 // Outbound surface (AD-2): a webview panel beside the editor. Holds the source
 // graph and re-projects on toggle (FR-4); only renders, never mutates code (FR-9).
@@ -10,10 +10,17 @@ export class GraphPanel {
   private static nodes: readonly GraphNode[] = [];
   private static edges: readonly GraphEdge[] = [];
   private static projection: ProjectionKind = "full";
+  private static delta: GraphDelta | undefined;
 
-  static show(context: vscode.ExtensionContext, nodes: readonly GraphNode[], edges: readonly GraphEdge[]): void {
+  static show(
+    context: vscode.ExtensionContext,
+    nodes: readonly GraphNode[],
+    edges: readonly GraphEdge[],
+    delta?: GraphDelta,
+  ): void {
     this.nodes = nodes;
     this.edges = edges;
+    this.delta = delta;
     this.projection = "full";
     const column = vscode.ViewColumn.Beside;
 
@@ -42,10 +49,12 @@ export class GraphPanel {
   private static send(): void {
     if (!this.panel) return;
     const projected = projectGraph(this.nodes, this.edges, this.projection);
+    const changes = this.delta ? changesFromDelta(this.delta) : undefined;
+    const counts = this.delta ? deltaCounts(this.delta) : undefined;
     const message: RenderMessage = {
       type: "render",
       version: 1,
-      payload: buildRenderModel(projected.nodes, projected.edges),
+      payload: buildRenderModel(projected.nodes, projected.edges, changes, counts),
     };
     void this.panel.webview.postMessage(message);
   }
@@ -108,6 +117,9 @@ export class GraphPanel {
     .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor;
       box-shadow: 0 0 7px currentColor; }
+    .badge { display: none; gap: 10px; font: 600 11px var(--mono); }
+    .badge.show { display: inline-flex; }
+    .badge b { font-weight: 600; }
 
     .card { position: absolute; top: 60px; right: 16px; width: 304px; z-index: 40;
       background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 12px;
@@ -136,6 +148,7 @@ export class GraphPanel {
       <button data-projection="structure">Structure</button>
       <button data-projection="call">Call</button>
     </nav>
+    <span class="badge" id="badge"></span>
     <span class="legend">
       <span style="color:var(--k-module)"><i class="dot"></i>module</span>
       <span style="color:var(--k-class)"><i class="dot"></i>class</span>

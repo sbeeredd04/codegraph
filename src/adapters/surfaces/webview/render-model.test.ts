@@ -49,4 +49,15 @@ describe("buildRenderModel", () => {
     expect(model.nodes).toEqual([]);
     expect(model.edges).toEqual([]);
   });
+
+  it("recolors changed nodes via the change overlay", () => {
+    const changes = new Map<string, "added" | "changed" | "moved">([["ts:a.ts#A", "changed"]]);
+    const model = buildRenderModel(nodes, edges, changes, { added: 0, removed: 0, changed: 1, moved: 0 });
+    const a = model.nodes.find((n) => n.id === "ts:a.ts#A");
+    expect(a?.change).toBe("changed");
+    expect(a?.color).toBe("#e3b341"); // change-amber, not the kind color
+    expect(model.delta?.changed).toBe(1);
+    // an unchanged node keeps its kind color
+    expect(model.nodes.find((n) => n.id === "ts:a.ts")?.color).toBe(KIND_COLORS.module);
+  });
 });

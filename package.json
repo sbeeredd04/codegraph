@@ -24,6 +24,10 @@
       {
         "command": "codegraph.openWorkspace",
         "title": "codegraph: Open Workspace Graph"
+      },
+      {
+        "command": "codegraph.refresh",
+        "title": "codegraph: Refresh & Diff (show what changed)"
       }
     ],
     "configuration": {

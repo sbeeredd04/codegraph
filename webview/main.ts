@@ -8,6 +8,7 @@ import type { NodeKind } from "../src/core/graph/types.js";
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
 const card = document.getElementById("card") as HTMLElement;
+const badge = document.getElementById("badge") as HTMLElement;
 let renderer: Sigma | undefined;
 
 function esc(s: string): string {
@@ -55,6 +56,18 @@ function showCard(graph: Graph, id: string): void {
 }
 
 function render(model: RenderModel): void {
+  const d = model.delta;
+  if (d && (d.added || d.removed || d.changed || d.moved)) {
+    badge.innerHTML =
+      `<b style="color:#3fb950">+${d.added}</b>` +
+      `<b style="color:#e3b341">~${d.changed}</b>` +
+      `<b style="color:#a371f7">↦${d.moved}</b>` +
+      `<b style="color:#f85149">−${d.removed}</b>`;
+    badge.classList.add("show");
+  } else {
+    badge.classList.remove("show");
+  }
+
   renderer?.kill();
   renderer = undefined;
   if (model.nodes.length === 0) {
