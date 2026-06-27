@@ -5,3 +5,8 @@ dist/
 coverage/
 fixtures/
 media/
+
+# bmad / claude tooling and planning workspace
+.claude/
+_bmad/
+_bmad-output/
