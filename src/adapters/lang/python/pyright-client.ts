@@ -11,9 +11,23 @@ export interface LspPosition {
   readonly line: number;
   readonly character: number;
 }
+export interface LspRange {
+  readonly start: LspPosition;
+}
 export interface LspLocation {
   readonly uri?: string;
   readonly targetUri?: string;
+  readonly range?: LspRange;
+  readonly targetSelectionRange?: LspRange;
+  readonly targetRange?: LspRange;
+}
+
+/** Normalize a Location | LocationLink to (uri, definition line). */
+export function locationTarget(loc: LspLocation): { uri: string; line: number } | undefined {
+  const uri = loc.uri ?? loc.targetUri;
+  const range = loc.range ?? loc.targetSelectionRange ?? loc.targetRange;
+  if (!uri || !range) return undefined;
+  return { uri, line: range.start.line };
 }
 
 /**

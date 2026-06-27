@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolvePythonImportEdges } from "./pyright-edges.js";
+import { resolvePythonImportEdges, resolvePythonCallEdges } from "./pyright-edges.js";
 
 const require = createRequire(import.meta.url);
 const wasmDir = path.dirname(require.resolve("@vscode/tree-sitter-wasm"));
@@ -14,6 +14,10 @@ beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-py-edges-"));
   fs.writeFileSync(path.join(dir, "b.py"), "def b():\n    return 1\n");
   fs.writeFileSync(path.join(dir, "a.py"), "from b import b\n\ndef a():\n    return b()\n");
+  fs.writeFileSync(
+    path.join(dir, "c.py"),
+    "class S:\n    def run(self):\n        return self.help()\n    def help(self):\n        return 2\n",
+  );
 });
 
 afterAll(() => {
@@ -31,4 +35,18 @@ describe("resolvePythonImportEdges (Pyright integration)", () => {
     const edges = await resolvePythonImportEdges(dir, [path.join(dir, "x.ts")], wasmDir);
     expect(edges).toEqual([]);
   });
+});
+
+describe("resolvePythonCallEdges (Pyright integration)", () => {
+  const files = () => [path.join(dir, "a.py"), path.join(dir, "b.py"), path.join(dir, "c.py")];
+
+  it("resolves a cross-file call (a -> b)", async () => {
+    const edges = await resolvePythonCallEdges(dir, files(), wasmDir);
+    expect(edges).toContainEqual({ from: "py:a.py#a", to: "py:b.py#b", type: "calls" });
+  }, 30000);
+
+  it("resolves an intra-class method call (S.run -> S.help)", async () => {
+    const edges = await resolvePythonCallEdges(dir, files(), wasmDir);
+    expect(edges).toContainEqual({ from: "py:c.py#S.run", to: "py:c.py#S.help", type: "calls" });
+  }, 30000);
 });
