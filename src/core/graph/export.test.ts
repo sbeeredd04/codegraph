@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { exportGraphSnapshot, GRAPH_SNAPSHOT_VERSION } from "./export.js";
+import { exportGraphSnapshot, parseGraphSnapshot, GRAPH_SNAPSHOT_VERSION } from "./export.js";
 import type { GraphNode, GraphEdge } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
 
@@ -50,5 +50,46 @@ describe("exportGraphSnapshot", () => {
   it("omits the enrichments key entirely when there are none (clean, minimal output)", () => {
     expect(exportGraphSnapshot(nodes, edges).enrichments).toBeUndefined();
     expect(exportGraphSnapshot(nodes, edges, { enrichments: new Map() }).enrichments).toBeUndefined();
+  });
+});
+
+describe("parseGraphSnapshot", () => {
+  it("round-trips a snapshot produced by exportGraphSnapshot", () => {
+    const text = JSON.stringify(exportGraphSnapshot(nodes, edges, { root: "/repo" }));
+    const result = parseGraphSnapshot(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.nodes).toEqual(nodes);
+      expect(result.snapshot.edges).toEqual(edges);
+      expect(result.snapshot.root).toBe("/repo");
+    }
+  });
+
+  it("rejects text that is not valid JSON", () => {
+    const result = parseGraphSnapshot("{not json");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/json/i);
+  });
+
+  it("rejects a non-object payload", () => {
+    expect(parseGraphSnapshot("42").ok).toBe(false);
+    expect(parseGraphSnapshot("null").ok).toBe(false);
+    expect(parseGraphSnapshot('"a string"').ok).toBe(false);
+  });
+
+  it("rejects an unsupported schema version", () => {
+    const result = parseGraphSnapshot(JSON.stringify({ version: 999, nodes: [], edges: [] }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/version/i);
+  });
+
+  it("rejects a payload missing the nodes or edges arrays", () => {
+    expect(parseGraphSnapshot(JSON.stringify({ version: GRAPH_SNAPSHOT_VERSION, edges: [] })).ok).toBe(false);
+    expect(parseGraphSnapshot(JSON.stringify({ version: GRAPH_SNAPSHOT_VERSION, nodes: [] })).ok).toBe(false);
+  });
+
+  it("accepts a minimal valid snapshot", () => {
+    const result = parseGraphSnapshot(JSON.stringify({ version: GRAPH_SNAPSHOT_VERSION, nodes: [], edges: [] }));
+    expect(result.ok).toBe(true);
   });
 });

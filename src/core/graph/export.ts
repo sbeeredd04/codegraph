@@ -63,3 +63,38 @@ function enrichmentsRecord(
   for (const [address, enrichment] of map) record[address] = enrichment;
   return record;
 }
+
+/** The import counterpart of exportGraphSnapshot. */
+export type ParseSnapshotResult =
+  | { readonly ok: true; readonly snapshot: GraphSnapshot }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Parse and validate snapshot text from an untrusted source (a file the user
+ * picked). Returns a tagged result rather than throwing, so the viewer can show
+ * a calm message instead of a blank page. Validation is deliberately shallow —
+ * it guards the envelope (valid JSON, an object, a supported version, the two
+ * required arrays); it trusts the node/edge element shapes, which are our own.
+ */
+export function parseGraphSnapshot(text: string): ParseSnapshotResult {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "This file isn't valid JSON." };
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ok: false, error: "A snapshot must be a JSON object." };
+  }
+  const obj = raw as Record<string, unknown>;
+  if (obj.version !== GRAPH_SNAPSHOT_VERSION) {
+    return {
+      ok: false,
+      error: `Unsupported snapshot version (this viewer reads version ${GRAPH_SNAPSHOT_VERSION}).`,
+    };
+  }
+  if (!Array.isArray(obj.nodes) || !Array.isArray(obj.edges)) {
+    return { ok: false, error: "This snapshot is missing its nodes or edges." };
+  }
+  return { ok: true, snapshot: obj as unknown as GraphSnapshot };
+}

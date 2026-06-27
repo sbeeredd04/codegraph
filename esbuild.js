@@ -1,4 +1,6 @@
 const esbuild = require("esbuild");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const watch = process.argv.includes("--watch");
 
@@ -42,9 +44,30 @@ const builds = [
     sourcemap: true,
     logLevel: "info",
   },
+  {
+    // Standalone web viewer (Epic 6): open dist/web/viewer.html, load a snapshot
+    // exported from the panel. Self-contained IIFE so it runs from file:// — no
+    // server, no editor.
+    entryPoints: ["web/viewer.ts"],
+    bundle: true,
+    format: "iife",
+    platform: "browser",
+    target: "es2022",
+    outfile: "dist/web/viewer.js",
+    sourcemap: true,
+    logLevel: "info",
+  },
 ];
 
+/** Ship the viewer's static HTML shell alongside its bundle. */
+function copyViewerHtml() {
+  const out = path.join(__dirname, "dist", "web");
+  fs.mkdirSync(out, { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "web", "viewer.html"), path.join(out, "viewer.html"));
+}
+
 async function main() {
+  copyViewerHtml();
   const contexts = await Promise.all(builds.map((b) => esbuild.context(b)));
   if (watch) {
     await Promise.all(contexts.map((c) => c.watch()));
