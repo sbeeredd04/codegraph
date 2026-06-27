@@ -8,6 +8,7 @@ import { diffGraphs } from "../core/graph/diff.js";
 import { rankedChangeFeed } from "../core/graph/change-feed.js";
 import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
 import { baselineGraph } from "../adapters/git/baseline.js";
+import { mcpConfigSnippet } from "../adapters/mcp/config.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import type { GraphDelta } from "../core/graph/types.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
@@ -200,7 +201,29 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, {
+  // Copy the MCP client config (FR-13 last mile): one click to point the user's
+  // AI agent at the codegraph server for this workspace.
+  const copyMcpConfig = vscode.commands.registerCommand("codegraph.copyMcpConfig", async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showWarningMessage("codegraph: open a folder/workspace first.");
+      return;
+    }
+    const serverPath = path.join(context.extensionPath, "dist", "mcp-server.js");
+    const repoRoot = current?.folderPath ?? folder.uri.fsPath;
+    const snippet = mcpConfigSnippet(serverPath, repoRoot);
+    await vscode.env.clipboard.writeText(snippet);
+    const choice = await vscode.window.showInformationMessage(
+      "codegraph: MCP config copied. Paste it into your agent's MCP settings to query the graph.",
+      "Show config",
+    );
+    if (choice === "Show config") {
+      const doc = await vscode.workspace.openTextDocument({ language: "json", content: snippet });
+      void vscode.window.showTextDocument(doc);
+    }
+  });
+
+  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, {
     dispose: () => {
       watcher?.dispose();
       coalescer?.dispose();

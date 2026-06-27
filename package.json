@@ -32,6 +32,10 @@
       {
         "command": "codegraph.diffBaseline",
         "title": "codegraph: Diff Against Git Ref (HEAD, branch, tag)"
+      },
+      {
+        "command": "codegraph.copyMcpConfig",
+        "title": "codegraph: Copy MCP Config (connect your AI agent)"
       }
     ],
     "configuration": {
