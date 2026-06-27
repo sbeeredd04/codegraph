@@ -27,6 +27,21 @@ function assertSafeRef(ref: string): void {
   if (!ref || ref.startsWith("-")) throw new Error(`codegraph: invalid git ref "${ref}".`);
 }
 
+// Give the baseline worktree the same dependencies as the working tree so
+// ts-morph/Pyright resolve the SAME edges. Without it, every file that imports a
+// dependency reads as "changed" purely because the worktree has no node_modules —
+// drowning the real diff in noise. A symlink (not a copy) keeps it cheap, and
+// node_modules is gitignored so it never enters the graph.
+function linkNodeModules(repoRoot: string, worktree: string): void {
+  const src = path.join(repoRoot, "node_modules");
+  if (!fs.existsSync(src)) return;
+  try {
+    fs.symlinkSync(src, path.join(worktree, "node_modules"), "dir");
+  } catch {
+    // best-effort: without it the diff is noisier but still correct at node level.
+  }
+}
+
 /** Build a CodeGraph from the repo as it stood at `ref`. Throws on an unknown ref. */
 export async function baselineGraph(
   repoRoot: string,
@@ -51,9 +66,16 @@ export async function baselineGraph(
   const worktree = path.join(base, "tree");
   try {
     await runGit(["worktree", "add", "--detach", worktree, sha], repoRoot);
+    linkNodeModules(repoRoot, worktree);
     const { graph } = await bootstrapRepo(worktree, wasmDir, options);
     return graph;
   } finally {
+    // Drop the symlink before removal so cleanup never touches the real tree.
+    try {
+      fs.unlinkSync(path.join(worktree, "node_modules"));
+    } catch {
+      /* not linked */
+    }
     try {
       await runGit(["worktree", "remove", "--force", worktree], repoRoot);
     } catch {
