@@ -25,4 +25,19 @@ describe("enrichmentCachePath", () => {
     expect(p.startsWith(path.join(path.sep, "tmp", "base"))).toBe(true);
     expect(p.endsWith("enrichment.json")).toBe(true);
   });
+
+  // The writer (MCP server) and reader (extension) are separate processes; the
+  // MCP launcher strips TMPDIR, so the path must not depend on it.
+  it("is independent of TMPDIR so writer and reader still meet", () => {
+    const saved = process.env.TMPDIR;
+    try {
+      process.env.TMPDIR = path.join(path.sep, "tmp", "one");
+      const a = enrichmentCachePath("/repo/a");
+      process.env.TMPDIR = path.join(path.sep, "var", "two");
+      expect(enrichmentCachePath("/repo/a")).toBe(a);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
+  });
 });
