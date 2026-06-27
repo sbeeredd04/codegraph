@@ -5,7 +5,9 @@ import type { RenderModel, RenderMessage } from "../src/adapters/surfaces/webvie
 import type { RankedChange } from "../src/core/graph/change-feed.js";
 import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
 import { reconcilePositions, type XY } from "../src/adapters/surfaces/webview/layout.js";
+import { enrichmentSectionHtml } from "../src/adapters/surfaces/webview/card.js";
 import type { NodeKind } from "../src/core/graph/types.js";
+import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
@@ -40,6 +42,7 @@ function showCard(graph: Graph, id: string): void {
     color: string;
     file: string;
     line: number;
+    enrichment?: NodeEnrichment;
   };
   const out = new Map<string, string[]>();
   graph.forEachOutEdge(id, (_e: string, attrs: { relation?: string }, _s: string, target: string) => {
@@ -52,6 +55,8 @@ function showCard(graph: Graph, id: string): void {
   graph.forEachInEdge(id, (_e: string, _attrs: unknown, source: string) => callers.push(source));
 
   let html = `<h3>${esc(a.label)}</h3><span class="kind" style="color:${esc(a.color)}">${esc(a.kind)}</span>`;
+  // Agent annotation leads the card — the "what is this" answer above the edges.
+  html += enrichmentSectionHtml(a.enrichment);
   html += `<div class="loc">${esc(a.file)}:${a.line + 1}</div>`;
   for (const [rel, targets] of out) {
     html += `<div class="group"><b>${esc(rel)} (${targets.length})</b><ul>${targets
@@ -156,6 +161,7 @@ function render(model: RenderModel): void {
       kind: n.kind,
       file: n.file,
       line: n.line,
+      enrichment: n.enrichment,
     });
   }
   for (const e of model.edges) {

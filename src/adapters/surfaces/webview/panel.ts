@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { GraphNode, GraphEdge, GraphDelta } from "../../../core/graph/types.js";
 import type { RankedChange } from "../../../core/graph/change-feed.js";
+import type { NodeEnrichment } from "../../../core/semantic/enrichment.js";
 import { projectGraph, type ProjectionKind } from "../../../core/graph/projection.js";
 import { buildRenderModel, changesFromDelta, deltaCounts, type RenderMessage } from "./render-model.js";
 
@@ -13,6 +14,7 @@ export class GraphPanel {
   private static projection: ProjectionKind = "full";
   private static delta: GraphDelta | undefined;
   private static feed: readonly RankedChange[] | undefined;
+  private static enrichments: ReadonlyMap<string, NodeEnrichment> | undefined;
 
   static show(
     context: vscode.ExtensionContext,
@@ -20,11 +22,13 @@ export class GraphPanel {
     edges: readonly GraphEdge[],
     delta?: GraphDelta,
     feed?: readonly RankedChange[],
+    enrichments?: ReadonlyMap<string, NodeEnrichment>,
   ): void {
     this.nodes = nodes;
     this.edges = edges;
     this.delta = delta;
     this.feed = feed;
+    this.enrichments = enrichments;
     this.projection = "full";
     const column = vscode.ViewColumn.Beside;
 
@@ -58,7 +62,7 @@ export class GraphPanel {
     const message: RenderMessage = {
       type: "render",
       version: 1,
-      payload: buildRenderModel(projected.nodes, projected.edges, changes, counts, this.feed),
+      payload: buildRenderModel(projected.nodes, projected.edges, changes, counts, this.feed, this.enrichments),
     };
     void this.panel.webview.postMessage(message);
   }
@@ -134,6 +138,18 @@ export class GraphPanel {
       font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .05em;
       background: hsl(228 14% 16%); border: 1px solid var(--border-2); }
     .card .loc { color: var(--text-3); margin: 11px 0 2px; font: 12px var(--mono); word-break: break-all; }
+
+    /* Agent annotation (Epic 4): the "what is this" answer, above the edge lists.
+       Accent-tinted so the human reads it as an AI-written summary, not ground truth. */
+    .card .enrich { margin: 12px 0 2px; padding: 11px 12px; border-radius: 9px;
+      background: hsl(250 45% 16% / .32); border: 1px solid hsl(250 60% 60% / .22); }
+    .card .enrich-head { margin-bottom: 7px; }
+    .card .role { display: inline-block; padding: 2px 9px; border-radius: 999px;
+      font: 600 9px var(--sans); text-transform: uppercase; letter-spacing: .06em;
+      color: var(--accent); background: hsl(250 92% 71% / .12); border: 1px solid hsl(250 92% 71% / .32); }
+    .card .summary { margin: 0; color: var(--text); font: 13px/1.55 var(--sans); text-wrap: pretty; }
+    .card .intent { margin: 7px 0 0; color: var(--text-2); font: 12px/1.5 var(--sans); text-wrap: pretty; }
+
     .card .group { margin-top: 13px; }
     .card .group b { display: block; margin-bottom: 5px; color: var(--text-2);
       font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .06em; }

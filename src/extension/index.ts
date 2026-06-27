@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import type { LanguageAdapter } from "../core/ports.js";
 import { createTypeScriptAdapter } from "../adapters/lang/typescript/index.js";
@@ -9,8 +10,13 @@ import { rankedChangeFeed } from "../core/graph/change-feed.js";
 import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
 import { baselineGraph } from "../adapters/git/baseline.js";
 import { mcpConfigSnippet } from "../adapters/mcp/config.js";
+import { createNodeAnnotations } from "../core/semantic/annotations.js";
+import { diskEnrichmentCache } from "../adapters/semantic/disk-cache.js";
+import { enrichmentCachePath } from "../adapters/semantic/cache-path.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import type { GraphDelta } from "../core/graph/types.js";
+import type { RankedChange } from "../core/graph/change-feed.js";
+import type { NodeEnrichment } from "../core/semantic/enrichment.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
 
 // Extension host = composition root (AD-1). It wires adapters to the pure core;
@@ -34,6 +40,34 @@ function deltaSummary(delta: GraphDelta, none: string): string {
     ? none
     : `codegraph: +${delta.added.length} added · ~${delta.changed.length} changed · ` +
         `${delta.movedRenamed.length} moved · −${delta.removed.length} removed`;
+}
+
+// The agent's annotations live in a shared per-repo cache (the MCP server writes
+// them via annotate_node). Read them back for this graph so the board's
+// capability card can show each node's summary/intent/role (Epic 4). Returns
+// empty immediately when no cache exists yet, keeping the watch loop snappy.
+async function readEnrichments(folderPath: string, graph: CodeGraph): Promise<Map<string, NodeEnrichment>> {
+  const map = new Map<string, NodeEnrichment>();
+  const cachePath = enrichmentCachePath(folderPath);
+  if (!fs.existsSync(cachePath)) return map;
+  const annotations = createNodeAnnotations(() => graph, diskEnrichmentCache(cachePath));
+  for (const node of graph.allNodes()) {
+    const enrichment = await annotations.get(node.address);
+    if (enrichment) map.set(node.address, enrichment);
+  }
+  return map;
+}
+
+// Repaint the board for a workspace graph, folding in the agent's annotations.
+async function showGraph(
+  context: vscode.ExtensionContext,
+  folderPath: string,
+  graph: CodeGraph,
+  delta?: GraphDelta,
+  feed?: readonly RankedChange[],
+): Promise<void> {
+  const enrichments = await readEnrichments(folderPath, graph);
+  GraphPanel.show(context, graph.allNodes(), graph.allEdges(), delta, feed, enrichments);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -66,7 +100,7 @@ export function activate(context: vscode.ExtensionContext): void {
     current = { ...active, graph: next };
     if (!silent || changed) {
       const feed = rankedChangeFeed(delta, active.graph, next);
-      GraphPanel.show(context, next.allNodes(), next.allEdges(), delta, feed);
+      await showGraph(context, active.folderPath, next, delta, feed);
     }
     return delta;
   };
@@ -139,7 +173,7 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         current = { folderPath: folder.uri.fsPath, graph, options };
-        GraphPanel.show(context, graph.allNodes(), graph.allEdges());
+        await showGraph(context, folder.uri.fsPath, graph);
         startWatching(folder.uri.fsPath);
         void vscode.window.showInformationMessage(
           `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges · watching for changes`,
@@ -188,7 +222,7 @@ export function activate(context: vscode.ExtensionContext): void {
           const baseline = await baselineGraph(active.folderPath, ref, wasmDir(), active.options);
           const delta = diffGraphs(baseline, active.graph);
           const feed = rankedChangeFeed(delta, baseline, active.graph);
-          GraphPanel.show(context, active.graph.allNodes(), active.graph.allEdges(), delta, feed);
+          await showGraph(context, active.folderPath, active.graph, delta, feed);
           void vscode.window.showInformationMessage(
             deltaSummary(delta, `codegraph: working tree matches ${ref}.`),
           );

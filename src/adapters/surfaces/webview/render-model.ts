@@ -1,5 +1,6 @@
 import type { GraphNode, GraphEdge, NodeKind, EdgeType, GraphDelta } from "../../../core/graph/types.js";
 import type { RankedChange } from "../../../core/graph/change-feed.js";
+import type { NodeEnrichment } from "../../../core/semantic/enrichment.js";
 
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
 // A restrained, legible palette — modules anchor, leaves recede.
@@ -63,6 +64,8 @@ export interface RenderNode {
   readonly file: string;
   readonly line: number;
   readonly change?: ChangeKind;
+  /** The agent's annotation for this node, if one was written (Epic 4). */
+  readonly enrichment?: NodeEnrichment;
 }
 
 export interface RenderEdge {
@@ -97,12 +100,14 @@ export function buildRenderModel(
   changes?: ReadonlyMap<string, ChangeKind>,
   delta?: DeltaCounts,
   feed?: readonly RankedChange[],
+  enrichments?: ReadonlyMap<string, NodeEnrichment>,
 ): RenderModel {
   const known = new Set(nodes.map((n) => n.address));
   const n = Math.max(nodes.length, 1);
 
   const renderNodes: RenderNode[] = nodes.map((node, i) => {
     const change = changes?.get(node.address);
+    const enrichment = enrichments?.get(node.address);
     return {
       id: node.address,
       label: node.name,
@@ -115,6 +120,7 @@ export function buildRenderModel(
       file: node.location.file,
       line: node.location.line,
       change,
+      ...(enrichment ? { enrichment } : {}),
     };
   });
 

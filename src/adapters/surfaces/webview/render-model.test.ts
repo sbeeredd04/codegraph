@@ -50,6 +50,20 @@ describe("buildRenderModel", () => {
     expect(model.edges).toEqual([]);
   });
 
+  it("attaches enrichment to nodes present in the enrichments map", () => {
+    const enrichments = new Map([
+      ["ts:a.ts#A", { summary: "the A class", intent: "model A", role: "value object" }],
+    ]);
+    const model = buildRenderModel(nodes, edges, undefined, undefined, undefined, enrichments);
+    expect(model.nodes.find((n) => n.id === "ts:a.ts#A")?.enrichment).toEqual({
+      summary: "the A class",
+      intent: "model A",
+      role: "value object",
+    });
+    // a node without an entry carries no enrichment
+    expect(model.nodes.find((n) => n.id === "ts:a.ts")?.enrichment).toBeUndefined();
+  });
+
   it("recolors changed nodes via the change overlay", () => {
     const changes = new Map<string, "added" | "changed" | "moved">([["ts:a.ts#A", "changed"]]);
     const model = buildRenderModel(nodes, edges, changes, { added: 0, removed: 0, changed: 1, moved: 0 });
