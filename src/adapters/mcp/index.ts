@@ -14,6 +14,8 @@ import { diskDocStore } from "../docs/disk-store.js";
 import { docsCachePath } from "../docs/cache-path.js";
 import { diskOverlayStore } from "../overlays/disk-store.js";
 import { overlaysCachePath } from "../overlays/cache-path.js";
+import { diskCommandSink } from "../presentation/disk-sink.js";
+import { presentationCommandsPath } from "../presentation/cache-path.js";
 import { createGraphMcpServer } from "./server.js";
 import type { RecentChanges } from "./tools.js";
 import type { CodeGraph } from "../../core/graph/graph.js";
@@ -86,6 +88,14 @@ async function main(): Promise<void> {
   // never touches source (FR-9).
   const overlays = diskOverlayStore(overlaysCachePath(root));
 
+  // Live presentation command bus (Epic 19 / FR-39): the driving tools EMIT
+  // ephemeral view directives onto a host-local transient queue that the
+  // extension's open ExplorerPanel tails and forwards to its webview — the agent's
+  // hands on the wheel. UNLIKE the stores above this persists nothing durable and
+  // never enters a snapshot (AD-14); it carries only graph-identity addresses +
+  // view directives, and never touches source (FR-9).
+  const commands = diskCommandSink(presentationCommandsPath(root));
+
   const server = createGraphMcpServer(
     () => current,
     recentChanges,
@@ -93,6 +103,7 @@ async function main(): Promise<void> {
     diagrams,
     docs,
     overlays,
+    commands,
   );
   await server.connect(new StdioServerTransport());
   process.stderr.write(

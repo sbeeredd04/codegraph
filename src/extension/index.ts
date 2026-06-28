@@ -23,6 +23,7 @@ import { docsCachePath } from "../adapters/docs/cache-path.js";
 import { emptyDocSet, type Doc } from "../core/docs/doc.js";
 import { diskOverlayStore } from "../adapters/overlays/disk-store.js";
 import { overlaysCachePath } from "../adapters/overlays/cache-path.js";
+import { presentationCommandsPath } from "../adapters/presentation/cache-path.js";
 import { emptyOverlaySet, type Overlay } from "../core/overlays/overlay.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import type { GraphDelta } from "../core/graph/types.js";
@@ -423,7 +424,10 @@ export function activate(context: vscode.ExtensionContext): void {
       generatedAt: new Date().toISOString(),
       root: active.folderPath,
     });
-    ExplorerPanel.show(context, snapshot);
+    // Pass the transient command-queue path so the panel tails the agent's live
+    // presentation directives (FR-39) — the MCP server emits onto the same path
+    // for this repo root. A view-only channel: never persisted, never source.
+    ExplorerPanel.show(context, snapshot, presentationCommandsPath(active.folderPath));
   });
 
   context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, exportReport, openExplorer, {

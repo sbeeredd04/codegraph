@@ -18,6 +18,7 @@ import {
   removeOverlay,
   type OverlayStore,
 } from "../../core/overlays/overlay.js";
+import type { PresentationCommand, PresentationCommandSink } from "../../core/presentation/command.js";
 
 const node = (address: string, kind: GraphNode["kind"], name?: string): GraphNode => ({
   address,
@@ -463,5 +464,91 @@ describe("MCP overlay tools (agent-authored knowledge overlays)", () => {
     expect(parse(okRes.content[0].text).deleted).toBe(saved.saved);
     expect((await store.all()).overlays).toHaveLength(0);
     expect((await tools.get("remove_overlay")!.handler({ id: saved.saved })).isError).toBe(true);
+  });
+});
+
+describe("MCP driving tools (FR-39 live presentation commands)", () => {
+  const memSink = (): { sink: PresentationCommandSink; emitted: PresentationCommand[] } => {
+    const emitted: PresentationCommand[] = [];
+    return { sink: { emit: (c) => void emitted.push(c) }, emitted };
+  };
+  // The command sink is injected as the 7th graphTools argument (after overlays).
+  const driveTools = (g: CodeGraph, sink: PresentationCommandSink) =>
+    new Map(
+      graphTools(() => g, undefined, undefined, undefined, undefined, undefined, sink).map((t) => [t.name, t]),
+    );
+
+  it("appears only when a command sink is injected", () => {
+    expect([...toolMap(fixture()).keys()]).not.toContain("highlight_nodes");
+    const names = [...driveTools(fixture(), memSink().sink).keys()];
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "highlight_nodes",
+        "highlight_path",
+        "focus_camera",
+        "set_projection",
+        "open_panel",
+        "toggle_affordance",
+      ]),
+    );
+  });
+
+  it("highlight_nodes emits a validated command carrying the style", async () => {
+    const { sink, emitted } = memSink();
+    const r = await driveTools(fixture(), sink).get("highlight_nodes")!.handler({
+      addresses: ["ts:m.ts#foo", "ts:m.ts#util"],
+      style: "trace",
+    });
+    expect(parse(r.content[0].text).presented).toEqual({
+      kind: "highlight_nodes",
+      addresses: ["ts:m.ts#foo", "ts:m.ts#util"],
+      style: "trace",
+    });
+    expect(emitted).toEqual([{ kind: "highlight_nodes", addresses: ["ts:m.ts#foo", "ts:m.ts#util"], style: "trace" }]);
+  });
+
+  it("omits an absent optional so the emitted command stays minimal", async () => {
+    const { sink, emitted } = memSink();
+    await driveTools(fixture(), sink).get("highlight_nodes")!.handler({ addresses: ["ts:m.ts#foo"] });
+    // No style key at all (not style:undefined) — the codec drops the absent option.
+    expect(emitted[0]).toEqual({ kind: "highlight_nodes", addresses: ["ts:m.ts#foo"] });
+    expect("style" in emitted[0]).toBe(false);
+  });
+
+  it("focus_camera carries select:false through the codec", async () => {
+    const { sink, emitted } = memSink();
+    await driveTools(fixture(), sink).get("focus_camera")!.handler({ addresses: ["ts:m.ts#foo"], select: false });
+    expect(emitted[0]).toEqual({ kind: "focus_camera", addresses: ["ts:m.ts#foo"], select: false });
+  });
+
+  it("set_projection / open_panel / toggle_affordance each emit their directive", async () => {
+    const { sink, emitted } = memSink();
+    const tools = driveTools(fixture(), sink);
+    await tools.get("set_projection")!.handler({ projection: "dependency" });
+    await tools.get("open_panel")!.handler({ panel: "diagrams", open: false });
+    await tools.get("toggle_affordance")!.handler({ affordance: "orphans" });
+    expect(emitted).toEqual([
+      { kind: "set_projection", projection: "dependency" },
+      { kind: "open_panel", panel: "diagrams", open: false },
+      { kind: "toggle_affordance", affordance: "orphans" },
+    ]);
+  });
+
+  it("highlight_path emits the from/to the board will resolve", async () => {
+    const { sink, emitted } = memSink();
+    await driveTools(fixture(), sink).get("highlight_path")!.handler({ from: "ts:m.ts#foo", to: "ts:m.ts#util" });
+    expect(emitted[0]).toEqual({ kind: "highlight_path", from: "ts:m.ts#foo", to: "ts:m.ts#util" });
+  });
+
+  it("rejects an UNTRUSTED out-of-vocabulary directive without emitting", async () => {
+    const { sink, emitted } = memSink();
+    // zod guards the enum at the schema edge; the core codec is the backstop. Drive a
+    // raw bad style straight through the handler to prove nothing is emitted.
+    const r = await driveTools(fixture(), sink).get("highlight_nodes")!.handler({
+      addresses: ["ts:m.ts#foo"],
+      style: "neon",
+    });
+    expect(r.isError).toBe(true);
+    expect(emitted).toHaveLength(0);
   });
 });

@@ -1,9 +1,17 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { GraphSnapshot } from "../../../core/graph/export.js";
+import type { PresentationCommand } from "../../../core/presentation/command.js";
+import { readCommandsFrom } from "../../presentation/disk-sink.js";
 import { prepareExportHtml } from "./export-html.js";
-import { isReadyMessage, snapshotMessage, withTrailingSlash } from "./explorer-protocol.js";
+import {
+  commandMessage,
+  isReadyMessage,
+  snapshotMessage,
+  withTrailingSlash,
+} from "./explorer-protocol.js";
 
 // Epic 7.4 — the unified-surface explorer panel. Unlike the bespoke GraphPanel
 // (which loads the hand-built media/webview.js), this hosts the SAME Next.js
@@ -20,6 +28,14 @@ import { isReadyMessage, snapshotMessage, withTrailingSlash } from "./explorer-p
 export class ExplorerPanel {
   private static panel: vscode.WebviewPanel | undefined;
   private static snapshot: GraphSnapshot | undefined;
+  // FR-39 slice B: the live presentation command bus. The standalone MCP server
+  // (a separate process) APPENDS the agent's ephemeral view directives to a
+  // host-local transient queue; while this panel is open we TAIL that queue and
+  // forward each command to the webview, where the bridge re-validates and the
+  // surface controller executes it. The directives drive the view only — never
+  // serialized into a snapshot (AD-14), never touch source (FR-9).
+  private static commandWatcher: fs.FSWatcher | undefined;
+  private static commandOffset = 0;
 
   /** Where esbuild copies the Next export inside the extension distributable. */
   private static exportDir(context: vscode.ExtensionContext): vscode.Uri {
@@ -35,7 +51,7 @@ export class ExplorerPanel {
     return fs.existsSync(vscode.Uri.joinPath(this.exportDir(context), "index.html").fsPath);
   }
 
-  static show(context: vscode.ExtensionContext, snapshot: GraphSnapshot): void {
+  static show(context: vscode.ExtensionContext, snapshot: GraphSnapshot, commandsPath?: string): void {
     this.snapshot = snapshot;
     const column = vscode.ViewColumn.Beside;
 
@@ -51,6 +67,8 @@ export class ExplorerPanel {
         },
       );
       this.panel.onDidDispose(() => {
+        this.commandWatcher?.close();
+        this.commandWatcher = undefined;
         this.panel = undefined;
         this.snapshot = undefined;
       });
@@ -64,6 +82,51 @@ export class ExplorerPanel {
     }
 
     this.panel.webview.html = this.html(context, this.panel.webview);
+    if (commandsPath) this.watchCommands(commandsPath);
+  }
+
+  /**
+   * Forward one live presentation command to the webview (FR-39). Wrapped in its
+   * `codegraph:command` envelope — graph-identity addresses + view directives only,
+   * no source, no host path — so it stays cloud-safe (AD-14) and read-only (FR-9).
+   * No-op when the panel is closed.
+   */
+  static postCommand(command: PresentationCommand): void {
+    void this.panel?.webview.postMessage(commandMessage(command));
+  }
+
+  /**
+   * Tail the agent's transient command queue and forward each new directive to the
+   * webview. Seeds the read offset at the file's CURRENT size so the backlog never
+   * replays — only directives the agent issues while the board is open drive it.
+   *
+   * The watch + forward leg runs only inside the Extension Development Host (a live
+   * webview + a connected MCP writer), so it is verified there, not headlessly; the
+   * drain/validate it calls (`readCommandsFrom`) IS unit-tested. Degrades silently:
+   * a watch that can't be established just leaves the board human-driven.
+   */
+  private static watchCommands(commandsPath: string): void {
+    this.commandWatcher?.close();
+    this.commandWatcher = undefined;
+    try {
+      // Ensure the file exists so fs.watch doesn't ENOENT before the first emit
+      // (the panel may open before the MCP writer ever runs), then start past the
+      // backlog so only live directives forward.
+      fs.mkdirSync(path.dirname(commandsPath), { recursive: true });
+      fs.appendFileSync(commandsPath, "");
+      this.commandOffset = fs.statSync(commandsPath).size;
+      this.commandWatcher = fs.watch(commandsPath, () => this.drainCommands(commandsPath));
+    } catch {
+      // No queue yet / unwatchable FS → the human simply keeps the wheel.
+    }
+  }
+
+  /** Drain any whole commands appended since the last offset and forward them. */
+  private static drainCommands(commandsPath: string): void {
+    if (!this.panel) return;
+    const { commands, offset } = readCommandsFrom(commandsPath, this.commandOffset);
+    this.commandOffset = offset;
+    for (const command of commands) this.postCommand(command);
   }
 
   private static send(): void {

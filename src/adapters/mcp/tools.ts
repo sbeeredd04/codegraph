@@ -19,6 +19,14 @@ import {
   type OverlayStore,
 } from "../../core/overlays/overlay.js";
 import {
+  validatePresentationCommand,
+  HIGHLIGHT_STYLES,
+  PANEL_KINDS,
+  AFFORDANCE_KINDS,
+  PROJECTION_KINDS,
+  type PresentationCommandSink,
+} from "../../core/presentation/command.js";
+import {
   findNodes,
   describeNode,
   blastRadius,
@@ -77,6 +85,13 @@ const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to"]);
 // non-empty tuple and the core arrays are readonly.
 const MARK_KIND = z.enum(MARK_KINDS as unknown as [string, ...string[]]);
 const MARK_SEVERITY = z.enum(MARK_SEVERITIES as unknown as [string, ...string[]]);
+// Presentation-command vocabularies (FR-39). The core codec is the source of
+// truth (validatePresentationCommand re-checks every emit); these only sharpen
+// the MCP input schema. Cast for the same readonly-tuple reason as MARK_KIND.
+const HIGHLIGHT_STYLE = z.enum(HIGHLIGHT_STYLES as unknown as [string, ...string[]]);
+const PANEL = z.enum(PANEL_KINDS as unknown as [string, ...string[]]);
+const AFFORDANCE = z.enum(AFFORDANCE_KINDS as unknown as [string, ...string[]]);
+const PROJECTION = z.enum(PROJECTION_KINDS as unknown as [string, ...string[]]);
 
 const ok = (data: unknown): McpToolResult => ({
   content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
@@ -99,6 +114,7 @@ export function graphTools(
   diagrams?: DiagramStore,
   docs?: DocStore,
   overlays?: OverlayStore,
+  commands?: PresentationCommandSink,
 ): GraphTool[] {
   const tools: GraphTool[] = [
     {
@@ -551,6 +567,108 @@ export function graphTools(
           const removed = await overlays.remove(id);
           return removed ? ok({ deleted: id }) : fail(`codegraph: no overlay with id "${id}".`);
         },
+      },
+    );
+  }
+
+  if (commands) {
+    // Build → re-validate through the SHARED core codec (the agent is UNTRUSTED, and
+    // this guarantees the emitted command is byte-identical to what the webview will
+    // re-validate) → emit onto the ephemeral bus. These tools DRIVE the live view;
+    // unlike the overlay/doc/diagram write tools they persist NOTHING (FR-9, AD-14).
+    const drive = async (raw: unknown): Promise<McpToolResult> => {
+      const command = validatePresentationCommand(raw);
+      if (!command) return fail("codegraph: not a valid presentation command.");
+      await commands.emit(command);
+      return ok({ presented: command });
+    };
+
+    tools.push(
+      {
+        name: "highlight_nodes",
+        title: "Highlight nodes",
+        description:
+          "Point the human at a set of nodes on the LIVE board: a transient highlight that lifts them " +
+          "above everything else (it overrides any persistent mark while engaged, and clears when you " +
+          "highlight again or the human takes control). Use it while explaining — 'look at these' — not " +
+          "to record anything (use mark_node for a durable badge). Style accent (default), trace, or warn. " +
+          "Drives the view only; never touches source files. Requires the human to have the explorer open.",
+        inputSchema: {
+          addresses: z.array(ADDRESS).min(1).describe("The node addresses to highlight."),
+          style: HIGHLIGHT_STYLE.optional().describe(`Highlight style: ${HIGHLIGHT_STYLES.join(", ")}.`),
+        },
+        handler: (args) =>
+          drive({ kind: "highlight_nodes", addresses: args.addresses, style: args.style }),
+      },
+      {
+        name: "highlight_path",
+        title: "Highlight path",
+        description:
+          "Trace and highlight the dependency path between two nodes on the LIVE board — the board resolves " +
+          "the route and lights it up (a 'trace' style). Use it to walk the human along a flow you're " +
+          "explaining. Drives the view only; never touches source files.",
+        inputSchema: {
+          from: z.string().min(1).describe("Start node address."),
+          to: z.string().min(1).describe("Target node address."),
+        },
+        handler: (args) => drive({ kind: "highlight_path", from: args.from, to: args.to }),
+      },
+      {
+        name: "focus_camera",
+        title: "Focus camera",
+        description:
+          "Move the LIVE board's camera to frame a set of nodes. By default it also selects the set's head " +
+          "(opening its detail panel); pass select:false to only move the viewport without changing the " +
+          "selection. Use it to bring the human's attention to a region. Drives the view only; never " +
+          "touches source files.",
+        inputSchema: {
+          addresses: z.array(ADDRESS).min(1).describe("The node addresses to frame."),
+          select: z
+            .boolean()
+            .optional()
+            .describe("true (default) selects the set's head + frames it; false only moves the camera."),
+        },
+        handler: (args) =>
+          drive({ kind: "focus_camera", addresses: args.addresses, select: args.select }),
+      },
+      {
+        name: "set_projection",
+        title: "Set projection",
+        description:
+          `Switch the LIVE board's projection (${PROJECTION_KINDS.join(", ")}) — full graph, the ` +
+          "dependency view, the call view, or the structure (contains) view. Use it to reshape what the " +
+          "human sees before walking them through it. Drives the view only; never touches source files.",
+        inputSchema: {
+          projection: PROJECTION.describe(`The projection to switch to: ${PROJECTION_KINDS.join(", ")}.`),
+        },
+        handler: (args) => drive({ kind: "set_projection", projection: args.projection }),
+      },
+      {
+        name: "open_panel",
+        title: "Open panel",
+        description:
+          `Open or close one of the board's panels (${PANEL_KINDS.join(", ")}) on the LIVE board — the ` +
+          "diagrams drawer, the docs drawer, the ask panel, or the selected-node detail panel. Pass " +
+          "open:false to close it. Use it to surface the knowledge you authored. Drives the view only; " +
+          "never touches source files.",
+        inputSchema: {
+          panel: PANEL.describe(`Which panel: ${PANEL_KINDS.join(", ")}.`),
+          open: z.boolean().optional().describe("true (default) opens, false closes."),
+        },
+        handler: (args) => drive({ kind: "open_panel", panel: args.panel, open: args.open }),
+      },
+      {
+        name: "toggle_affordance",
+        title: "Toggle affordance",
+        description:
+          `Toggle one of the board's view lenses (${AFFORDANCE_KINDS.join(", ")}) on the LIVE board — the ` +
+          "orphans dim, the folder clustering, or the trace-path mode. Pass on:true/false for an explicit " +
+          "state, or omit it to flip. Drives the view only; never touches source files.",
+        inputSchema: {
+          affordance: AFFORDANCE.describe(`Which lens: ${AFFORDANCE_KINDS.join(", ")}.`),
+          on: z.boolean().optional().describe("Explicit desired state; omit to flip the current one."),
+        },
+        handler: (args) => drive({ kind: "toggle_affordance", affordance: args.affordance, on: args.on }),
       },
     );
   }

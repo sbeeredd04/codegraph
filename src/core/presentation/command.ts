@@ -90,6 +90,18 @@ export const PRESENTATION_COMMAND_KINDS = [
   "toggle_affordance",
 ] as const;
 
+/**
+ * Output port: where a driving tool EMITS an ephemeral presentation command
+ * (FR-39 slice B). The MCP adapter implements it — in the standalone server the
+ * implementation is a host-local transient queue that the live ExplorerPanel
+ * drains and forwards to its webview. Declared here (core declares ports,
+ * adapters implement them) so the tool layer stays I/O-free and testable (AD-1).
+ * A command is a live view directive, NEVER persisted into a GraphSnapshot.
+ */
+export interface PresentationCommandSink {
+  emit(command: PresentationCommand): void | Promise<void>;
+}
+
 function isAddress(v: unknown): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= MAX_ADDRESS_LEN;
 }

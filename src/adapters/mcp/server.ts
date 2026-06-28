@@ -4,6 +4,7 @@ import type { NodeAnnotations } from "../../core/semantic/annotations.js";
 import type { DiagramStore } from "../../core/diagrams/diagram.js";
 import type { DocStore } from "../../core/docs/doc.js";
 import type { OverlayStore } from "../../core/overlays/overlay.js";
+import type { PresentationCommandSink } from "../../core/presentation/command.js";
 import { graphTools, type RecentChangesProvider } from "./tools.js";
 
 // SDK glue (AD-2): register the graph tools on an McpServer. The graph is read
@@ -11,8 +12,10 @@ import { graphTools, type RecentChangesProvider } from "./tools.js";
 // `recentChanges` to also expose the live "what just changed" feed, `annotations`
 // for the agent-driven annotate_node write tool, `diagrams` for the
 // save_diagram / list_diagrams / delete_diagram knowledge-diagram tools, `docs`
-// for the save_doc / list_docs / delete_doc knowledge-doc tools, and `overlays`
-// for the pin_note / annotate_edge / mark_node / group_nodes overlay tools.
+// for the save_doc / list_docs / delete_doc knowledge-doc tools, `overlays`
+// for the pin_note / annotate_edge / mark_node / group_nodes overlay tools, and
+// `commands` for the live driving tools (highlight_nodes / highlight_path /
+// focus_camera / set_projection / open_panel / toggle_affordance — FR-39).
 export function createGraphMcpServer(
   getGraph: () => CodeGraph,
   recentChanges?: RecentChangesProvider,
@@ -20,9 +23,10 @@ export function createGraphMcpServer(
   diagrams?: DiagramStore,
   docs?: DocStore,
   overlays?: OverlayStore,
+  commands?: PresentationCommandSink,
 ): McpServer {
   const server = new McpServer({ name: "codegraph", version: "0.0.1" });
-  for (const tool of graphTools(getGraph, recentChanges, annotations, diagrams, docs, overlays)) {
+  for (const tool of graphTools(getGraph, recentChanges, annotations, diagrams, docs, overlays, commands)) {
     server.registerTool(
       tool.name,
       { title: tool.title, description: tool.description, inputSchema: tool.inputSchema },
