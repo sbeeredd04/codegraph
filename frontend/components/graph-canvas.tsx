@@ -141,6 +141,14 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     });
     rendererRef.current = renderer;
 
+    // E2E hook (dev only — `process.env.NODE_ENV` is statically "production" in
+    // the static export, so this is tree-shaken out of shipped builds). Exposes
+    // the renderer on the container element so a test can resolve a node and fire
+    // the real `clickNode` path rather than guessing canvas pixel coordinates.
+    if (process.env.NODE_ENV !== "production") {
+      (container as unknown as { __sigma?: Sigma }).__sigma = renderer;
+    }
+
     const lod = g.order > 300;
     const camera = renderer.getCamera();
     const activePath = (): PathHighlight | undefined => {

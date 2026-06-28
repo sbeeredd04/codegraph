@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Precompiled core (generated) and the source-viewer sample sidecar (copied
+    // first-party .ts assets served statically — not part of the app's lint set).
+    "vendor/**",
+    "public/benchmark/**",
   ]),
 ]);
 

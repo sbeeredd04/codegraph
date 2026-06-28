@@ -7,12 +7,13 @@
 // Better Design system is wired (held per the user's "claim the account first"
 // choice). All graph logic lives in the canvas / pure core — this is glue.
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
+import { NodeSourceViewer } from "./node-source-viewer";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
 // don't exist during static prerender (output:export). Load the canvas
@@ -33,9 +34,26 @@ interface ExplorerProps {
   readonly nodes: readonly GraphNode[];
   readonly edges: readonly GraphEdge[];
   readonly title: string;
+  /**
+   * Base URL of the source sidecar for the node code viewer (FR-15), or `null`
+   * when this dataset/host serves no source (third-party graph, hosted plane — AD-16).
+   */
+  readonly sourceBase?: string | null;
+  /** Optional dataset switcher — when present, renders a selector in the header. */
+  readonly datasets?: readonly { readonly id: string; readonly label: string }[];
+  readonly datasetId?: string;
+  readonly onDataset?: (id: string) => void;
 }
 
-export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Element {
+export function Explorer({
+  nodes,
+  edges,
+  title,
+  sourceBase = null,
+  datasets,
+  datasetId,
+  onDataset,
+}: ExplorerProps): React.JSX.Element {
   const [projection, setProjection] = useState<ProjectionKind>("full");
   const [orphanMode, setOrphanMode] = useState(false);
   const [traceArmed, setTraceArmed] = useState(false);
@@ -43,7 +61,16 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
   const [traceStatus, setTraceStatus] = useState<{ text: string; tone?: "ok" | "none" }>({ text: "" });
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const focusRef = useRef<((address: string) => void) | null>(null);
+
+  // Selecting a node (canvas click or a neighbor jump, which both route through
+  // onSelectNode) closes any open source view — it re-opens on demand for the
+  // new node. Done in the handler, not an effect, to avoid a cascading render.
+  const selectNode = useCallback((address: string) => {
+    setSelected(address);
+    setSourceOpen(false);
+  }, []);
 
   const byAddress = useMemo(() => {
     const m = new Map<string, GraphNode>();
@@ -78,6 +105,24 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
           <span className="text-sm font-bold tracking-tight text-zinc-50">codegraph</span>
           <span className="hidden text-xs text-zinc-500 sm:inline">{title}</span>
         </div>
+
+        {datasets && datasets.length > 1 && onDataset && (
+          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <span className="sr-only">Dataset</span>
+            <select
+              value={datasetId}
+              onChange={(e) => onDataset(e.target.value)}
+              aria-label="Dataset"
+              className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-xs font-medium text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              {datasets.map((d) => (
+                <option key={d.id} value={d.id} className="bg-zinc-900">
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="flex items-center gap-3 text-xs text-zinc-500">
           <span>
@@ -160,7 +205,7 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
           orphanMode={orphanMode}
           traceArmed={traceArmed}
           onHoverNode={setHovered}
-          onSelectNode={setSelected}
+          onSelectNode={selectNode}
           onOrphanCount={setOrphanCount}
           onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
           focusRef={focusRef}
@@ -176,8 +221,8 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
           ))}
         </div>
 
-        {/* Node detail panel */}
-        {detail && (
+        {/* Node detail panel — hidden while the source viewer is docked */}
+        {detail && !sourceOpen && (
           <aside className="absolute right-3 top-3 max-h-[calc(100%-1.5rem)] w-72 overflow-auto rounded-xl border border-zinc-800 bg-zinc-900/95 p-4 text-sm shadow-2xl backdrop-blur">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -204,6 +249,15 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
             <div className="mt-3 break-all font-mono text-xs text-zinc-400">
               {detail.node.location.file}:{detail.node.location.line}
             </div>
+
+            {/* View source (FR-15) — opens the read-only code dock */}
+            <button
+              onClick={() => setSourceOpen(true)}
+              className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/60 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-violet-500/50 hover:bg-violet-500/10 hover:text-violet-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              <span aria-hidden>{"</>"}</span> View source
+            </button>
+
             {detail.node.signature && (
               <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-950/60 p-2 font-mono text-[11px] leading-relaxed text-zinc-300">
                 {detail.node.signature}
@@ -213,6 +267,19 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
             <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
             <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
           </aside>
+        )}
+
+        {/* Read-only source dock (FR-15) — replaces the detail panel while open */}
+        {detail && sourceOpen && (
+          <NodeSourceViewer
+            key={`${sourceBase ?? "none"}:${detail.node.location.file}:${detail.node.location.line}`}
+            sourceBase={sourceBase}
+            file={detail.node.location.file}
+            line={detail.node.location.line}
+            title={displayLabel(detail.node.name, detail.node.kind)}
+            signature={detail.node.signature}
+            onClose={() => setSourceOpen(false)}
+          />
         )}
       </div>
     </main>
