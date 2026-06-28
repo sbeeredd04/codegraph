@@ -14,8 +14,10 @@
     "test:e2e:export": "npm run build && node scripts/make-webview-html.mjs && playwright test --config=playwright.export.config.ts"
   },
   "dependencies": {
+    "dompurify": "^3.4.11",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
+    "marked": "^18.0.5",
     "mermaid": "^11.16.0",
     "next": "16.2.9",
     "react": "19.2.4",

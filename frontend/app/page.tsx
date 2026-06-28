@@ -92,6 +92,7 @@ export default function Home() {
       nodes={snap.nodes}
       edges={snap.edges}
       diagrams={snap.diagrams}
+      docs={snap.docs}
       title={`${snap.root ?? "snapshot"} · ${snap.nodeCount} nodes`}
       // Live (webview) graphs carry no bundled source sidecar and have no sample
       // datasets to switch between, so both affordances are withheld.

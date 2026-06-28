@@ -23,3 +23,75 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* Prose typography for the sanitized Markdown the docs drawer renders (FR-29).
+   Scoped to .doc-prose so it never bleeds into the app chrome; the markup is
+   DOMPurify-sanitized (strict allowlist) before it reaches the DOM. */
+.doc-prose {
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: #d4d4d8;
+}
+.doc-prose > :first-child { margin-top: 0; }
+.doc-prose h1,
+.doc-prose h2,
+.doc-prose h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: #fafafa;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+.doc-prose h1 { font-size: 1.15rem; }
+.doc-prose h2 { font-size: 1rem; }
+.doc-prose h3 { font-size: 0.9rem; }
+.doc-prose p,
+.doc-prose ul,
+.doc-prose ol,
+.doc-prose blockquote,
+.doc-prose pre,
+.doc-prose table { margin: 0.7em 0; }
+.doc-prose ul,
+.doc-prose ol { padding-left: 1.25rem; }
+.doc-prose ul { list-style: disc; }
+.doc-prose ol { list-style: decimal; }
+.doc-prose li { margin: 0.2em 0; }
+.doc-prose a {
+  color: #c4b5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.doc-prose a:hover { color: #ddd6fe; }
+.doc-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.doc-prose pre {
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+.doc-prose pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.doc-prose blockquote {
+  border-left: 2px solid #3f3f46;
+  padding-left: 0.85rem;
+  color: #a1a1aa;
+}
+.doc-prose hr { border: 0; border-top: 1px solid #27272a; margin: 1.4em 0; }
+.doc-prose table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.doc-prose th,
+.doc-prose td { border: 1px solid #27272a; padding: 0.35rem 0.55rem; text-align: left; }
+.doc-prose th { background: #18181b; font-weight: 600; color: #e4e4e7; }
+.doc-prose strong { color: #f4f4f5; font-weight: 600; }

@@ -12,12 +12,14 @@ import dynamic from "next/dynamic";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
+import type { Doc } from "@core/docs/doc";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { CommandPalette } from "./command-palette";
 import { DiagramsDrawer } from "./diagrams-drawer";
+import { DocsDrawer } from "./docs-drawer";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
 // don't exist during static prerender (output:export). Load both surfaces
@@ -43,6 +45,8 @@ interface ExplorerProps {
   readonly edges: readonly GraphEdge[];
   /** Agent-authored knowledge diagrams (FR-28) carried on the snapshot, if any. */
   readonly diagrams?: readonly Diagram[];
+  /** Agent-authored knowledge docs (FR-29) carried on the snapshot, if any. */
+  readonly docs?: readonly Doc[];
   readonly title: string;
   /**
    * Base URL of the source sidecar for the node code viewer (FR-15), or `null`
@@ -59,6 +63,7 @@ export function Explorer({
   nodes,
   edges,
   diagrams,
+  docs,
   title,
   sourceBase = null,
   datasets,
@@ -77,8 +82,10 @@ export function Explorer({
   const [sourceOpen, setSourceOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
   const focusRef = useRef<((address: string) => void) | null>(null);
   const diagramList = diagrams ?? [];
+  const docList = docs ?? [];
 
   // Selecting a node (canvas click or a neighbor jump, which both route through
   // onSelectNode) closes any open source view — it re-opens on demand for the
@@ -272,7 +279,10 @@ export function Explorer({
           aria-pressed={diagramsOpen}
           aria-haspopup="dialog"
           title="Agent-authored knowledge diagrams"
-          onClick={() => setDiagramsOpen((v) => !v)}
+          onClick={() => {
+            setDocsOpen(false);
+            setDiagramsOpen((v) => !v);
+          }}
           className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
             diagramsOpen
               ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
@@ -280,6 +290,24 @@ export function Explorer({
           }`}
         >
           Diagrams <span className="font-mono">{diagramList.length}</span>
+        </button>
+
+        {/* Knowledge docs drawer (FR-29) — agent-authored Markdown prose */}
+        <button
+          aria-pressed={docsOpen}
+          aria-haspopup="dialog"
+          title="Agent-authored documentation"
+          onClick={() => {
+            setDiagramsOpen(false);
+            setDocsOpen((v) => !v);
+          }}
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            docsOpen
+              ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
+              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Docs <span className="font-mono">{docList.length}</span>
         </button>
 
         <div className="ml-auto flex items-center gap-3 text-xs">
@@ -402,6 +430,16 @@ export function Explorer({
             byAddress={byAddress}
             onJump={jumpTo}
             onClose={() => setDiagramsOpen(false)}
+          />
+        )}
+
+        {/* Knowledge docs drawer (FR-29) — sanitized Markdown + node deep-links */}
+        {docsOpen && (
+          <DocsDrawer
+            docs={docList}
+            byAddress={byAddress}
+            onJump={jumpTo}
+            onClose={() => setDocsOpen(false)}
           />
         )}
 

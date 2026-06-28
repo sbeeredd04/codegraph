@@ -10,6 +10,7 @@
 import type { GraphNode, GraphEdge, NodeAddress } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
 import { validateDiagram, type Diagram, type DiagramInput } from "../diagrams/diagram.js";
+import { validateDoc, type Doc, type DocInput } from "../docs/doc.js";
 
 /** Bump when the snapshot shape changes so consumers can refuse what they can't read. */
 export const GRAPH_SNAPSHOT_VERSION = 1 as const;
@@ -30,11 +31,16 @@ export interface GraphSnapshot {
    * narrative companion to the structural graph, carried so a snapshot is a
    * complete, self-contained picture of the repo a viewer can render offline. */
   readonly diagrams?: readonly Diagram[];
+  /** Agent-authored knowledge docs (Epic 7 / FR-29) — long-form Markdown prose
+   * about the repo. Present only when non-empty; the prose companion to the
+   * graph (structure) and diagrams (narrative shapes). */
+  readonly docs?: readonly Doc[];
 }
 
 export interface ExportOptions {
   readonly enrichments?: ReadonlyMap<NodeAddress, NodeEnrichment>;
   readonly diagrams?: readonly Diagram[];
+  readonly docs?: readonly Doc[];
   readonly generatedAt?: string;
   readonly root?: string;
 }
@@ -50,6 +56,7 @@ export function exportGraphSnapshot(
 ): GraphSnapshot {
   const enrichments = enrichmentsRecord(opts.enrichments);
   const diagrams = opts.diagrams && opts.diagrams.length ? [...opts.diagrams] : undefined;
+  const docs = opts.docs && opts.docs.length ? [...opts.docs] : undefined;
   return {
     version: GRAPH_SNAPSHOT_VERSION,
     ...(opts.generatedAt ? { generatedAt: opts.generatedAt } : {}),
@@ -60,6 +67,7 @@ export function exportGraphSnapshot(
     edges: [...edges],
     ...(enrichments ? { enrichments } : {}),
     ...(diagrams ? { diagrams } : {}),
+    ...(docs ? { docs } : {}),
   };
 }
 
@@ -108,10 +116,13 @@ export function parseGraphSnapshot(text: string): ParseSnapshotResult {
   // user-supplied. Re-validate each through the same guard the write path uses,
   // dropping any malformed one rather than failing the whole snapshot.
   const snapshot = { ...(obj as unknown as GraphSnapshot) };
-  const mutable = snapshot as { diagrams?: readonly Diagram[] };
+  const mutable = snapshot as { diagrams?: readonly Diagram[]; docs?: readonly Doc[] };
   const diagrams = validateSnapshotDiagrams(obj.diagrams);
   if (diagrams) mutable.diagrams = diagrams;
   else delete mutable.diagrams;
+  const docs = validateSnapshotDocs(obj.docs);
+  if (docs) mutable.docs = docs;
+  else delete mutable.docs;
   return { ok: true, snapshot };
 }
 
@@ -126,4 +137,16 @@ function validateSnapshotDiagrams(raw: unknown): readonly Diagram[] | undefined 
     if (r.ok) diagrams.push(r.diagram);
   }
   return diagrams.length ? diagrams : undefined;
+}
+
+/** Re-validate the (untrusted) docs array from a parsed snapshot — same tolerance
+ * as the diagrams path: drop the malformed, keep the valid, undefined when absent. */
+function validateSnapshotDocs(raw: unknown): readonly Doc[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const docs: Doc[] = [];
+  for (const entry of raw) {
+    const r = validateDoc((entry ?? {}) as DocInput);
+    if (r.ok) docs.push(r.doc);
+  }
+  return docs.length ? docs : undefined;
 }

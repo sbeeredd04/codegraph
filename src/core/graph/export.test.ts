@@ -3,6 +3,7 @@ import { exportGraphSnapshot, parseGraphSnapshot, GRAPH_SNAPSHOT_VERSION } from 
 import type { GraphNode, GraphEdge } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
 import type { Diagram } from "../diagrams/diagram.js";
+import type { Doc } from "../docs/doc.js";
 
 const node = (address: string, kind: GraphNode["kind"]): GraphNode => ({
   address,
@@ -64,6 +65,19 @@ describe("exportGraphSnapshot", () => {
   it("omits the diagrams key entirely when there are none", () => {
     expect(exportGraphSnapshot(nodes, edges).diagrams).toBeUndefined();
     expect(exportGraphSnapshot(nodes, edges, { diagrams: [] }).diagrams).toBeUndefined();
+  });
+
+  it("folds the agent's docs into the snapshot so the artifact carries the prose", () => {
+    const docs: Doc[] = [
+      { id: "guide/intro", title: "Intro", category: "guide", markdown: "# Intro\n\nHello." },
+    ];
+    const snap = exportGraphSnapshot(nodes, edges, { docs });
+    expect(snap.docs).toEqual(docs);
+  });
+
+  it("omits the docs key entirely when there are none", () => {
+    expect(exportGraphSnapshot(nodes, edges).docs).toBeUndefined();
+    expect(exportGraphSnapshot(nodes, edges, { docs: [] }).docs).toBeUndefined();
   });
 });
 
@@ -139,5 +153,39 @@ describe("parseGraphSnapshot", () => {
   it("leaves diagrams undefined when a snapshot carries none", () => {
     const result = parseGraphSnapshot(JSON.stringify(exportGraphSnapshot(nodes, edges)));
     expect(result.ok && result.snapshot.diagrams).toBeUndefined();
+  });
+
+  it("round-trips the docs carried by a snapshot", () => {
+    const docs: Doc[] = [
+      { id: "guide/intro", title: "Intro", category: "guide", markdown: "# Intro\n\nHello." },
+    ];
+    const text = JSON.stringify(exportGraphSnapshot(nodes, edges, { docs }));
+    const result = parseGraphSnapshot(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.snapshot.docs).toEqual(docs);
+  });
+
+  it("re-validates docs (untrusted file): drops the malformed, keeps the valid, never fails the snapshot", () => {
+    const raw = {
+      version: GRAPH_SNAPSHOT_VERSION,
+      nodes: [],
+      edges: [],
+      docs: [
+        { title: "OK", category: "guide", markdown: "# OK" },
+        { title: "", markdown: "" }, // invalid: no title, no body
+        "not even an object",
+      ],
+    };
+    const result = parseGraphSnapshot(JSON.stringify(raw));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.docs).toHaveLength(1);
+      expect(result.snapshot.docs?.[0]?.title).toBe("OK");
+    }
+  });
+
+  it("leaves docs undefined when a snapshot carries none", () => {
+    const result = parseGraphSnapshot(JSON.stringify(exportGraphSnapshot(nodes, edges)));
+    expect(result.ok && result.snapshot.docs).toBeUndefined();
   });
 });
