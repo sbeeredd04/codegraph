@@ -38,6 +38,7 @@ test("FR-30: Ask builds a graph-grounded prompt from the question", async ({ pag
   await expect(prompt).toContainText("How does a request reach the graph core?");
   await expect(prompt).toContainText("find_nodes");
   await expect(prompt).toContainText("save_diagram");
+  await expect(prompt).toContainText("save_doc");
   await page.screenshot({ path: `${SHOT}/ask-panel.png` });
 
   // Escape closes.

@@ -14,7 +14,12 @@ describe("buildAskPrompt", () => {
     const p = buildAskPrompt({ question: "  How   does\n auth  work? " });
     expect(p).toContain("How does auth work?");
     for (const tool of ASSIST_QUERY_TOOLS) expect(p).toContain(tool);
+  });
+
+  it("steers capture to both board write tools — a diagram and a doc (FR-28/FR-29)", () => {
+    const p = buildAskPrompt({ question: "how does auth work?" });
     expect(p).toContain("save_diagram");
+    expect(p).toContain("save_doc");
   });
 
   it("anchors on the focused node and lists its neighbours when provided", () => {

@@ -4,9 +4,10 @@
 // IDE, and the source never leaves the host (AD-14 / AD-16). This module turns a
 // question plus the user's current graph context into a ready-to-run prompt the
 // user pastes into their agent, instructing it to ground the answer in the real
-// graph via the codegraph MCP query tools and to capture what it learns as a
-// diagram (save_diagram) that then renders on the board (FR-28) — closing the loop
-// from "ask" to a durable, shareable artifact.
+// graph via the codegraph MCP query tools and to capture what it learns back onto
+// the board — a Mermaid diagram for the structure (save_diagram, FR-28) and/or a
+// written doc for the prose explanation (save_doc, FR-29) — closing the loop from
+// "ask" to a durable, shareable artifact.
 //
 // Pure: a context object in, a prompt string out. No I/O, no network, no key. The
 // output is plain text destined for the clipboard, never HTML — so nothing here is
@@ -95,12 +96,13 @@ export function buildAskPrompt(ctx: AskContext): string {
   );
   lines.push("- Cite the specific node addresses you relied on, so the answer is verifiable.");
   lines.push(
-    "- When you understand the relevant structure, call save_diagram to capture it as a Mermaid " +
-      "diagram (architecture / workflow / sequence). Set its `related` to the node addresses it covers " +
-      "so it appears on the codegraph board and links back into the graph.",
+    "- Capture what you learn back onto the board so it outlives this chat: call save_diagram for the " +
+      "structure (a Mermaid architecture / workflow / sequence diagram) and/or save_doc for the prose " +
+      "explanation of what happens and why (Markdown). Set each artifact's `related` to the node addresses " +
+      "it covers so it appears on the codegraph board and links back into the graph.",
   );
   lines.push("");
-  lines.push("Keep the written answer concise; let the diagram carry the structure.");
+  lines.push("Keep the chat reply concise; let the saved diagram and doc carry the detail.");
 
   return lines.join("\n");
 }
