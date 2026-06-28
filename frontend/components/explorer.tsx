@@ -7,13 +7,14 @@
 // Better Design system is wired (held per the user's "claim the account first"
 // choice). All graph logic lives in the canvas / pure core — this is glue.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { NodeSourceViewer } from "./node-source-viewer";
+import { CommandPalette } from "./command-palette";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
 // don't exist during static prerender (output:export). Load the canvas
@@ -62,6 +63,7 @@ export function Explorer({
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const focusRef = useRef<((address: string) => void) | null>(null);
 
   // Selecting a node (canvas click or a neighbor jump, which both route through
@@ -70,6 +72,31 @@ export function Explorer({
   const selectNode = useCallback((address: string) => {
     setSelected(address);
     setSourceOpen(false);
+  }, []);
+
+  // Palette/jump: select first (so the detail panel opens even for a node the
+  // active projection has filtered out), then pan the camera when it's on screen.
+  const jumpTo = useCallback(
+    (address: string) => {
+      selectNode(address);
+      focusRef.current?.(address);
+    },
+    [selectNode],
+  );
+
+  // Global ⌘K / Ctrl+K toggles the palette. The listener owns the toggle so the
+  // palette can mount only while open (fresh state, no reset effect). setState in
+  // the callback is fine — it's the synchronous-setState-in-effect-body that the
+  // React Compiler lint forbids, not an event handler.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, []);
 
   const byAddress = useMemo(() => {
@@ -181,6 +208,15 @@ export function Explorer({
         </button>
 
         <div className="ml-auto flex items-center gap-3 text-xs">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search nodes"
+            aria-keyshortcuts="Meta+K Control+K"
+            className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <span aria-hidden>Search</span>
+            <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1 font-mono text-[10px] text-zinc-400">⌘K</kbd>
+          </button>
           {traceArmed && (
             <span
               aria-live="polite"
@@ -267,6 +303,11 @@ export function Explorer({
             <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
             <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
           </aside>
+        )}
+
+        {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
+        {paletteOpen && (
+          <CommandPalette nodes={nodes} onClose={() => setPaletteOpen(false)} onSelect={jumpTo} />
         )}
 
         {/* Read-only source dock (FR-15) — replaces the detail panel while open */}
