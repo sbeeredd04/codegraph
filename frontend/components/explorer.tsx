@@ -11,11 +11,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
+import type { Diagram } from "@core/diagrams/diagram";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { CommandPalette } from "./command-palette";
+import { DiagramsDrawer } from "./diagrams-drawer";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
 // don't exist during static prerender (output:export). Load both surfaces
@@ -39,6 +41,8 @@ const PROJECTIONS: { id: ProjectionKind; label: string; hint: string }[] = [
 interface ExplorerProps {
   readonly nodes: readonly GraphNode[];
   readonly edges: readonly GraphEdge[];
+  /** Agent-authored knowledge diagrams (FR-28) carried on the snapshot, if any. */
+  readonly diagrams?: readonly Diagram[];
   readonly title: string;
   /**
    * Base URL of the source sidecar for the node code viewer (FR-15), or `null`
@@ -54,6 +58,7 @@ interface ExplorerProps {
 export function Explorer({
   nodes,
   edges,
+  diagrams,
   title,
   sourceBase = null,
   datasets,
@@ -71,7 +76,9 @@ export function Explorer({
   const [selected, setSelected] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [diagramsOpen, setDiagramsOpen] = useState(false);
   const focusRef = useRef<((address: string) => void) | null>(null);
+  const diagramList = diagrams ?? [];
 
   // Selecting a node (canvas click or a neighbor jump, which both route through
   // onSelectNode) closes any open source view — it re-opens on demand for the
@@ -260,6 +267,21 @@ export function Explorer({
           Trace
         </button>
 
+        {/* Knowledge diagrams drawer (FR-28) — agent-authored Mermaid narratives */}
+        <button
+          aria-pressed={diagramsOpen}
+          aria-haspopup="dialog"
+          title="Agent-authored knowledge diagrams"
+          onClick={() => setDiagramsOpen((v) => !v)}
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            diagramsOpen
+              ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
+              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Diagrams <span className="font-mono">{diagramList.length}</span>
+        </button>
+
         <div className="ml-auto flex items-center gap-3 text-xs">
           <button
             onClick={() => setPaletteOpen(true)}
@@ -371,6 +393,16 @@ export function Explorer({
         {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
         {paletteOpen && (
           <CommandPalette nodes={nodes} onClose={closePalette} onSelect={jumpTo} />
+        )}
+
+        {/* Knowledge diagrams drawer (FR-28) — Related chips jump into the graph */}
+        {diagramsOpen && (
+          <DiagramsDrawer
+            diagrams={diagramList}
+            byAddress={byAddress}
+            onJump={jumpTo}
+            onClose={() => setDiagramsOpen(false)}
+          />
         )}
 
         {/* Read-only source dock (FR-15) — replaces the detail panel while open */}
