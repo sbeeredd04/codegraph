@@ -18,6 +18,7 @@ import type { Doc } from "@core/docs/doc";
 import { docsByCategory } from "@core/docs/doc";
 import type { GraphNode } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
+import { ResizableDock } from "./resizable-dock";
 
 const NODE_LINK_PREFIX = "codegraph://node/";
 
@@ -71,10 +72,16 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
   const empty = docs.length === 0;
 
   return (
-    <aside
+    <ResizableDock
+      storageKey="codegraph:dock:docs"
+      side="left"
+      bounds={{ defaultWidth: 576, minWidth: 380, maxWidth: 820 }}
+      label="Docs"
       role="dialog"
-      aria-label="Knowledge docs"
-      className="absolute inset-y-0 left-0 z-20 flex w-[min(36rem,48vw)] flex-col border-r border-zinc-800 bg-[#0c0d11]/97 shadow-2xl backdrop-blur"
+      ariaLabel="Knowledge docs"
+      surfaceClassName="bg-[#0c0d11]/97 shadow-2xl backdrop-blur"
+      scrollBody={false}
+      railAccent={<span aria-hidden className="text-sm text-zinc-500">¶</span>}
     >
       <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
         <div className="flex items-center gap-2">
@@ -132,7 +139,7 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
           </div>
         </div>
       )}
-    </aside>
+    </ResizableDock>
   );
 }
 

@@ -141,3 +141,95 @@ test("FR-34: a resized width persists across reload", async ({ page }) => {
   );
   expect(restored).toBe(widened);
 });
+
+// The left knowledge drawers (diagrams/docs) are the same dock primitive on the
+// other edge: a left dock widens on ArrowRight, collapses to a rail, and persists
+// both. They keep their role="dialog" landmark (the source/detail docks don't),
+// so the FR-28/29 contracts hold — verified by scoping queries to the dialog.
+
+test("FR-34: the diagrams drawer resizes by keyboard and persists width across reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  await page.getByRole("button", { name: /^Diagrams/ }).click();
+  const drawer = page.getByRole("dialog", { name: "Knowledge diagrams" });
+  await expect(drawer).toBeVisible();
+
+  // A left dock widens on ArrowRight (mirror of the right docks).
+  const handle = drawer.getByRole("separator", { name: "Resize panel" });
+  const before = Number(await handle.getAttribute("aria-valuenow"));
+  await handle.focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
+  const widened = Number(await handle.getAttribute("aria-valuenow"));
+  expect(widened).toBeGreaterThan(before);
+  await page.screenshot({ path: `${SHOT}/diagrams-dock-resized.png` });
+
+  await page.reload();
+  await waitForGraph(page);
+  await page.getByRole("button", { name: /^Diagrams/ }).click();
+  const restored = Number(
+    await page
+      .getByRole("dialog", { name: "Knowledge diagrams" })
+      .getByRole("separator", { name: "Resize panel" })
+      .getAttribute("aria-valuenow"),
+  );
+  expect(restored).toBe(widened);
+});
+
+test("FR-34: the diagrams drawer collapses to a rail and the collapse persists", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  // The default tRPC dataset carries no diagrams — the onboarding body is the
+  // proxy for "the drawer content is showing".
+  await page.getByRole("button", { name: /^Diagrams/ }).click();
+  await expect(page.getByText("No diagrams yet")).toBeVisible();
+
+  // Collapse to the rail: the body is gone, the expand affordance appears.
+  await page.getByRole("button", { name: "Collapse Diagrams" }).click();
+  await expect(page.getByText("No diagrams yet")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Expand Diagrams" })).toBeVisible();
+  await page.screenshot({ path: `${SHOT}/diagrams-dock-collapsed.png` });
+
+  // The collapse is part of the persisted layout: reload + reopen mounts the rail.
+  await page.reload();
+  await waitForGraph(page);
+  await page.getByRole("button", { name: /^Diagrams/ }).click();
+  await expect(page.getByRole("button", { name: "Expand Diagrams" })).toBeVisible();
+  await expect(page.getByText("No diagrams yet")).toHaveCount(0);
+
+  // Expanding restores the body.
+  await page.getByRole("button", { name: "Expand Diagrams" }).click();
+  await expect(page.getByText("No diagrams yet")).toBeVisible();
+});
+
+test("FR-34: the docs drawer resizes and persists width (distinct from diagrams)", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  await page.getByRole("button", { name: /^Docs/ }).click();
+  const drawer = page.getByRole("dialog", { name: "Knowledge docs" });
+  await expect(drawer).toBeVisible();
+
+  const handle = drawer.getByRole("separator", { name: "Resize panel" });
+  await handle.focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
+  const widened = Number(await handle.getAttribute("aria-valuenow"));
+
+  await page.reload();
+  await waitForGraph(page);
+  await page.getByRole("button", { name: /^Docs/ }).click();
+  const restored = Number(
+    await page
+      .getByRole("dialog", { name: "Knowledge docs" })
+      .getByRole("separator", { name: "Resize panel" })
+      .getAttribute("aria-valuenow"),
+  );
+  expect(restored).toBe(widened);
+});

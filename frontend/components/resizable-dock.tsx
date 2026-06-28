@@ -44,21 +44,38 @@ interface ResizableDockProps {
   readonly storageKey: string;
   readonly side?: "left" | "right";
   readonly bounds: DockBounds;
-  /** Short label for the collapsed rail and accessible name. */
+  /** Short label for the collapsed rail and the collapse/expand controls. */
   readonly label: string;
+  /** Landmark role for the outer element (e.g. "dialog" for the knowledge
+   *  drawers). Defaults to a plain complementary <aside>. */
+  readonly role?: string;
+  /** Accessible name for the dock; defaults to `label`. Lets the rail stay short
+   *  ("Diagrams") while the dock announces a fuller name ("Knowledge diagrams"). */
+  readonly ariaLabel?: string;
   /** Optional accent (e.g. a kind dot) shown on the collapsed rail. */
   readonly railAccent?: ReactNode;
+  /** Body surface classes (bg + shadow). Defaults to the standard dock surface. */
+  readonly surfaceClassName?: string;
+  /** When false, children own their scrolling (multi-pane drawers keep a fixed
+   *  header + independently-scrolling panes). Default true wraps them in a single
+   *  scroll region. */
+  readonly scrollBody?: boolean;
   readonly children: ReactNode;
 }
 
 const RAIL_W = 40;
+const DEFAULT_SURFACE = "bg-zinc-900/95 backdrop-blur";
 
 export function ResizableDock({
   storageKey,
   side = "right",
   bounds,
   label,
+  role,
+  ariaLabel,
   railAccent,
+  surfaceClassName = DEFAULT_SURFACE,
+  scrollBody = true,
   children,
 }: ResizableDockProps): React.JSX.Element {
   const { width, collapsed, setCollapsed, resizing, handleProps } = useDockState(
@@ -67,10 +84,11 @@ export function ResizableDock({
     side,
   );
   const edge = side === "right" ? "right-0" : "left-0";
+  const name = ariaLabel ?? label;
 
   if (collapsed) {
     return (
-      <aside className={`absolute ${edge} top-0 bottom-0 z-20`} aria-label={label}>
+      <aside className={`absolute ${edge} top-0 bottom-0 z-20`} role={role} aria-label={name}>
         <button
           onClick={() => setCollapsed(false)}
           aria-label={`Expand ${label}`}
@@ -114,16 +132,16 @@ export function ResizableDock({
       style={{ width }}
       className={`flex min-w-0 flex-col overflow-hidden ${
         side === "right" ? "border-l" : "border-r"
-      } border-zinc-800 bg-zinc-900/95 backdrop-blur ${
+      } border-zinc-800 ${surfaceClassName} ${
         resizing ? "" : "transition-[width] duration-150 motion-reduce:transition-none"
       }`}
     >
-      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      {scrollBody ? <div className="min-h-0 flex-1 overflow-auto">{children}</div> : children}
     </div>
   );
 
   return (
-    <aside className={`absolute ${edge} top-0 bottom-0 z-20 flex`} aria-label={label}>
+    <aside className={`absolute ${edge} top-0 bottom-0 z-20 flex`} role={role} aria-label={name}>
       {side === "right" ? (
         <>
           {handle}
