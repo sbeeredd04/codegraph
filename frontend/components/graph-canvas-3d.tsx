@@ -19,7 +19,8 @@ import type { NodeKind } from "@core/graph/types";
 import { buildRenderModel, findOrphanAddresses } from "@adapters/surfaces/webview/render-model";
 import { lift3d, project3d, nearestNode, type Point3 } from "@adapters/surfaces/webview/layout3d";
 import type { GraphSurfaceProps } from "./graph-surface";
-import { GROUP_TINT } from "@/lib/overlay-style";
+import type { SurfaceController } from "@/lib/surface-controller";
+import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
 
 const BG = "#0e0f13";
 const EDGE = "120,130,160"; // rgb of the recessive edge tone (alpha applied per-frame)
@@ -64,6 +65,9 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // marks/groups change repaints the tint without re-running the heavy build.
   const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
   const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
+  // The driver's transient highlight (FR-43): a live "look here" set + its colour,
+  // resolved above the ambient overlay tint in the draw loop. null when undriven.
+  const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
 
   // Keep callbacks/data current for the handlers without re-running the heavy build.
   useEffect(() => {
@@ -147,6 +151,14 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     // test asserts exactly what's painted.
     const markColorOf = (id: string): string | undefined => markedRef.current?.get(id);
     const isGrouped = (id: string): boolean => Boolean(groupedRef.current?.has(id));
+    const highlightColorOf = (id: string): string | undefined =>
+      highlightRef.current?.set.has(id) ? highlightRef.current.color : undefined;
+    // The full draw colour, in precedence order: a live driver highlight (FR-43)
+    // beats a persistent mark, which beats the group tint, which beats the node's
+    // kind colour. draw() and __overlay3d both resolve through this so the painted
+    // pixel and the asserted value never drift.
+    const drawColorOf = (id: string): string | undefined =>
+      highlightColorOf(id) ?? markColorOf(id) ?? (isGrouped(id) ? GROUP_TINT : sceneById.get(id)?.color);
 
     // Centre the box so rotation pivots about the graph's middle, and pick a fit
     // scale from its 3D radius so the whole graph stays framed at any rotation.
@@ -238,24 +250,33 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // nodes desaturate to the dim tone; the selected node grows and pops.
       for (const p of order) {
         const n = near(p.depth);
-        const inFocus = !focus || focus.nodes.has(p.n.id);
         const isCenter = focus?.center === p.n.id;
-        // Agent overlay tint (FR-37): a marked node wears its mark colour and
-        // grows a touch so it pops; an unmarked group member takes the recessive
-        // tint. Ambient, like the 2D layer — it yields to the focus dim off-focus.
+        // Driver highlight (FR-43) is the top layer — a live "look here" pops even
+        // through an off-focus dim, so the agent's pointer is never lost. Below it,
+        // the agent's persistent overlay tint (FR-37): a marked node wears its mark
+        // colour and grows a touch; an unmarked group member takes the recessive
+        // tint. Both yield to the focus dim only when NOT highlighted.
+        const hlColor = highlightColorOf(p.n.id);
         const markColor = markColorOf(p.n.id);
-        const grouped = !markColor && isGrouped(p.n.id);
-        const baseColor = markColor ?? (grouped ? GROUP_TINT : p.n.color);
+        const inFocus = Boolean(hlColor) || !focus || focus.nodes.has(p.n.id);
+        const baseColor = drawColorOf(p.n.id) ?? p.n.color;
         let r = Math.max(1.5, (2 + p.n.size) * (0.5 + 0.7 * n));
         if (isCenter) r += 2.5;
+        else if (hlColor) r += 2;
         else if (markColor) r += 1.5;
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
         ctx.fillStyle = inFocus
-          ? fade(isCenter ? SELECTED : baseColor, 0.35 + 0.65 * n)
+          ? fade(isCenter && !hlColor ? SELECTED : baseColor, 0.35 + 0.65 * n)
           : fade(DIM_NODE, 0.25 + 0.45 * n);
         ctx.fill();
-        if (p.n.id === hoverId || isCenter) {
+        if (hlColor) {
+          // A bright highlight ring is the strongest emphasis on the surface — the
+          // 3D echo of the 2D halo; it overrides the hover/centre/mark rings.
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = hlColor;
+          ctx.stroke();
+        } else if (p.n.id === hoverId || isCenter) {
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = isCenter ? SELECTED : LABEL;
           ctx.stroke();
@@ -284,6 +305,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         for (const id of markedRef.current.keys()) {
           if (!focus || focus.nodes.has(id)) toLabel.add(id);
         }
+      }
+      // A driven highlight always labels — it overrides the focus dim (FR-43).
+      if (highlightRef.current) {
+        for (const id of highlightRef.current.set) toLabel.add(id);
       }
       if (toLabel.size) {
         ctx.font = "11px ui-monospace, Menlo, monospace";
@@ -319,9 +344,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       (container as unknown as { __overlay3d?: (a: string) => string | null }).__overlay3d = (
         address: string,
       ): string | null => {
-        const s = sceneById.get(address);
-        if (!s) return null;
-        return markColorOf(address) ?? (isGrouped(address) ? GROUP_TINT : s.color);
+        if (!sceneById.has(address)) return null;
+        return drawColorOf(address) ?? null;
       };
     }
 
@@ -391,18 +415,47 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     canvas.addEventListener("pointerleave", onLeave);
     canvas.addEventListener("wheel", onWheel, { passive: false });
 
-    // Imperative focus: re-centre the camera on an address, then select it.
-    if (cbRef.current.focusRef) {
-      cbRef.current.focusRef.current = (address: string) => {
-        const c = centered.get(address);
-        if (!c) return;
-        const fit = (Math.min(W, H) * 0.42) / radius;
-        const pr = project3d(c, yaw, pitch);
-        panX = -pr.x * fit * zoom;
-        panY = pr.y * fit * zoom;
+    // Pan the camera so a set's centroid sits at the viewport centre (no rotation,
+    // no zoom change) — the 3D analogue of the 2D camera.animate fit.
+    const frameAddresses = (addresses: readonly string[]): void => {
+      const cs = addresses.map((a) => centered.get(a)).filter((c): c is Point3 => c != null);
+      if (cs.length === 0) return;
+      const ax = cs.reduce((s, c) => s + c.x, 0) / cs.length;
+      const ay = cs.reduce((s, c) => s + c.y, 0) / cs.length;
+      const az = cs.reduce((s, c) => s + c.z, 0) / cs.length;
+      const fit = (Math.min(W, H) * 0.42) / radius;
+      const pr = project3d({ x: ax, y: ay, z: az }, yaw, pitch);
+      panX = -pr.x * fit * zoom;
+      panY = pr.y * fit * zoom;
+      requestDraw();
+    };
+
+    // Imperative surface controller (FR-43) — the same contract the 2D canvas
+    // implements, against the 3D substrate. Generalises the old focusRef.
+    const controller: SurfaceController = {
+      focus(addresses) {
+        const present = addresses.filter((a) => centered.has(a));
+        if (present.length === 0) return;
+        frameAddresses(present);
+        cbRef.current.onSelectNode(present[0]);
+      },
+      frame(addresses) {
+        frameAddresses(addresses.filter((a) => centered.has(a)));
+      },
+      highlight(addresses, style = "accent") {
+        const present = addresses.filter((a) => centered.has(a));
+        highlightRef.current = present.length
+          ? { set: new Set(present), color: HIGHLIGHT_STYLE_COLOR[style] }
+          : null;
         requestDraw();
-        cbRef.current.onSelectNode(address);
-      };
+      },
+      replay() {
+        // FR-40/41 (Phase C) — guided tour / log-trace stepping. No-op for now.
+      },
+    };
+    if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = controller;
+    if (process.env.NODE_ENV !== "production") {
+      (container as unknown as { __controller?: SurfaceController }).__controller = controller;
     }
 
     const ro = new ResizeObserver(() => {
@@ -422,7 +475,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("wheel", onWheel);
-      if (cbRef.current.focusRef) cbRef.current.focusRef.current = null;
+      highlightRef.current = null;
+      if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = null;
     };
   }, [props.nodes, props.edges, props.projection]);
 

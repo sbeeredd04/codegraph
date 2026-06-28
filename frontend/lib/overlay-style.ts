@@ -6,6 +6,7 @@
 // read as one system. Shared by the 2D canvas now; the 3D surface adopts it with
 // the generalized focus controller (FR-43).
 import type { MarkKind } from "@core/overlays/overlay";
+import type { HighlightStyle } from "./surface-controller";
 
 export const MARK_CANVAS_COLOR: Record<MarkKind, string> = {
   bug: "#f87171", // red-400
@@ -18,3 +19,12 @@ export const MARK_CANVAS_COLOR: Record<MarkKind, string> = {
 // A muted teal for "belongs to a named group" — cool and recessive so it reads as
 // an ambient hint, never competing with the brighter, intentional mark hues.
 export const GROUP_TINT = "#5b8a9a";
+
+// Transient driver-highlight colours (FR-43) — the live "look here" a controller
+// pulses onto a node set. Brighter/cooler than the ambient mark hues so a driven
+// highlight reads ABOVE a persistent mark when both land on the same node.
+export const HIGHLIGHT_STYLE_COLOR: Record<HighlightStyle, string> = {
+  accent: "#a78bfa", // brand violet — generic "look here"
+  trace: "#34d399", // emerald — an execution / call path step
+  warn: "#f59e0b", // amber — attention without alarm
+};

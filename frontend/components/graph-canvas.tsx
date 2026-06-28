@@ -30,7 +30,8 @@ import {
 import { nodeHiddenAtRatio } from "@adapters/surfaces/webview/lod";
 import { clusterByFolder } from "@adapters/surfaces/webview/folder-layout";
 import type { GraphSurfaceProps } from "./graph-surface";
-import { GROUP_TINT } from "@/lib/overlay-style";
+import type { SurfaceController } from "@/lib/surface-controller";
+import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
 
 interface XY {
   x: number;
@@ -83,6 +84,9 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // marks/groups change repaints the tint without re-running the heavy layout.
   const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
   const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
+  // The driver's transient highlight (FR-43): a live "look here" set + its colour,
+  // read by the nodeReducer above every ambient layer. null when nothing is driven.
+  const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
   const cbRef = useRef(props);
 
   // Sync the "latest value" refs after every commit. Declared before the heavy
@@ -205,6 +209,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
         color?: string;
         label?: string;
         forceLabel?: boolean;
+        highlighted?: boolean;
       } = { ...data };
       if (lod && nodeHiddenAtRatio(data.kind as NodeKind, camera.ratio)) res.hidden = true;
       // Agent overlay layer (FR-37): the agent's marks + groups tint the graph
@@ -260,6 +265,17 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           res.color = ORPHAN_DIM_NODE;
           res.label = "";
         }
+      }
+      // Driver highlight (FR-43): the topmost layer — a live "look here" wins over
+      // every ambient/lens treatment, even an off-focus dim or a persistent mark,
+      // so the agent's pointer is never lost. Clears the moment the driver moves on.
+      const hl = highlightRef.current;
+      if (hl && hl.set.has(node)) {
+        res.hidden = false;
+        res.color = hl.color;
+        res.label = g.getNodeAttribute(node, "label") as string;
+        res.forceLabel = true;
+        res.highlighted = true;
       }
       return res;
     });
@@ -335,24 +351,44 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       renderer.refresh();
     }
 
-    function fitToPath(addresses: readonly string[]): void {
+    function fitToPath(addresses: readonly string[], ratio = 0.75): void {
       const pts = addresses
         .map((a) => renderer.getNodeDisplayData(a))
         .filter((p): p is NonNullable<typeof p> => p != null);
       if (pts.length === 0) return;
       const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
       const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-      void renderer.getCamera().animate({ x: cx, y: cy, ratio: 0.75 }, { duration: 420 });
+      void renderer.getCamera().animate({ x: cx, y: cy, ratio }, { duration: 420 });
     }
 
-    // Expose an imperative focus handle for the parent (palette/detail jumps).
-    if (cbRef.current.focusRef) {
-      cbRef.current.focusRef.current = (address: string) => {
-        if (!g.hasNode(address)) return;
-        const pos = renderer.getNodeDisplayData(address);
-        if (pos) void renderer.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.55 }, { duration: 420 });
-        cbRef.current.onSelectNode(address);
-      };
+    // Expose the imperative surface controller for the parent / FR-39 command bus
+    // (FR-43). Generalises the old single focusRef into focus/frame/highlight.
+    const controller: SurfaceController = {
+      focus(addresses) {
+        const present = addresses.filter((a) => g.hasNode(a));
+        if (present.length === 0) return;
+        cbRef.current.onSelectNode(present[0]);
+        fitToPath(present, present.length === 1 ? 0.55 : 0.75);
+      },
+      frame(addresses) {
+        fitToPath(addresses.filter((a) => g.hasNode(a)));
+      },
+      highlight(addresses, style = "accent") {
+        const present = addresses.filter((a) => g.hasNode(a));
+        highlightRef.current = present.length
+          ? { set: new Set(present), color: HIGHLIGHT_STYLE_COLOR[style] }
+          : null;
+        renderer.refresh();
+      },
+      replay() {
+        // FR-40/41 (Phase C) — guided tour / log-trace stepping. No-op for now.
+      },
+    };
+    if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = controller;
+    // E2E hook (dev only — tree-shaken from the static export, like __sigma) so a
+    // test can drive the controller without reaching into React internals.
+    if (process.env.NODE_ENV !== "production") {
+      (container as unknown as { __controller?: SurfaceController }).__controller = controller;
     }
 
     return () => {
@@ -361,6 +397,8 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       graphRef.current = null;
       pathRef.current = undefined;
       traceFromRef.current = undefined;
+      highlightRef.current = null;
+      if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = null;
     };
   }, [props.nodes, props.edges, props.projection]);
 

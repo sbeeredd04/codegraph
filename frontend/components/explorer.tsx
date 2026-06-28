@@ -19,6 +19,7 @@ import { MARK_CANVAS_COLOR } from "@/lib/overlay-style";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
+import type { SurfaceController } from "@/lib/surface-controller";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
@@ -117,7 +118,7 @@ export function Explorer({
   // Bumped by "Reset layout" — used as a remount key so every dock re-reads its
   // (now-cleared) localStorage and returns to defaults.
   const [layoutVersion, setLayoutVersion] = useState(0);
-  const focusRef = useRef<((address: string) => void) | null>(null);
+  const controllerRef = useRef<SurfaceController | null>(null);
   const diagramList = diagrams ?? [];
   const docList = docs ?? [];
 
@@ -140,7 +141,7 @@ export function Explorer({
   const jumpTo = useCallback(
     (address: string) => {
       selectNode(address);
-      focusRef.current?.(address);
+      controllerRef.current?.focus([address]);
     },
     [selectNode],
   );
@@ -461,7 +462,7 @@ export function Explorer({
               onClearSelection={clearSelection}
               onOrphanCount={setOrphanCount}
               onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
-              focusRef={focusRef}
+              controllerRef={controllerRef}
               markedNodes={markedNodes}
               groupedNodes={overlayHl.grouped}
             />
@@ -490,7 +491,7 @@ export function Explorer({
             overlays={selectedOverlays}
             onClose={() => setSelected(null)}
             onViewSource={() => setSourceOpen(true)}
-            onJump={(a) => focusRef.current?.(a)}
+            onJump={(a) => controllerRef.current?.focus([a])}
           />
         )}
 

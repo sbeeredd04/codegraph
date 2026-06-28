@@ -5,6 +5,7 @@
 
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
+import type { SurfaceController } from "@/lib/surface-controller";
 
 export type RenderMode = "2d" | "3d";
 
@@ -32,13 +33,17 @@ export interface GraphSurfaceProps {
   readonly onOrphanCount: (count: number) => void;
   /** Trace progress: status text for the live region, or "" to clear it. 2D only. */
   readonly onTraceStatus: (text: string, tone?: "ok" | "none") => void;
-  /** Imperative focus handle — parent calls this to pan/zoom to an address. */
-  readonly focusRef?: React.MutableRefObject<((address: string) => void) | null>;
+  /** Imperative controller handle (FR-43) — the parent installs a ref here and
+   * the mounted surface populates it with focus/frame/highlight/replay, so the
+   * host (and the FR-39 command bus to come) can DRIVE the surface, not just read
+   * a selection. Generalises the old single-purpose focusRef; works on both the
+   * 2D and 3D surfaces. */
+  readonly controllerRef?: React.MutableRefObject<SurfaceController | null>;
   /** The agent's marked nodes (FR-37): address → canvas colour for the node's
    * dominant mark. The surface tints these on the graph itself so the agent can
-   * "point" at nodes, not just annotate the detail panel. 2D only for now. */
+   * "point" at nodes, not just annotate the detail panel. Honoured by 2D + 3D. */
   readonly markedNodes?: ReadonlyMap<string, string>;
   /** Addresses that belong to any agent group (FR-37) — tinted as an ambient
-   * hint when not already marked. 2D only for now. */
+   * hint when not already marked. Honoured by 2D + 3D. */
   readonly groupedNodes?: ReadonlySet<string>;
 }
