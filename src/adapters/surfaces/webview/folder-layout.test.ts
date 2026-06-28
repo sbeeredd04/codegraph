@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { folderOf, clusterByFolder, type FolderNode } from "./folder-layout.js";
+import { folderOf, clusterByFolder, convexHull, type FolderNode, type Vec2 } from "./folder-layout.js";
 
 describe("folderOf", () => {
   it("returns the directory portion of a repo-relative path", () => {
@@ -60,5 +60,85 @@ describe("clusterByFolder", () => {
     for (const id of ["a1", "a2", "b1", "b2"]) {
       expect(a.positions.get(id)).toEqual(b.positions.get(id));
     }
+  });
+
+  it("reports each folder's centroid + a hull enclosing its clustered members (FR-26)", () => {
+    const r = clusterByFolder(twoFolders);
+    for (const region of r.folders) {
+      const placed = twoFolders
+        .filter((n) => n.file.startsWith(`${region.folder}/`))
+        .map((n) => r.positions.get(n.id)!);
+      // Centroid is the mean of the placed members.
+      const mx = placed.reduce((s, p) => s + p.x, 0) / placed.length;
+      const my = placed.reduce((s, p) => s + p.y, 0) / placed.length;
+      expect(region.centroid.x).toBeCloseTo(mx, 9);
+      expect(region.centroid.y).toBeCloseTo(my, 9);
+      // Every placed member lies inside (or on) the reported hull's bounding box.
+      const xs = region.hull.map((p) => p.x);
+      const ys = region.hull.map((p) => p.y);
+      for (const p of placed) {
+        expect(p.x).toBeGreaterThanOrEqual(Math.min(...xs) - 1e-9);
+        expect(p.x).toBeLessThanOrEqual(Math.max(...xs) + 1e-9);
+        expect(p.y).toBeGreaterThanOrEqual(Math.min(...ys) - 1e-9);
+        expect(p.y).toBeLessThanOrEqual(Math.max(...ys) + 1e-9);
+      }
+    }
+  });
+});
+
+describe("convexHull", () => {
+  it("returns the deduplicated points as-is for fewer than 3 distinct inputs", () => {
+    expect(convexHull([])).toEqual([]);
+    expect(convexHull([{ x: 1, y: 1 }])).toEqual([{ x: 1, y: 1 }]);
+    expect(convexHull([{ x: 1, y: 1 }, { x: 1, y: 1 }])).toEqual([{ x: 1, y: 1 }]); // co-located
+    expect(convexHull([{ x: 0, y: 0 }, { x: 2, y: 2 }])).toEqual([{ x: 0, y: 0 }, { x: 2, y: 2 }]);
+  });
+
+  it("drops interior + collinear points, keeping only the extreme corners", () => {
+    const pts: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+      { x: 2, y: 2 }, // interior — must be dropped
+      { x: 2, y: 0 }, // on the bottom edge (collinear) — must be dropped
+    ];
+    const hull = convexHull(pts);
+    expect(hull).toHaveLength(4);
+    const set = new Set(hull.map((p) => `${p.x},${p.y}`));
+    expect(set).toEqual(new Set(["0,0", "4,0", "4,4", "0,4"]));
+    expect(set.has("2,2")).toBe(false);
+  });
+
+  it("winds counter-clockwise (positive signed area)", () => {
+    const hull = convexHull([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ]);
+    let area2 = 0;
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i];
+      const b = hull[(i + 1) % hull.length];
+      area2 += a.x * b.y - b.x * a.y;
+    }
+    expect(area2).toBeGreaterThan(0); // CCW
+  });
+
+  it("is deterministic regardless of input order", () => {
+    const a = convexHull([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ]);
+    const b = convexHull([
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+    ]);
+    expect(a).toEqual(b);
   });
 });

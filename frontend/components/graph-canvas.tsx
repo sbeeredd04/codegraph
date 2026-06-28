@@ -29,7 +29,7 @@ import {
   findOrphanAddresses,
 } from "@adapters/surfaces/webview/render-model";
 import { nodeHiddenAtRatio } from "@adapters/surfaces/webview/lod";
-import { clusterByFolder } from "@adapters/surfaces/webview/folder-layout";
+import { clusterByFolder, type FolderRegion } from "@adapters/surfaces/webview/folder-layout";
 import type { GraphSurfaceProps } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
@@ -61,6 +61,38 @@ function shortName(addr: string): string {
   return tail.split("/").pop() ?? tail;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** A closed SVG polygon path through the given screen-space points. */
+function polygonPath(pts: readonly XY[]): string {
+  return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + " Z";
+}
+
+/**
+ * The label shown over a folder territory. Deep paths collapse to their leaf
+ * segment (with a "…/" hint) so labels stay short and don't overlap across a
+ * dense map; one- or two-segment folders show in full. "(root)" for repo-root.
+ */
+function folderLabel(folder: string): string {
+  if (folder === "") return "(root)";
+  const segs = folder.split("/");
+  return segs.length <= 2 ? folder : `…/${segs[segs.length - 1]}`;
+}
+
+// Declutter the territory overlay the same way FR-27 declutters node labels: a
+// folder needs at least this many nodes to earn an outline, and only the largest
+// regions are drawn — so a 40-folder graph reads instead of drowning in labels.
+const MIN_REGION_NODES = 3;
+const MAX_REGIONS = 14;
+
+/** The largest folder regions worth outlining + labelling, biggest first. */
+function topRegions(regions: readonly FolderRegion[]): FolderRegion[] {
+  return [...regions]
+    .filter((r) => r.count >= MIN_REGION_NODES)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, MAX_REGIONS);
+}
+
 export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<Sigma | null>(null);
@@ -70,6 +102,9 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // relayout (FR-26).
   const basePosRef = useRef<Map<string, XY> | null>(null);
   const clusteredPosRef = useRef<Map<string, XY> | null>(null);
+  // Per-folder geometry (hull + label anchor) for the territory overlay (FR-26
+  // follow-up), computed alongside the clustered positions in the heavy effect.
+  const foldersRef = useRef<FolderRegion[]>([]);
 
   // Live state the reducers/handlers read fresh on every refresh — kept in refs
   // so flipping orphan mode or the traced path never triggers the heavy rebuild.
@@ -157,14 +192,16 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     const basePos = new Map<string, XY>();
     g.forEachNode((id, a) => basePos.set(id, { x: a.x as number, y: a.y as number }));
     basePosRef.current = basePos;
-    clusteredPosRef.current = clusterByFolder(
+    const cluster = clusterByFolder(
       g.mapNodes((id, a) => ({
         id,
         file: (a.file as string) ?? "",
         x: a.x as number,
         y: a.y as number,
       })),
-    ).positions;
+    );
+    clusteredPosRef.current = cluster.positions;
+    foldersRef.current = cluster.folders;
     if (cbRef.current.folderClustered) {
       g.forEachNode((id) => {
         const p = clusteredPosRef.current!.get(id);
@@ -427,8 +464,83 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       (container as unknown as { __controller?: SurfaceController }).__controller = controller;
     }
 
+    // Folder territory overlay (FR-26 follow-up): when clustering is on, draw a
+    // faint hull around each folder's nodes plus its name label, so the clustered
+    // map reads as labelled regions — not just relocated dots. A pointer-through
+    // SVG layer over Sigma's canvases, re-projected every frame so it stays glued
+    // to the nodes through pan/zoom and camera animations. aria-hidden: the canvas
+    // graph is already non-semantic (the detail panel + node list carry the
+    // accessible structure), so these visual aids never present a partial a11y tree.
+    const overlay = document.createElementNS(SVG_NS, "svg");
+    overlay.dataset.testid = "folder-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.style.position = "absolute";
+    overlay.style.top = "0";
+    overlay.style.left = "0";
+    overlay.style.width = "100%";
+    overlay.style.height = "100%";
+    overlay.style.pointerEvents = "none";
+    overlay.style.overflow = "visible";
+    container.appendChild(overlay);
+
+    // Screen-px the hull is inflated past the outermost node so it loosely encloses
+    // the cluster instead of clipping it.
+    const FOLDER_PAD = 22;
+
+    function drawFolderOverlay(): void {
+      while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+      if (!cbRef.current.folderClustered) return;
+      for (const region of topRegions(foldersRef.current)) {
+        const c = renderer.graphToViewport(region.centroid);
+        const screen = region.hull.map((p) => renderer.graphToViewport(p));
+        let labelY = c.y;
+        if (screen.length >= 3) {
+          // Inflate each hull vertex outward from the centroid so the outline sits
+          // a little beyond the nodes.
+          const padded = screen.map((p) => {
+            const dx = p.x - c.x;
+            const dy = p.y - c.y;
+            const len = Math.hypot(dx, dy) || 1;
+            return { x: p.x + (dx / len) * FOLDER_PAD, y: p.y + (dy / len) * FOLDER_PAD };
+          });
+          const path = document.createElementNS(SVG_NS, "path");
+          path.setAttribute("class", "cg-folder-hull");
+          path.setAttribute("d", polygonPath(padded));
+          path.setAttribute("fill", "rgba(148,163,184,0.06)");
+          path.setAttribute("stroke", "rgba(148,163,184,0.38)");
+          path.setAttribute("stroke-width", "1");
+          path.setAttribute("stroke-linejoin", "round");
+          overlay.appendChild(path);
+          labelY = Math.min(...padded.map((p) => p.y));
+        }
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("class", "cg-folder-label");
+        text.setAttribute("x", c.x.toFixed(1));
+        text.setAttribute("y", (labelY - 8).toFixed(1));
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("fill", "#cbd5e1");
+        text.setAttribute("font-size", "11");
+        text.setAttribute("font-family", "ui-monospace, Menlo, monospace");
+        // Paint a dark stroke first, under the fill, for a halo that keeps the label
+        // legible wherever it crosses nodes/edges on the dark canvas.
+        text.setAttribute("paint-order", "stroke");
+        text.setAttribute("stroke", "#0a0a0a");
+        text.setAttribute("stroke-width", "3");
+        text.setAttribute("stroke-linejoin", "round");
+        text.textContent = folderLabel(region.folder);
+        overlay.appendChild(text);
+      }
+    }
+
+    // Redraw glued to the nodes on every Sigma frame (covers pan, zoom, and the
+    // camera animation the Folders toggle kicks off). Idle frames don't fire, so
+    // this is free when nothing moves.
+    renderer.on("afterRender", drawFolderOverlay);
+    drawFolderOverlay();
+
     return () => {
       cancelReplay();
+      overlay.remove();
       renderer.kill();
       rendererRef.current = null;
       graphRef.current = null;

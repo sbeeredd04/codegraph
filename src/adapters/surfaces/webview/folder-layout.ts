@@ -22,11 +22,67 @@ export interface Vec2 {
   readonly y: number;
 }
 
+/** A clustered folder's geometry, for drawing its outline + name label (FR-26). */
+export interface FolderRegion {
+  readonly folder: string;
+  /** Deterministic phyllotaxis target the cluster was translated toward. */
+  readonly anchor: Vec2;
+  readonly count: number;
+  /** Centroid of the folder's CLUSTERED member positions (label anchor). */
+  readonly centroid: Vec2;
+  /**
+   * Convex hull of the clustered member positions, CCW. A 1–2 node folder (or
+   * fully-collinear members) yields fewer than 3 points — the renderer then
+   * draws just the label, no outline.
+   */
+  readonly hull: Vec2[];
+}
+
 export interface FolderClusterResult {
   /** New position per node id. */
   readonly positions: Map<string, Vec2>;
-  /** Per-folder anchor + member count, in stable (sorted) order — for labelling. */
-  readonly folders: { readonly folder: string; readonly anchor: Vec2; readonly count: number }[];
+  /** Per-folder geometry, in stable (sorted) order — for outlines + labels. */
+  readonly folders: FolderRegion[];
+}
+
+/**
+ * Convex hull of a point set (Andrew's monotone chain) — pure + deterministic.
+ * Returns the hull vertices counter-clockwise. Degenerate inputs (fewer than 3
+ * distinct points, or all-collinear) return the deduplicated extreme points as
+ * given, so callers must treat a <3-point result as "no fillable outline".
+ */
+export function convexHull(points: readonly Vec2[]): Vec2[] {
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  // Drop exact duplicates so a pile of co-located nodes can't wedge the scan.
+  const uniq: Vec2[] = [];
+  for (const p of pts) {
+    const last = uniq[uniq.length - 1];
+    if (!last || last.x !== p.x || last.y !== p.y) uniq.push(p);
+  }
+  if (uniq.length < 3) return uniq;
+
+  const cross = (o: Vec2, a: Vec2, b: Vec2): number =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Vec2[] = [];
+  for (const p of uniq) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+  const upper: Vec2[] = [];
+  for (let i = uniq.length - 1; i >= 0; i--) {
+    const p = uniq[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+  // Drop each list's last point (it's the other list's first) and concatenate.
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
 }
 
 // The golden angle gives an even, non-overlapping phyllotaxis spread of anchors.
@@ -74,13 +130,12 @@ export function clusterByFolder(
   // many folders still get elbow room.
   const spread = extent * (0.55 + 0.12 * Math.sqrt(folderNames.length));
 
-  const folders: { folder: string; anchor: Vec2; count: number }[] = [];
+  const folders: FolderRegion[] = [];
   folderNames.forEach((folder, i) => {
     const members = byFolder.get(folder)!;
     const r = folderNames.length === 1 ? 0 : spread * Math.sqrt((i + 0.5) / folderNames.length);
     const a = i * GOLDEN_ANGLE;
     const anchor: Vec2 = { x: centerX + r * Math.cos(a), y: centerY + r * Math.sin(a) };
-    folders.push({ folder, anchor, count: members.length });
 
     let cx = 0;
     let cy = 0;
@@ -93,7 +148,22 @@ export function clusterByFolder(
 
     const dx = (anchor.x - cx) * strength;
     const dy = (anchor.y - cy) * strength;
-    for (const m of members) positions.set(m.id, { x: m.x + dx, y: m.y + dy });
+    const placed: Vec2[] = [];
+    for (const m of members) {
+      const p = { x: m.x + dx, y: m.y + dy };
+      positions.set(m.id, p);
+      placed.push(p);
+    }
+
+    // The cluster's geometry, derived from where the members actually LAND, so the
+    // outline + label track the rigidly-translated cluster (not the bare anchor).
+    folders.push({
+      folder,
+      anchor,
+      count: members.length,
+      centroid: { x: cx + dx, y: cy + dy },
+      hull: convexHull(placed),
+    });
   });
 
   return { positions, folders };

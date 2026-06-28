@@ -68,3 +68,35 @@ test("FR-26: Folders clusters the graph by directory and restores cleanly", asyn
     .poll(async () => maxDelta(await positions(page), base), { timeout: 5_000 })
     .toBeLessThan(1e-6);
 });
+
+test("FR-26 follow-up: clustering draws folder hull outlines + name labels", async ({ page }) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  // The territory layer is always mounted (pointer-through SVG over the canvas)
+  // but empty until clustering is on.
+  const overlay = page.getByTestId("folder-overlay");
+  await expect(overlay).toBeAttached();
+  await expect(overlay.locator(".cg-folder-label")).toHaveCount(0);
+
+  // Cluster on — folder name labels + at least one hull outline appear.
+  await page.getByRole("button", { name: "Folders" }).click();
+  await expect
+    .poll(async () => overlay.locator(".cg-folder-label").count(), { timeout: 5_000 })
+    .toBeGreaterThan(0);
+  expect(await overlay.locator(".cg-folder-hull").count()).toBeGreaterThan(0);
+
+  // Labels are decluttered: only the largest folder regions are named (capped),
+  // and every label is non-empty — so a dense 40-folder map stays readable.
+  const labels = await overlay.locator(".cg-folder-label").allTextContents();
+  expect(labels.length).toBeLessThanOrEqual(14); // MAX_REGIONS — biggest folders only
+  expect(labels.every((t) => t.trim().length > 0)).toBe(true);
+  await page.screenshot({ path: `${SHOT}/folders-hulls-2d.png` });
+
+  // Cluster off — the territory layer clears (no orphaned outlines/labels).
+  await page.getByRole("button", { name: "Folders" }).click();
+  await expect
+    .poll(async () => overlay.locator(".cg-folder-label").count(), { timeout: 5_000 })
+    .toBe(0);
+  expect(await overlay.locator(".cg-folder-hull").count()).toBe(0);
+});
