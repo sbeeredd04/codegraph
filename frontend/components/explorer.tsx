@@ -13,13 +13,18 @@ import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
+import type { RenderMode } from "./graph-surface";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { CommandPalette } from "./command-palette";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
-// don't exist during static prerender (output:export). Load the canvas
-// client-only so Sigma never enters the server module graph.
+// don't exist during static prerender (output:export). Load both surfaces
+// client-only so neither enters the server module graph.
 const GraphCanvas = dynamic(() => import("./graph-canvas").then((m) => m.GraphCanvas), {
+  ssr: false,
+  loading: () => <div className="absolute inset-0 grid place-items-center text-xs text-zinc-600">Rendering graph…</div>,
+});
+const GraphCanvas3D = dynamic(() => import("./graph-canvas-3d").then((m) => m.GraphCanvas3D), {
   ssr: false,
   loading: () => <div className="absolute inset-0 grid place-items-center text-xs text-zinc-600">Rendering graph…</div>,
 });
@@ -56,6 +61,7 @@ export function Explorer({
   onDataset,
 }: ExplorerProps): React.JSX.Element {
   const [projection, setProjection] = useState<ProjectionKind>("full");
+  const [renderMode, setRenderMode] = useState<RenderMode>("2d");
   const [orphanMode, setOrphanMode] = useState(false);
   const [traceArmed, setTraceArmed] = useState(false);
   const [orphanCount, setOrphanCount] = useState(0);
@@ -183,10 +189,29 @@ export function Explorer({
           ))}
         </div>
 
-        {/* Orphan overlay (FR-12) */}
+        {/* 2D ⇄ 3D render-mode toggle (FR-17) — same graph, swappable surface */}
+        <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5" role="group" aria-label="Render mode">
+          {(["2d", "3d"] as const).map((m) => (
+            <button
+              key={m}
+              aria-pressed={renderMode === m}
+              title={m === "3d" ? "Rotatable 3D layout (drag to orbit, scroll to zoom)" : "2D graph"}
+              onClick={() => setRenderMode(m)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium uppercase transition-colors ${
+                renderMode === m
+                  ? "bg-zinc-700/80 text-zinc-50"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+
+        {/* Orphan overlay (FR-12) — 2D only for now */}
         <button
           aria-pressed={orphanMode}
-          disabled={orphanCount === 0}
+          disabled={orphanCount === 0 || renderMode === "3d"}
           onClick={() => setOrphanMode((v) => !v)}
           className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             orphanMode
@@ -197,11 +222,12 @@ export function Explorer({
           Orphans <span className="font-mono">{orphanCount}</span>
         </button>
 
-        {/* Trace path (PM-backlog #3) */}
+        {/* Trace path (PM-backlog #3) — 2D only for now */}
         <button
           aria-pressed={traceArmed}
+          disabled={renderMode === "3d"}
           onClick={() => setTraceArmed((v) => !v)}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             traceArmed
               ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
               : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
@@ -237,18 +263,25 @@ export function Explorer({
       </header>
 
       <div className="relative flex-1">
-        <GraphCanvas
-          nodes={nodes}
-          edges={edges}
-          projection={projection}
-          orphanMode={orphanMode}
-          traceArmed={traceArmed}
-          onHoverNode={setHovered}
-          onSelectNode={selectNode}
-          onOrphanCount={setOrphanCount}
-          onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
-          focusRef={focusRef}
-        />
+        {/* One contract, swappable surface (AD-15): the 2D Sigma canvas or the 3D
+            canvas, both fed the same projected graph + interaction callbacks. */}
+        {(() => {
+          const Surface = renderMode === "3d" ? GraphCanvas3D : GraphCanvas;
+          return (
+            <Surface
+              nodes={nodes}
+              edges={edges}
+              projection={projection}
+              orphanMode={orphanMode}
+              traceArmed={traceArmed}
+              onHoverNode={setHovered}
+              onSelectNode={selectNode}
+              onOrphanCount={setOrphanCount}
+              onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
+              focusRef={focusRef}
+            />
+          );
+        })()}
 
         {/* Kind legend */}
         <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur">

@@ -14,19 +14,20 @@ import { useEffect, useRef } from "react";
 import Graph from "graphology";
 import Sigma from "sigma";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import { projectGraph, type ProjectionKind } from "@core/graph/projection";
+import { projectGraph } from "@core/graph/projection";
 import {
   findPathInEdges,
   pathHighlight,
   pathEdgeKey,
   type PathHighlight,
 } from "@core/graph/path";
-import type { GraphNode, GraphEdge, NodeKind } from "@core/graph/types";
+import type { NodeKind } from "@core/graph/types";
 import {
   buildRenderModel,
   findOrphanAddresses,
 } from "@adapters/surfaces/webview/render-model";
 import { nodeHiddenAtRatio } from "@adapters/surfaces/webview/lod";
+import type { GraphSurfaceProps } from "./graph-surface";
 
 // Recessive tones for off-focus elements, shared with the webview surfaces so
 // the orphan overlay and trace lens read identically across all three.
@@ -35,24 +36,8 @@ const ORPHAN_DIM_EDGE = "#262c38";
 const PATH_EDGE = "#a78bfa";
 const EDGE_COLOR = "#333a4d";
 
-export interface GraphCanvasProps {
-  readonly nodes: readonly GraphNode[];
-  readonly edges: readonly GraphEdge[];
-  readonly projection: ProjectionKind;
-  readonly orphanMode: boolean;
-  /** When true, a click picks the path source then traces to the target. */
-  readonly traceArmed: boolean;
-  /** Hover: the node the pointer is over (its address), or null on leave. */
-  readonly onHoverNode: (address: string | null) => void;
-  /** A node was clicked while not tracing — select it for the detail panel. */
-  readonly onSelectNode: (address: string) => void;
-  /** Orphan count for the current projection, reported up for the toggle UI. */
-  readonly onOrphanCount: (count: number) => void;
-  /** Trace progress: status text for the live region, or "" to clear it. */
-  readonly onTraceStatus: (text: string, tone?: "ok" | "none") => void;
-  /** Imperative focus handle — parent calls this to pan/zoom to an address. */
-  readonly focusRef?: React.MutableRefObject<((address: string) => void) | null>;
-}
+// The 2D surface implements the shared render-surface contract (AD-15).
+export type GraphCanvasProps = GraphSurfaceProps;
 
 /** Short, human label for an address (last `::`/`/`-delimited segment). */
 function shortName(addr: string): string {

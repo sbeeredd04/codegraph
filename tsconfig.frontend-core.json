@@ -1,5 +1,5 @@
 {
-  // Emit the framework-agnostic pure core (+ the three pure webview builders) as
+  // Emit the framework-agnostic pure core (+ the pure webview builders) as
   // real ESM .js + .d.ts that the Next.js frontend consumes. The core uses
   // NodeNext `.js` specifiers on .ts sources; Turbopack will NOT remap `.js`→`.ts`
   // (unlike esbuild/tsc), so we compile once to a tree of real `.js` files where
@@ -24,7 +24,8 @@
     "src/core/**/*.ts",
     "src/adapters/surfaces/webview/render-model.ts",
     "src/adapters/surfaces/webview/card.ts",
-    "src/adapters/surfaces/webview/lod.ts"
+    "src/adapters/surfaces/webview/lod.ts",
+    "src/adapters/surfaces/webview/layout3d.ts"
   ],
   "exclude": ["node_modules", "**/*.test.ts", "src/core/watch/**"]
 }
