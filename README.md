@@ -66,11 +66,13 @@ codegraph answers that with three ideas:
   candidate, since an orphan can also be a legitimate entry point.
 
 ### Connect your AI agent (MCP)
-- A standalone MCP server exposes the graph to your agent over stdio with nine
-  tools (below). One command copies the client config to connect it.
-- The **annotation loop**: your agent calls `annotate_node` to record what a node
-  is; codegraph caches it and shows it on the board's capability card. No key in the
-  editor.
+- A standalone MCP server exposes the graph to your agent over stdio. Beyond the
+  read-only query tools (below), the agent can write back durable knowledge —
+  annotations, Mermaid diagrams, Markdown docs, and pinned notes / marks / groups —
+  and drive the live board (highlight, focus, replay a stack trace, run a guided
+  tour). One command copies the client config to connect it.
+- The **knowledge loop**: your agent annotates a node, draws a diagram, or writes a
+  doc; codegraph caches it and shows it on the board. No key in the editor.
 
 ### Export and the standalone viewer
 - **Export** a portable, versioned JSON snapshot of the graph (nodes, edges, and the
@@ -94,8 +96,11 @@ Run from the Command Palette.
 
 ## MCP tools
 
-The MCP server is read-only over your source. `annotate_node` is the one writer, and
-it writes graph metadata only — it never edits files.
+The MCP server is read-only over your *source*. Every write tool records graph
+metadata only — annotations, diagrams, docs, and overlays — or drives the live view;
+none ever edits a file.
+
+**Query (read-only):**
 
 | Tool | Purpose |
 | --- | --- |
@@ -108,7 +113,27 @@ it writes graph metadata only — it never edits files.
 | `list_orphans` | Dead-code candidates — nodes with no inbound references. |
 | `graph_stats` | Counts and a summary of the graph. |
 | `recent_changes` | The ranked, blast-radius-scored feed of what changed vs a git ref (default HEAD). |
-| `annotate_node` | Record a node's summary / intent / role (metadata only; never touches source). |
+
+**Write knowledge (metadata only; cached and shown on the board):**
+
+| Tool | Purpose |
+| --- | --- |
+| `annotate_node` | Record a node's summary / intent / role. |
+| `save_diagram` · `list_diagrams` · `delete_diagram` | Author Mermaid diagrams (architecture / workflow / sequence / dataflow). |
+| `save_doc` · `list_docs` · `delete_doc` | Author Markdown docs that render on the board. |
+| `pin_note` · `annotate_edge` | Pin a free-form note to a node or an edge. |
+| `mark_node` · `group_nodes` | Flag a node (bug / breakpoint / issue / todo / hotspot) or group nodes under a label. |
+| `list_overlays` · `remove_overlay` | List or remove the notes, marks, and groups. |
+
+**Drive the live board (ephemeral — the agent's hands on the wheel):**
+
+| Tool | Purpose |
+| --- | --- |
+| `highlight_nodes` · `highlight_path` | Light up nodes or a path on the open board. |
+| `focus_camera` · `set_projection` | Fly the camera to nodes, or switch projection. |
+| `open_panel` · `toggle_affordance` | Open a panel, or toggle an overlay (orphans, folders, trace). |
+| `guided_tour` · `replay_trace` | Walk an ordered node sequence — hand-picked, or extracted from a stack trace. |
+| `codegraph_onboard` | A done/todo bootstrap playbook: index the repo and author the starter diagrams, docs, and notes. |
 
 ### Connecting your agent
 
