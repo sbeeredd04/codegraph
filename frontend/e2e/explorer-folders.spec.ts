@@ -100,3 +100,48 @@ test("FR-26 follow-up: clustering draws folder hull outlines + name labels", asy
     .toBe(0);
   expect(await overlay.locator(".cg-folder-hull").count()).toBe(0);
 });
+
+test("FR-26 follow-up: a folder sort control re-orders the cluster (path ↔ size)", async ({ page }) => {
+  await page.goto("/");
+  await waitForGraph(page);
+  const base = await positions(page);
+
+  // The sort control is contextual — absent until clustering is on.
+  const sortGroup = page.getByRole("group", { name: "Sort folders" });
+  await expect(sortGroup).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Folders" }).click();
+  await expect(sortGroup).toBeVisible();
+  // Defaults to path order.
+  await expect(sortGroup.getByRole("button", { name: "path", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // Capture the path-sorted clustered layout.
+  await expect
+    .poll(async () => maxDelta(await positions(page), base), { timeout: 5_000 })
+    .toBeGreaterThan(1);
+  const pathPos = await positions(page);
+
+  // Switch to size — folders re-anchor (largest central), so nodes re-place. No
+  // relayout: the base force positions are reused, only the anchors change.
+  await sortGroup.getByRole("button", { name: "size", exact: true }).click();
+  await expect(sortGroup.getByRole("button", { name: "size", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(sortGroup.getByRole("button", { name: "path", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect
+    .poll(async () => maxDelta(await positions(page), pathPos), { timeout: 5_000 })
+    .toBeGreaterThan(1);
+
+  // The territory labels survive the re-sort.
+  await expect
+    .poll(async () => page.getByTestId("folder-overlay").locator(".cg-folder-label").count())
+    .toBeGreaterThan(0);
+  await page.screenshot({ path: `${SHOT}/folders-sort-size-2d.png` });
+});

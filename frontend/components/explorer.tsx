@@ -17,6 +17,7 @@ import type { Overlay } from "@core/overlays/overlay";
 import { nodeOverlays, overlayHighlights, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
 import { MARK_CANVAS_COLOR } from "@/lib/overlay-style";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
+import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
@@ -108,6 +109,7 @@ export function Explorer({
   const [projection, setProjection] = useState<ProjectionKind>("full");
   const [renderMode, setRenderMode] = useState<RenderMode>("2d");
   const [folderClustered, setFolderClustered] = useState(false);
+  const [folderSort, setFolderSort] = useState<FolderSort>("path");
   const [orphanMode, setOrphanMode] = useState(false);
   const [traceArmed, setTraceArmed] = useState(false);
   const [orphanCount, setOrphanCount] = useState(0);
@@ -427,6 +429,37 @@ export function Explorer({
           Folders
         </button>
 
+        {/* Folder sort order (FR-26 follow-up) — contextual to clustering; decides
+            which folder takes the central anchor. Shown only when clustering is on. */}
+        {folderClustered && renderMode !== "3d" && (
+          <div
+            role="group"
+            aria-label="Sort folders"
+            className="flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5"
+          >
+            {(
+              [
+                { id: "path", title: "Order folders alphabetically" },
+                { id: "size", title: "Largest folders toward the centre" },
+              ] as const
+            ).map((s) => (
+              <button
+                key={s.id}
+                aria-pressed={folderSort === s.id}
+                title={s.title}
+                onClick={() => setFolderSort(s.id)}
+                className={`rounded-md px-2 py-0.5 text-[11px] font-medium capitalize transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${
+                  folderSort === s.id
+                    ? "bg-cyan-500/15 text-cyan-300"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {s.id}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Orphan overlay (FR-12) — 2D only for now */}
         <button
           aria-pressed={orphanMode}
@@ -549,6 +582,7 @@ export function Explorer({
               projection={projection}
               selected={selected}
               folderClustered={folderClustered}
+              folderSort={folderSort}
               orphanMode={orphanMode}
               traceArmed={traceArmed}
               onHoverNode={setHovered}

@@ -29,7 +29,11 @@ import {
   findOrphanAddresses,
 } from "@adapters/surfaces/webview/render-model";
 import { nodeHiddenAtRatio } from "@adapters/surfaces/webview/lod";
-import { clusterByFolder, type FolderRegion } from "@adapters/surfaces/webview/folder-layout";
+import {
+  clusterByFolder,
+  type FolderNode,
+  type FolderRegion,
+} from "@adapters/surfaces/webview/folder-layout";
 import type { GraphSurfaceProps } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
@@ -105,6 +109,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // Per-folder geometry (hull + label anchor) for the territory overlay (FR-26
   // follow-up), computed alongside the clustered positions in the heavy effect.
   const foldersRef = useRef<FolderRegion[]>([]);
+  // The base (force-laid-out) cluster input — captured before any clustering is
+  // applied, so changing the folder SORT can re-cluster from the original layout
+  // without re-running forceAtlas2 (FR-26 follow-up).
+  const baseClusterInputRef = useRef<FolderNode[]>([]);
 
   // Live state the reducers/handlers read fresh on every refresh — kept in refs
   // so flipping orphan mode or the traced path never triggers the heavy rebuild.
@@ -192,14 +200,14 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     const basePos = new Map<string, XY>();
     g.forEachNode((id, a) => basePos.set(id, { x: a.x as number, y: a.y as number }));
     basePosRef.current = basePos;
-    const cluster = clusterByFolder(
-      g.mapNodes((id, a) => ({
-        id,
-        file: (a.file as string) ?? "",
-        x: a.x as number,
-        y: a.y as number,
-      })),
-    );
+    const baseInput = g.mapNodes((id, a) => ({
+      id,
+      file: (a.file as string) ?? "",
+      x: a.x as number,
+      y: a.y as number,
+    }));
+    baseClusterInputRef.current = baseInput;
+    const cluster = clusterByFolder(baseInput, undefined, cbRef.current.folderSort);
     clusteredPosRef.current = cluster.positions;
     foldersRef.current = cluster.folders;
     if (cbRef.current.folderClustered) {
@@ -588,6 +596,30 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     r.refresh();
     r.getCamera().animatedReset({ duration: 400 });
   }, [props.folderClustered]);
+
+  // Light effect: folder SORT changed — re-cluster from the captured base layout
+  // with the new order and refresh the refs (so the overlay + a later toggle use
+  // them). When clustering is live, swap in the re-ordered positions and re-frame.
+  // No relayout: the base force layout is reused, only the anchors are reassigned.
+  useEffect(() => {
+    const input = baseClusterInputRef.current;
+    const g = graphRef.current;
+    const r = rendererRef.current;
+    if (input.length === 0 || !g || !r) return;
+    const cluster = clusterByFolder(input, undefined, props.folderSort);
+    clusteredPosRef.current = cluster.positions;
+    foldersRef.current = cluster.folders;
+    if (!cbRef.current.folderClustered) return;
+    g.forEachNode((id) => {
+      const p = cluster.positions.get(id);
+      if (p) {
+        g.setNodeAttribute(id, "x", p.x);
+        g.setNodeAttribute(id, "y", p.y);
+      }
+    });
+    r.refresh();
+    r.getCamera().animatedReset({ duration: 400 });
+  }, [props.folderSort]);
 
   // Disarming trace clears any in-progress source + highlight.
   useEffect(() => {

@@ -41,9 +41,21 @@ export interface FolderRegion {
 export interface FolderClusterResult {
   /** New position per node id. */
   readonly positions: Map<string, Vec2>;
-  /** Per-folder geometry, in stable (sorted) order — for outlines + labels. */
+  /** Per-folder geometry, in the chosen sort order — for outlines + labels. */
   readonly folders: FolderRegion[];
 }
+
+/**
+ * How folders are ordered onto the phyllotaxis anchors. The first folder lands on
+ * the innermost (central) anchor, so the sort dimension decides what sits at the
+ * map's heart: `"path"` = alphabetical (stable, the default); `"size"` = most
+ * members first, so the biggest folders anchor centrally.
+ *
+ * `"recency"` is intentionally absent: it needs per-node modified/commit time,
+ * which the source-blind GraphSnapshot never carries (AD-14 ships path metadata,
+ * not mtime). Add it only once a recency signal rides the snapshot.
+ */
+export type FolderSort = "path" | "size";
 
 /**
  * Convex hull of a point set (Andrew's monotone chain) — pure + deterministic.
@@ -97,11 +109,13 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
  * intra-folder structure the force layout found while separating the folders.
  *
  * Pure and deterministic (no RNG). `strength` 0 leaves positions unchanged; 1
- * lands each folder's centroid exactly on its anchor.
+ * lands each folder's centroid exactly on its anchor. `sort` decides which folder
+ * takes the central anchor (see {@link FolderSort}).
  */
 export function clusterByFolder(
   nodes: readonly FolderNode[],
   strength = 0.85,
+  sort: FolderSort = "path",
 ): FolderClusterResult {
   const positions = new Map<string, Vec2>();
   if (nodes.length === 0) return { positions, folders: [] };
@@ -122,7 +136,14 @@ export function clusterByFolder(
     if (n.y > maxY) maxY = n.y;
   }
 
+  // Order the folders onto the anchors. Both orders tie-break by name so the
+  // layout is fully deterministic (a stable map across re-renders).
   const folderNames = [...byFolder.keys()].sort();
+  if (sort === "size") {
+    folderNames.sort(
+      (a, b) => byFolder.get(b)!.length - byFolder.get(a)!.length || (a < b ? -1 : a > b ? 1 : 0),
+    );
+  }
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
   const extent = Math.max(maxX - minX, maxY - minY, 1);

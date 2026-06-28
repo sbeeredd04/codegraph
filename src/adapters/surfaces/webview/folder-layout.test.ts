@@ -62,6 +62,54 @@ describe("clusterByFolder", () => {
     }
   });
 
+  it("orders folders by the chosen sort (path alphabetical, size by count desc)", () => {
+    const nodes: FolderNode[] = [
+      { id: "z1", file: "zeta/1.ts", x: 0, y: 0 },
+      { id: "z2", file: "zeta/2.ts", x: 1, y: 0 },
+      { id: "z3", file: "zeta/3.ts", x: 2, y: 0 },
+      { id: "a1", file: "alpha/1.ts", x: 0, y: 1 },
+    ];
+    // path → alphabetical, regardless of size.
+    expect(clusterByFolder(nodes, undefined, "path").folders.map((f) => f.folder)).toEqual([
+      "alpha",
+      "zeta",
+    ]);
+    // size → biggest folder first (zeta has 3 members, alpha 1).
+    expect(clusterByFolder(nodes, undefined, "size").folders.map((f) => f.folder)).toEqual([
+      "zeta",
+      "alpha",
+    ]);
+  });
+
+  it("anchors the largest folder centrally under size sort", () => {
+    const nodes: FolderNode[] = [
+      { id: "z1", file: "zeta/1.ts", x: 0, y: 0 },
+      { id: "z2", file: "zeta/2.ts", x: 4, y: 0 },
+      { id: "z3", file: "zeta/3.ts", x: 0, y: 4 },
+      { id: "a1", file: "alpha/1.ts", x: 4, y: 4 },
+    ];
+    const r = clusterByFolder(nodes, undefined, "size");
+    const center = { x: 2, y: 2 }; // midpoint of the [0,4]×[0,4] extent
+    const byName = new Map(r.folders.map((f) => [f.folder, f]));
+    const dZeta = Math.hypot(byName.get("zeta")!.anchor.x - center.x, byName.get("zeta")!.anchor.y - center.y);
+    const dAlpha = Math.hypot(byName.get("alpha")!.anchor.x - center.x, byName.get("alpha")!.anchor.y - center.y);
+    expect(dZeta).toBeLessThan(dAlpha); // the bigger folder sits closer to the heart
+  });
+
+  it("defaults to path sort and ties-break deterministically by name", () => {
+    const nodes: FolderNode[] = [
+      { id: "b1", file: "b/1.ts", x: 0, y: 0 },
+      { id: "b2", file: "b/2.ts", x: 1, y: 0 },
+      { id: "a1", file: "a/1.ts", x: 0, y: 1 },
+      { id: "a2", file: "a/2.ts", x: 1, y: 1 },
+    ];
+    // Equal sizes → size sort falls back to name order, matching the default.
+    const def = clusterByFolder(nodes).folders.map((f) => f.folder);
+    const size = clusterByFolder(nodes, undefined, "size").folders.map((f) => f.folder);
+    expect(def).toEqual(["a", "b"]);
+    expect(size).toEqual(["a", "b"]);
+  });
+
   it("reports each folder's centroid + a hull enclosing its clustered members (FR-26)", () => {
     const r = clusterByFolder(twoFolders);
     for (const region of r.folders) {

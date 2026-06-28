@@ -5,6 +5,7 @@
 
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
+import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import type { SurfaceController } from "@/lib/surface-controller";
 
 export type RenderMode = "2d" | "3d";
@@ -19,6 +20,9 @@ export interface GraphSurfaceProps {
   readonly selected: string | null;
   /** Gather nodes into per-folder regions (FR-26). 2D surface only for now. */
   readonly folderClustered: boolean;
+  /** How folder regions are ordered onto the cluster anchors (FR-26 follow-up):
+   * `"path"` alphabetical or `"size"` (largest central). 2D surface only. */
+  readonly folderSort: FolderSort;
   /** Dim everything except dead-code candidates (FR-12). 2D surface only for now. */
   readonly orphanMode: boolean;
   /** When true, a click picks the path source then traces to the target. 2D only. */
