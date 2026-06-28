@@ -21,6 +21,7 @@ import {
   pathEdgeKey,
   type PathHighlight,
 } from "@core/graph/path";
+import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import type { NodeKind } from "@core/graph/types";
 import {
   buildRenderModel,
@@ -35,6 +36,12 @@ const ORPHAN_DIM_NODE = "#39414f";
 const ORPHAN_DIM_EDGE = "#262c38";
 const PATH_EDGE = "#a78bfa";
 const EDGE_COLOR = "#333a4d";
+// The selected node pops in brand violet; its incident edges reuse PATH_EDGE so
+// the focus lens (FR-25) reads identically to the trace lens.
+const SELECTED_NODE = "#c4b5fd";
+// Above this in-focus node count the neighbours are no longer force-labelled — the
+// label grid thins a hub's dozens of neighbours instead of stacking them (FR-27).
+const FOCUS_LABEL_CAP = 16;
 
 // The 2D surface implements the shared render-surface contract (AD-15).
 export type GraphCanvasProps = GraphSurfaceProps;
@@ -59,6 +66,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   const pathRef = useRef<PathHighlight | undefined>(undefined);
   const traceFromRef = useRef<string | undefined>(undefined);
   const traceArmedRef = useRef(props.traceArmed);
+  const focusRefHl = useRef<FocusHighlight | null>(null);
   const cbRef = useRef(props);
 
   // Sync the "latest value" refs after every commit. Declared before the heavy
@@ -123,6 +131,13 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       labelFont: "ui-monospace, Menlo, monospace",
       labelSize: 11,
       renderLabels: true,
+      // Label declutter (FR-27): at the base zoom only the larger nodes get a
+      // standing label and the grid thins crowded regions, so a 590-node graph
+      // reads instead of drowning in overlapping text. Hover/selection/orphan/
+      // trace all set `forceLabel`, which bypasses these thresholds.
+      labelRenderedSizeThreshold: 7,
+      labelDensity: 0.6,
+      labelGridCellSize: 150,
     });
     rendererRef.current = renderer;
 
@@ -171,6 +186,25 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           res.label = "";
         }
       }
+      // Neighbour-focus lens (FR-25): a selected node + its first-degree
+      // neighbours lead (always labelled), everything else recedes. Applied last
+      // so an explicit selection wins over the ambient orphan dim.
+      const focus = focusRefHl.current;
+      if (focus) {
+        if (focus.nodes.has(node)) {
+          const isCenter = node === focus.center;
+          res.hidden = false;
+          res.color = isCenter ? SELECTED_NODE : (g.getNodeAttribute(node, "color") as string);
+          res.label = g.getNodeAttribute(node, "label") as string;
+          // Always label the centre; label neighbours too only when the focused
+          // set is small enough to read — otherwise let the grid thin a hub's
+          // many neighbours rather than force-stacking every label (FR-27).
+          if (isCenter || focus.nodes.size <= FOCUS_LABEL_CAP) res.forceLabel = true;
+        } else {
+          res.color = ORPHAN_DIM_NODE;
+          res.label = "";
+        }
+      }
       return res;
     });
     renderer.setSetting("edgeReducer", (edge, data) => {
@@ -189,13 +223,24 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           ? PATH_EDGE
           : ORPHAN_DIM_EDGE;
       }
+      // Focus lens (FR-25): light up the selected node's incident edges, recede
+      // the rest — the same emphasis the trace lens uses.
+      const focus = focusRefHl.current;
+      if (focus) {
+        res.color = focus.edges.has(pathEdgeKey(g.source(edge), g.target(edge)))
+          ? PATH_EDGE
+          : ORPHAN_DIM_EDGE;
+      }
       return res;
     });
     if (lod) camera.on("updated", () => renderer.refresh());
 
     renderer.on("enterNode", ({ node }) => cbRef.current.onHoverNode(node));
     renderer.on("leaveNode", () => cbRef.current.onHoverNode(null));
-    renderer.on("clickStage", () => cbRef.current.onHoverNode(null));
+    renderer.on("clickStage", () => {
+      cbRef.current.onHoverNode(null);
+      cbRef.current.onClearSelection();
+    });
     renderer.on("clickNode", ({ node }) => {
       if (!traceArmedRef.current) {
         cbRef.current.onSelectNode(node);
@@ -267,6 +312,14 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   useEffect(() => {
     rendererRef.current?.refresh();
   }, [props.orphanMode]);
+
+  // Light effect: selection (or the edge set) changed — recompute the focus lens
+  // and repaint. Keyed off selection + edges, never the heavy layout inputs, so
+  // picking a node lights up its neighbourhood without re-running forceAtlas2.
+  useEffect(() => {
+    focusRefHl.current = focusHighlight(props.selected, props.edges);
+    rendererRef.current?.refresh();
+  }, [props.selected, props.edges]);
 
   // Disarming trace clears any in-progress source + highlight.
   useEffect(() => {

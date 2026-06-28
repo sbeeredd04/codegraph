@@ -12,6 +12,10 @@ export interface GraphSurfaceProps {
   readonly nodes: readonly GraphNode[];
   readonly edges: readonly GraphEdge[];
   readonly projection: ProjectionKind;
+  /** The selected node's address (or null) — drives the neighbour-focus lens
+   * (FR-25): the surface lifts this node + its first-degree neighbours out of the
+   * hairball and recedes the rest. */
+  readonly selected: string | null;
   /** Dim everything except dead-code candidates (FR-12). 2D surface only for now. */
   readonly orphanMode: boolean;
   /** When true, a click picks the path source then traces to the target. 2D only. */
@@ -20,6 +24,8 @@ export interface GraphSurfaceProps {
   readonly onHoverNode: (address: string | null) => void;
   /** A node was clicked (while not tracing) — select it for the detail panel. */
   readonly onSelectNode: (address: string) => void;
+  /** Empty-canvas click — clear the current selection (and its focus lens). */
+  readonly onClearSelection: () => void;
   /** Orphan count for the current projection, reported up for the toggle UI. */
   readonly onOrphanCount: (count: number) => void;
   /** Trace progress: status text for the live region, or "" to clear it. 2D only. */

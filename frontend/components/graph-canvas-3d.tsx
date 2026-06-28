@@ -13,6 +13,8 @@ import { useEffect, useRef } from "react";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import { projectGraph } from "@core/graph/projection";
+import { pathEdgeKey } from "@core/graph/path";
+import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import type { NodeKind } from "@core/graph/types";
 import { buildRenderModel, findOrphanAddresses } from "@adapters/surfaces/webview/render-model";
 import { lift3d, project3d, nearestNode, type Point3 } from "@adapters/surfaces/webview/layout3d";
@@ -20,7 +22,13 @@ import type { GraphSurfaceProps } from "./graph-surface";
 
 const BG = "#0e0f13";
 const EDGE = "120,130,160"; // rgb of the recessive edge tone (alpha applied per-frame)
+const FOCUS_EDGE = "167,139,250"; // rgb of the brand-violet focus edge (FR-25)
+const DIM_NODE = "#39414f"; // off-focus node tone, shared with the 2D orphan dim
+const SELECTED = "#c4b5fd"; // the selected node pops in light violet
 const LABEL = "#c9d3e3";
+// Above this in-focus node count, neighbour labels are suppressed so selecting a
+// hub doesn't simply re-clutter the field — the centre + hovered node still label.
+const FOCUS_LABEL_CAP = 18;
 
 interface SceneNode {
   readonly id: string;
@@ -47,11 +55,22 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cbRef = useRef(props);
+  // The current focus lens (FR-25) + a handle to the live frame's redraw, both set
+  // by the heavy effect, read by the light selection effect below.
+  const focusHlRef = useRef<FocusHighlight | null>(null);
+  const drawRef = useRef<(() => void) | null>(null);
 
   // Keep callbacks/data current for the handlers without re-running the heavy build.
   useEffect(() => {
     cbRef.current = props;
   });
+
+  // Light effect: selection (or the edge set) changed — recompute the focus lens
+  // and ask the live frame to repaint, without re-running the heavy build/layout.
+  useEffect(() => {
+    focusHlRef.current = focusHighlight(props.selected, props.edges);
+    drawRef.current?.();
+  }, [props.selected, props.edges]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -59,6 +78,11 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     if (!container || !canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // Seed the focus lens from the current selection so the first frame already
+    // reflects it; the light effect above keeps it current thereafter. Read via
+    // the ref so selection is not a heavy-rebuild trigger.
+    focusHlRef.current = focusHighlight(cbRef.current.selected, props.edges);
 
     // --- Build the scene: same projection + 2D layout as the Sigma surface, lifted to 3D.
     const projected = projectGraph(props.nodes, props.edges, props.projection);
@@ -162,42 +186,72 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, W, H);
 
+      const focus = focusHlRef.current;
+
       // Edges behind nodes; fade by the nearer endpoint so foreground links read.
+      // Under a focus lens (FR-25) the selected node's incident edges light up in
+      // brand violet and every other edge drops to a faint wash.
       ctx.lineWidth = 1;
       for (const [s, t] of edges) {
         const a = pos.get(s);
         const b = pos.get(t);
         if (!a || !b) continue;
         const n = Math.max(near(a.depth), near(b.depth));
-        ctx.strokeStyle = `rgba(${EDGE},${(0.06 + 0.16 * n).toFixed(3)})`;
+        if (focus) {
+          if (focus.edges.has(pathEdgeKey(s, t))) {
+            ctx.strokeStyle = `rgba(${FOCUS_EDGE},${(0.35 + 0.45 * n).toFixed(3)})`;
+            ctx.lineWidth = 1.5;
+          } else {
+            ctx.strokeStyle = `rgba(${EDGE},${(0.015 + 0.03 * n).toFixed(3)})`;
+            ctx.lineWidth = 1;
+          }
+        } else {
+          ctx.strokeStyle = `rgba(${EDGE},${(0.06 + 0.16 * n).toFixed(3)})`;
+        }
         ctx.beginPath();
         ctx.moveTo(a.sx, a.sy);
         ctx.lineTo(b.sx, b.sy);
         ctx.stroke();
       }
 
-      // Nodes far→near so foreground discs overdraw background ones.
+      // Nodes far→near so foreground discs overdraw background ones. Off-focus
+      // nodes desaturate to the dim tone; the selected node grows and pops.
       for (const p of order) {
         const n = near(p.depth);
-        const r = Math.max(1.5, (2 + p.n.size) * (0.5 + 0.7 * n));
+        const inFocus = !focus || focus.nodes.has(p.n.id);
+        const isCenter = focus?.center === p.n.id;
+        let r = Math.max(1.5, (2 + p.n.size) * (0.5 + 0.7 * n));
+        if (isCenter) r += 2.5;
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
-        ctx.fillStyle = fade(p.n.color, 0.35 + 0.65 * n);
+        ctx.fillStyle = inFocus
+          ? fade(isCenter ? SELECTED : p.n.color, 0.35 + 0.65 * n)
+          : fade(DIM_NODE, 0.25 + 0.45 * n);
         ctx.fill();
-        if (p.n.id === hoverId) {
+        if (p.n.id === hoverId || isCenter) {
           ctx.lineWidth = 1.5;
-          ctx.strokeStyle = LABEL;
+          ctx.strokeStyle = isCenter ? SELECTED : LABEL;
           ctx.stroke();
         }
       }
 
-      // Label only the hovered node, to keep the field uncluttered.
-      if (hoverId) {
-        const p = pos.get(hoverId);
-        if (p) {
-          ctx.font = "11px ui-monospace, Menlo, monospace";
-          ctx.fillStyle = LABEL;
-          ctx.textBaseline = "middle";
+      // Labels: the hovered node always; under a focus lens the selected node and
+      // — when the neighbourhood is small enough to stay legible — its neighbours.
+      const toLabel = new Set<string>();
+      if (hoverId) toLabel.add(hoverId);
+      if (focus) {
+        toLabel.add(focus.center);
+        if (focus.nodes.size <= FOCUS_LABEL_CAP) {
+          for (const id of focus.nodes) toLabel.add(id);
+        }
+      }
+      if (toLabel.size) {
+        ctx.font = "11px ui-monospace, Menlo, monospace";
+        ctx.textBaseline = "middle";
+        for (const id of toLabel) {
+          const p = pos.get(id);
+          if (!p) continue;
+          ctx.fillStyle = id === focus?.center ? SELECTED : LABEL;
           ctx.fillText(p.n.label, p.sx + 8, p.sy);
         }
       }
@@ -214,6 +268,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         draw();
       });
     };
+    drawRef.current = requestDraw; // let the selection effect repaint this frame
 
     // --- Interaction: drag = rotate, wheel = zoom, click = select, hover = highlight.
     let dragging = false;
@@ -258,6 +313,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         const { mx, my } = pointAt(e);
         const hit = nearestNode(screen, mx, my, 12);
         if (hit) cbRef.current.onSelectNode(hit);
+        else cbRef.current.onClearSelection();
       }
       dragging = false;
     };
@@ -304,6 +360,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
 
     return () => {
       if (raf) cancelAnimationFrame(raf);
+      drawRef.current = null;
       ro.disconnect();
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);

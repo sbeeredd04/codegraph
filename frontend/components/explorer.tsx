@@ -80,6 +80,12 @@ export function Explorer({
     setSourceOpen(false);
   }, []);
 
+  // Clearing selection (empty-canvas click) also closes any open source dock.
+  const clearSelection = useCallback(() => {
+    setSelected(null);
+    setSourceOpen(false);
+  }, []);
+
   // Palette/jump: select first (so the detail panel opens even for a node the
   // active projection has filtered out), then pan the camera when it's on screen.
   const jumpTo = useCallback(
@@ -272,10 +278,12 @@ export function Explorer({
               nodes={nodes}
               edges={edges}
               projection={projection}
+              selected={selected}
               orphanMode={orphanMode}
               traceArmed={traceArmed}
               onHoverNode={setHovered}
               onSelectNode={selectNode}
+              onClearSelection={clearSelection}
               onOrphanCount={setOrphanCount}
               onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
               focusRef={focusRef}
