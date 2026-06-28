@@ -12,6 +12,12 @@ import {
   type DiagramStore,
 } from "../../core/diagrams/diagram.js";
 import { emptyDocSet, upsertDoc, removeDoc, type DocStore } from "../../core/docs/doc.js";
+import {
+  emptyOverlaySet,
+  upsertOverlay,
+  removeOverlay,
+  type OverlayStore,
+} from "../../core/overlays/overlay.js";
 
 const node = (address: string, kind: GraphNode["kind"], name?: string): GraphNode => ({
   address,
@@ -337,5 +343,125 @@ describe("MCP doc tools (agent-authored knowledge docs)", () => {
     expect((await store.all()).docs).toHaveLength(0);
     const miss = await tools.get("delete_doc")!.handler({ id: "onboarding/the-graph-pipeline" });
     expect(miss.isError).toBe(true);
+  });
+});
+
+describe("MCP overlay tools (agent-authored knowledge overlays)", () => {
+  const memStore = (): OverlayStore => {
+    let set = emptyOverlaySet();
+    return {
+      all: () => Promise.resolve(set),
+      save: (o) => {
+        set = upsertOverlay(set, o);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        const had = set.overlays.some((x) => x.id === id);
+        set = removeOverlay(set, id);
+        return Promise.resolve(had);
+      },
+    };
+  };
+  // Overlays are injected as the 6th graphTools argument (after docs).
+  const overlayTools = (g: CodeGraph, store: OverlayStore) =>
+    new Map(
+      graphTools(() => g, undefined, undefined, undefined, undefined, store).map((t) => [t.name, t]),
+    );
+
+  it("appears only when an overlay store is injected", () => {
+    expect([...toolMap(fixture()).keys()]).not.toContain("pin_note");
+    const names = [...overlayTools(fixture(), memStore()).keys()];
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "pin_note",
+        "annotate_edge",
+        "mark_node",
+        "group_nodes",
+        "list_overlays",
+        "remove_overlay",
+      ]),
+    );
+  });
+
+  it("pin_note validates, stores, and returns the computed id", async () => {
+    const store = memStore();
+    const tools = overlayTools(fixture(), store);
+    const r = await tools.get("pin_note")!.handler({
+      address: "ts:m.ts#foo",
+      body: "the entry point; throws on a null arg.",
+    });
+    const out = parse(r.content[0].text);
+    expect(out.kind).toBe("note");
+    expect(typeof out.saved).toBe("string");
+    const set = await store.all();
+    expect(set.overlays).toHaveLength(1);
+    expect(set.overlays[0]).toMatchObject({ kind: "note", body: "the entry point; throws on a null arg." });
+  });
+
+  it("annotate_edge pins a note on a directed edge", async () => {
+    const store = memStore();
+    const r = await overlayTools(fixture(), store).get("annotate_edge")!.handler({
+      from: "ts:m.ts#foo",
+      to: "ts:m.ts#util",
+      type: "calls",
+      body: "this call is the hot path.",
+    });
+    expect(parse(r.content[0].text).on).toBe("edge");
+    const set = await store.all();
+    expect(set.overlays[0]).toMatchObject({
+      kind: "note",
+      anchor: { on: "edge", from: "ts:m.ts#foo", to: "ts:m.ts#util", type: "calls" },
+    });
+  });
+
+  it("mark_node stores a typed marker with severity", async () => {
+    const store = memStore();
+    const r = await overlayTools(fixture(), store).get("mark_node")!.handler({
+      address: "ts:m.ts#foo",
+      mark: "bug",
+      severity: "error",
+      label: "off-by-one",
+    });
+    expect(parse(r.content[0].text).mark).toBe("bug");
+    const set = await store.all();
+    expect(set.overlays[0]).toMatchObject({ kind: "mark", mark: "bug", severity: "error", label: "off-by-one" });
+  });
+
+  it("group_nodes stores a labelled member set", async () => {
+    const store = memStore();
+    const r = await overlayTools(fixture(), store).get("group_nodes")!.handler({
+      label: "Core path",
+      members: ["ts:m.ts#foo", "ts:m.ts#util"],
+    });
+    expect(parse(r.content[0].text).label).toBe("Core path");
+    expect((await store.all()).overlays[0]).toMatchObject({
+      kind: "group",
+      members: ["ts:m.ts#foo", "ts:m.ts#util"],
+    });
+  });
+
+  it("errors cleanly on invalid input (empty note body, unknown anchor)", async () => {
+    const tools = overlayTools(fixture(), memStore());
+    expect((await tools.get("pin_note")!.handler({ address: "ts:m.ts#foo", body: "  " })).isError).toBe(true);
+    expect((await tools.get("group_nodes")!.handler({ label: "G", members: [] })).isError).toBe(true);
+  });
+
+  it("list_overlays returns what the write tools stored", async () => {
+    const store = memStore();
+    const tools = overlayTools(fixture(), store);
+    await tools.get("pin_note")!.handler({ address: "ts:m.ts#foo", body: "a note." });
+    await tools.get("mark_node")!.handler({ address: "ts:m.ts#util", mark: "todo" });
+    const r = await tools.get("list_overlays")!.handler({});
+    expect(parse(r.content[0].text).overlays).toHaveLength(2);
+  });
+
+  it("remove_overlay drops an overlay by id and errors on an unknown id", async () => {
+    const store = memStore();
+    const tools = overlayTools(fixture(), store);
+    const saved = parse((await tools.get("pin_note")!.handler({ address: "ts:m.ts#foo", body: "x." })).content[0].text);
+    const okRes = await tools.get("remove_overlay")!.handler({ id: saved.saved });
+    expect(parse(okRes.content[0].text).deleted).toBe(saved.saved);
+    expect((await store.all()).overlays).toHaveLength(0);
+    expect((await tools.get("remove_overlay")!.handler({ id: saved.saved })).isError).toBe(true);
   });
 });

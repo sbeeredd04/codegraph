@@ -88,9 +88,15 @@ export interface OverlaySet {
   readonly overlays: readonly Overlay[];
 }
 
-export type ValidateOverlayResult =
-  | { readonly ok: true; readonly overlay: Overlay }
+/** A tagged validation result for a specific overlay kind. The per-kind
+ * validators narrow `T` (Note/Mark/Group) so callers don't have to re-discriminate
+ * the union after a successful validate. */
+export type ValidateResult<T extends Overlay> =
+  | { readonly ok: true; readonly overlay: T }
   | { readonly ok: false; readonly error: string };
+
+/** The result of validating an overlay of any kind (the parse/load dispatch). */
+export type ValidateOverlayResult = ValidateResult<Overlay>;
 
 export type ParseOverlaySetResult =
   | { readonly ok: true; readonly set: OverlaySet }
@@ -155,7 +161,7 @@ export function validateNote(input: {
   anchor?: unknown;
   body?: unknown;
   updatedAt?: unknown;
-}): ValidateOverlayResult {
+}): ValidateResult<Note> {
   const anchor = cleanAnchor(input.anchor);
   if (!anchor) return { ok: false, error: "A note needs an anchor: a node address or an edge triple." };
   if (typeof input.body !== "string") return { ok: false, error: "A note needs a Markdown body (a string)." };
@@ -176,7 +182,7 @@ export function validateMark(input: {
   severity?: unknown;
   label?: unknown;
   updatedAt?: unknown;
-}): ValidateOverlayResult {
+}): ValidateResult<Mark> {
   const address = asString(input.address).trim();
   if (!address) return { ok: false, error: "A mark needs a node address." };
   const mark = asString(input.mark).trim() as MarkKind;
@@ -207,7 +213,7 @@ export function validateGroup(input: {
   label?: unknown;
   members?: unknown;
   updatedAt?: unknown;
-}): ValidateOverlayResult {
+}): ValidateResult<Group> {
   const label = asString(input.label).trim();
   if (!label) return { ok: false, error: "A group needs a label." };
   if (label.length > MAX_LABEL) return { ok: false, error: `Group label exceeds ${MAX_LABEL} characters.` };

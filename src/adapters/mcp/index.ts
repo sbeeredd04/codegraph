@@ -12,6 +12,8 @@ import { diskDiagramStore } from "../diagrams/disk-store.js";
 import { diagramsCachePath } from "../diagrams/cache-path.js";
 import { diskDocStore } from "../docs/disk-store.js";
 import { docsCachePath } from "../docs/cache-path.js";
+import { diskOverlayStore } from "../overlays/disk-store.js";
+import { overlaysCachePath } from "../overlays/cache-path.js";
 import { createGraphMcpServer } from "./server.js";
 import type { RecentChanges } from "./tools.js";
 import type { CodeGraph } from "../../core/graph/graph.js";
@@ -76,7 +78,22 @@ async function main(): Promise<void> {
   // the render edge. Metadata only — never touches source (FR-9).
   const docs = diskDocStore(docsCachePath(root));
 
-  const server = createGraphMcpServer(() => current, recentChanges, annotations, diagrams, docs);
+  // Agent-authored knowledge overlays (Epic 19 / FR-37): the connected agent pins
+  // notes, marks, and groups onto the graph via the overlay tools; we persist them
+  // at a per-repo path shared with the extension board (overlaysCachePath) so what
+  // the agent annotates, the human sees. Notes/marks/groups are agent-written and
+  // UNTRUSTED — length-capped on write, escaped at the render edge. Metadata only —
+  // never touches source (FR-9).
+  const overlays = diskOverlayStore(overlaysCachePath(root));
+
+  const server = createGraphMcpServer(
+    () => current,
+    recentChanges,
+    annotations,
+    diagrams,
+    docs,
+    overlays,
+  );
   await server.connect(new StdioServerTransport());
   process.stderr.write(
     `codegraph MCP ready on ${root} — ${coverage.parsed}/${coverage.found} files, ` +
