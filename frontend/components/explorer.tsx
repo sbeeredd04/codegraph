@@ -20,6 +20,8 @@ import { NodeSourceViewer } from "./node-source-viewer";
 import { CommandPalette } from "./command-palette";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
+import { AskPanel } from "./ask-panel";
+import type { AskFocus } from "@core/assist/ask";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
 // don't exist during static prerender (output:export). Load both surfaces
@@ -47,6 +49,9 @@ interface ExplorerProps {
   readonly diagrams?: readonly Diagram[];
   /** Agent-authored knowledge docs (FR-29) carried on the snapshot, if any. */
   readonly docs?: readonly Doc[];
+  /** Show the AI-assist "Ask" affordance (FR-30). Local-plane only — withheld on
+   * the source-blind cloud demo where the user has no connected agent. */
+  readonly assistEnabled?: boolean;
   readonly title: string;
   /**
    * Base URL of the source sidecar for the node code viewer (FR-15), or `null`
@@ -64,6 +69,7 @@ export function Explorer({
   edges,
   diagrams,
   docs,
+  assistEnabled = false,
   title,
   sourceBase = null,
   datasets,
@@ -83,6 +89,7 @@ export function Explorer({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const focusRef = useRef<((address: string) => void) | null>(null);
   const diagramList = diagrams ?? [];
   const docList = docs ?? [];
@@ -143,6 +150,20 @@ export function Explorer({
     const callers = edges.filter((e) => e.to === selected);
     return { node, callees, callers };
   }, [selected, byAddress, edges]);
+
+  // Context handed to the AI-assist panel (FR-30): the selected node and its
+  // first-degree neighbours, so the generated prompt anchors the agent's search.
+  const askFocus = useMemo<AskFocus | null>(
+    () => (detail ? { address: detail.node.address, name: detail.node.name, kind: detail.node.kind } : null),
+    [detail],
+  );
+  const askNeighbours = useMemo(() => {
+    if (!detail) return [] as string[];
+    const set = new Set<string>();
+    for (const e of detail.callees) if (e.to !== detail.node.address) set.add(e.to);
+    for (const e of detail.callers) if (e.from !== detail.node.address) set.add(e.from);
+    return [...set];
+  }, [detail]);
 
   // A legible label for an address — module paths shorten to a basename (FR-16);
   // the full path stays visible in the detail panel.
@@ -311,6 +332,16 @@ export function Explorer({
         </button>
 
         <div className="ml-auto flex items-center gap-3 text-xs">
+          {/* AI-assist "Ask" (FR-30) — local-plane only (withheld on cloud) */}
+          {assistEnabled && (
+            <button
+              onClick={() => setAskOpen(true)}
+              aria-haspopup="dialog"
+              className="flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              <span aria-hidden>✦</span> Ask
+            </button>
+          )}
           <button
             onClick={() => setPaletteOpen(true)}
             aria-label="Search nodes"
@@ -440,6 +471,16 @@ export function Explorer({
             byAddress={byAddress}
             onJump={jumpTo}
             onClose={() => setDocsOpen(false)}
+          />
+        )}
+
+        {/* AI-assist "Ask" panel (FR-30) — builds a prompt for the user's agent */}
+        {assistEnabled && askOpen && (
+          <AskPanel
+            focus={askFocus}
+            neighbours={askNeighbours}
+            root={title}
+            onClose={() => setAskOpen(false)}
           />
         )}
 
