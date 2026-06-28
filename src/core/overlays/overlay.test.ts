@@ -15,6 +15,7 @@ import {
   parseOverlaySet,
   nodeOverlays,
   overlaysByKind,
+  overlayHighlights,
   type Note,
   type Mark,
   type Group,
@@ -215,5 +216,32 @@ describe("query helpers", () => {
     expect(by.notes).toHaveLength(1);
     expect(by.marks).toHaveLength(1);
     expect(by.groups).toHaveLength(1);
+  });
+
+  it("overlayHighlights resolves the dominant mark per node and the grouped set", () => {
+    let set = emptyOverlaySet();
+    set = upsertOverlay(set, must(validateMark({ address: "ts:a#f", mark: "hotspot", severity: "warn" })));
+    set = upsertOverlay(set, must(validateGroup({ label: "G", members: ["ts:a#f", "ts:b#g"] })));
+    const hl = overlayHighlights(set);
+    expect(hl.marks.get("ts:a#f")?.mark).toBe("hotspot");
+    // Both group members are grouped; the unmarked one carries no mark.
+    expect(hl.grouped.has("ts:a#f")).toBe(true);
+    expect(hl.grouped.has("ts:b#g")).toBe(true);
+    expect(hl.marks.has("ts:b#g")).toBe(false);
+  });
+
+  it("overlayHighlights ranks severity over kind, then earlier MARK_KINDS first", () => {
+    let set = emptyOverlaySet();
+    // A high-severity todo must beat a no-severity bug (severity dominates).
+    set = upsertOverlay(set, must(validateMark({ address: "ts:a#f", mark: "todo", severity: "error" })));
+    set = upsertOverlay(set, must(validateMark({ address: "ts:a#f", mark: "bug" })));
+    expect(overlayHighlights(set).marks.get("ts:a#f")?.mark).toBe("todo");
+
+    // At equal (absent) severity, the earlier MARK_KINDS entry wins: bug before todo.
+    let tie = emptyOverlaySet();
+    tie = upsertOverlay(tie, must(validateMark({ address: "ts:c#h", mark: "todo" })));
+    tie = upsertOverlay(tie, must(validateMark({ address: "ts:c#h", mark: "bug" })));
+    expect(MARK_KINDS.indexOf("bug")).toBeLessThan(MARK_KINDS.indexOf("todo"));
+    expect(overlayHighlights(tie).marks.get("ts:c#h")?.mark).toBe("bug");
   });
 });

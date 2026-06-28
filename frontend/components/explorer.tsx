@@ -14,7 +14,8 @@ import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
 import type { Doc } from "@core/docs/doc";
 import type { Overlay } from "@core/overlays/overlay";
-import { nodeOverlays, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
+import { nodeOverlays, overlayHighlights, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
+import { MARK_CANVAS_COLOR } from "@/lib/overlay-style";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
@@ -204,6 +205,16 @@ export function Explorer({
     () => (detail ? nodeOverlays(overlaySet, detail.node.address) : undefined),
     [detail, overlaySet],
   );
+  // The agent's canvas-level highlights (FR-37): the dominant mark per node and
+  // the grouped-address set, resolved once in the core. markedNodes maps each
+  // marked address to its canvas colour so the 2D surface can tint the node
+  // itself — the agent pointing at the graph, not just the detail panel.
+  const overlayHl = useMemo(() => overlayHighlights(overlaySet), [overlaySet]);
+  const markedNodes = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [address, mark] of overlayHl.marks) m.set(address, MARK_CANVAS_COLOR[mark.mark]);
+    return m;
+  }, [overlayHl]);
 
   // Context handed to the AI-assist panel (FR-30): the selected node and its
   // first-degree neighbours, so the generated prompt anchors the agent's search.
@@ -451,6 +462,8 @@ export function Explorer({
               onOrphanCount={setOrphanCount}
               onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
               focusRef={focusRef}
+              markedNodes={markedNodes}
+              groupedNodes={overlayHl.grouped}
             />
           );
         })()}

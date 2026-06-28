@@ -41,6 +41,24 @@ async function clickNode(page: Page, address: string): Promise<boolean> {
   }, address);
 }
 
+/** The node's post-reducer display data (colour + hidden) from the live Sigma —
+ * i.e. what the overlay tint actually painted on the canvas, not the base model. */
+async function nodeDisplay(page: Page, address: string): Promise<{ color: string; hidden: boolean } | null> {
+  return page.evaluate((addr) => {
+    const el = document.querySelector("div.absolute.inset-0") as
+      | (HTMLElement & { __sigma?: { getNodeDisplayData(id: string): { color?: string; hidden?: boolean } | undefined } })
+      | null;
+    const d = el?.__sigma?.getNodeDisplayData(addr);
+    return d ? { color: (d.color ?? "").toLowerCase(), hidden: Boolean(d.hidden) } : null;
+  }, address);
+}
+
+// Mirrors frontend/lib/overlay-style.ts — the canvas colours the surface paints.
+const MARK_HOTSPOT = "#fb923c";
+const GROUP_TINT = "#5b8a9a";
+// In a seeded group ("Snapshot pipeline") but carrying no mark of its own.
+const GROUPED_ONLY = "ts:src/adapters/surfaces/webview/panel.ts";
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Dataset").selectOption("codegraph");
@@ -82,4 +100,20 @@ test("a node with no overlays renders no overlay section", async ({ page }) => {
   expect(await clickNode(page, "ts:src/adapters/cache/repo-cache.ts#codegraphCacheBase")).toBe(true);
   await expect(page.getByTestId("detail-body")).toBeVisible();
   await expect(page.getByTestId("node-overlays")).toHaveCount(0);
+});
+
+test("a marked node wears its mark colour on the graph surface (FR-37 drive)", async ({ page }) => {
+  // At rest (no selection) the ambient overlay layer tints the agent's marks ON
+  // the canvas. repoCacheFile carries a hotspot mark → orange, and marks resist
+  // LOD culling so the agent's pointer is never hidden.
+  await expect.poll(async () => (await nodeDisplay(page, SEEDED))?.color, { timeout: 10_000 }).toBe(MARK_HOTSPOT);
+  expect((await nodeDisplay(page, SEEDED))?.hidden).toBe(false);
+});
+
+test("a grouped, unmarked node wears the recessive group tint", async ({ page }) => {
+  // panel.ts is a 'Snapshot pipeline' member but carries no mark of its own, so
+  // it gets the muted group tint rather than a bright mark colour.
+  await expect
+    .poll(async () => (await nodeDisplay(page, GROUPED_ONLY))?.color, { timeout: 10_000 })
+    .toBe(GROUP_TINT);
 });

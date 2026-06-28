@@ -30,6 +30,7 @@ import {
 import { nodeHiddenAtRatio } from "@adapters/surfaces/webview/lod";
 import { clusterByFolder } from "@adapters/surfaces/webview/folder-layout";
 import type { GraphSurfaceProps } from "./graph-surface";
+import { GROUP_TINT } from "@/lib/overlay-style";
 
 interface XY {
   x: number;
@@ -78,6 +79,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   const traceFromRef = useRef<string | undefined>(undefined);
   const traceArmedRef = useRef(props.traceArmed);
   const focusRefHl = useRef<FocusHighlight | null>(null);
+  // The agent's overlay highlights (FR-37), read live by the nodeReducer so a
+  // marks/groups change repaints the tint without re-running the heavy layout.
+  const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
+  const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
   const cbRef = useRef(props);
 
   // Sync the "latest value" refs after every commit. Declared before the heavy
@@ -86,6 +91,8 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   useEffect(() => {
     orphanRef.current = props.orphanMode;
     traceArmedRef.current = props.traceArmed;
+    markedRef.current = props.markedNodes;
+    groupedRef.current = props.groupedNodes;
     cbRef.current = props;
   });
 
@@ -200,6 +207,20 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
         forceLabel?: boolean;
       } = { ...data };
       if (lod && nodeHiddenAtRatio(data.kind as NodeKind, camera.ratio)) res.hidden = true;
+      // Agent overlay layer (FR-37): the agent's marks + groups tint the graph
+      // itself, so it can "point" at nodes, not just annotate the detail panel.
+      // Ambient — applied above LOD (a marked node is never culled) but below the
+      // interactive orphan/trace/focus lenses, which still take over when engaged.
+      // A node's dominant mark wins its colour; an unmarked group member gets the
+      // recessive group tint.
+      const markColor = markedRef.current?.get(node);
+      if (markColor) {
+        res.hidden = false;
+        res.color = markColor;
+        res.forceLabel = true;
+      } else if (groupedRef.current?.has(node)) {
+        res.color = GROUP_TINT;
+      }
       if (orphanRef.current) {
         if (g.getNodeAttribute(node, "orphan")) {
           res.hidden = false;
@@ -355,6 +376,13 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     focusRefHl.current = focusHighlight(props.selected, props.edges);
     rendererRef.current?.refresh();
   }, [props.selected, props.edges]);
+
+  // Light effect: the agent's overlays changed — the reducers read markedRef /
+  // groupedRef live, so a marks/groups update just repaints the tint. Keyed off
+  // the overlay maps only, never the heavy layout inputs (no forceAtlas2 rerun).
+  useEffect(() => {
+    rendererRef.current?.refresh();
+  }, [props.markedNodes, props.groupedNodes]);
 
   // Light effect: Folders toggled — swap to the clustered (or base) positions and
   // re-frame. No relayout: both maps were computed in the heavy effect (FR-26).

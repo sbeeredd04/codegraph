@@ -338,3 +338,35 @@ export function overlaysByKind(set: OverlaySet): { notes: Note[]; marks: Mark[];
   }
   return { notes, marks, groups };
 }
+
+const SEVERITY_RANK: Record<MarkSeverity, number> = { error: 3, warn: 2, info: 1 };
+
+/** Prominence of a mark: higher severity dominates, and within one severity an
+ * earlier MARK_KINDS entry wins (bug ahead of todo). Encoded so a larger number
+ * is more prominent — `severity*10 - kindIndex` keeps the two tiers separable. */
+function markRank(m: Mark): number {
+  const sev = m.severity ? SEVERITY_RANK[m.severity] : 0;
+  return sev * 10 - MARK_KINDS.indexOf(m.mark);
+}
+
+/** The agent's canvas-level highlights, resolved per node: the single dominant
+ * mark on each marked node (by {@link markRank}) and the set of addresses that
+ * belong to any group. The 2D/3D render surfaces use this to tint marked and
+ * grouped nodes ON the graph (FR-37) — colour is the renderer's concern, the
+ * resolution is pure here so both surfaces agree on which mark wins. */
+export function overlayHighlights(set: OverlaySet): {
+  marks: Map<NodeAddress, Mark>;
+  grouped: Set<NodeAddress>;
+} {
+  const marks = new Map<NodeAddress, Mark>();
+  const grouped = new Set<NodeAddress>();
+  for (const o of set.overlays) {
+    if (o.kind === "mark") {
+      const cur = marks.get(o.address);
+      if (!cur || markRank(o) > markRank(cur)) marks.set(o.address, o);
+    } else if (o.kind === "group") {
+      for (const m of o.members) grouped.add(m);
+    }
+  }
+  return { marks, grouped };
+}

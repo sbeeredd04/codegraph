@@ -34,4 +34,11 @@ export interface GraphSurfaceProps {
   readonly onTraceStatus: (text: string, tone?: "ok" | "none") => void;
   /** Imperative focus handle — parent calls this to pan/zoom to an address. */
   readonly focusRef?: React.MutableRefObject<((address: string) => void) | null>;
+  /** The agent's marked nodes (FR-37): address → canvas colour for the node's
+   * dominant mark. The surface tints these on the graph itself so the agent can
+   * "point" at nodes, not just annotate the detail panel. 2D only for now. */
+  readonly markedNodes?: ReadonlyMap<string, string>;
+  /** Addresses that belong to any agent group (FR-37) — tinted as an ambient
+   * hint when not already marked. 2D only for now. */
+  readonly groupedNodes?: ReadonlySet<string>;
 }
