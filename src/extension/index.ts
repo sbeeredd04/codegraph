@@ -18,6 +18,12 @@ import { enrichmentCachePath } from "../adapters/semantic/cache-path.js";
 import { diskDiagramStore } from "../adapters/diagrams/disk-store.js";
 import { diagramsCachePath } from "../adapters/diagrams/cache-path.js";
 import { emptyDiagramSet, type DiagramSet } from "../core/diagrams/diagram.js";
+import { diskDocStore } from "../adapters/docs/disk-store.js";
+import { docsCachePath } from "../adapters/docs/cache-path.js";
+import { emptyDocSet, type Doc } from "../core/docs/doc.js";
+import { diskOverlayStore } from "../adapters/overlays/disk-store.js";
+import { overlaysCachePath } from "../adapters/overlays/cache-path.js";
+import { emptyOverlaySet, type Overlay } from "../core/overlays/overlay.js";
 import type { CodeGraph } from "../core/graph/graph.js";
 import type { GraphDelta } from "../core/graph/types.js";
 import type { RankedChange } from "../core/graph/change-feed.js";
@@ -73,6 +79,27 @@ async function readDiagrams(folderPath: string): Promise<DiagramSet> {
   const cachePath = diagramsCachePath(folderPath);
   if (!fs.existsSync(cachePath)) return emptyDiagramSet();
   return diskDiagramStore(cachePath).all();
+}
+
+// The agent's long-form knowledge docs live in a per-repo cache the MCP server
+// writes via save_doc (Epic 7 / FR-29). Read them back so the explorer's Docs
+// surface can render them. Same degrade-to-empty contract as readDiagrams — a
+// missing or corrupt cache yields an empty set, never a broken board (FR-9).
+async function readDocs(folderPath: string): Promise<readonly Doc[]> {
+  const cachePath = docsCachePath(folderPath);
+  if (!fs.existsSync(cachePath)) return emptyDocSet().docs;
+  return (await diskDocStore(cachePath).all()).docs;
+}
+
+// The agent's knowledge overlays — notes, typed marks, and groups — live in a
+// per-repo cache the MCP server writes via pin_note / mark_node / group_nodes
+// (Epic 19 / FR-37). Read them back so a selected node surfaces its overlays in
+// the explorer detail panel. Graph-identity addressed prose ABOUT code, so it
+// rides the portable snapshot safely (AD-14); degrades to empty like the rest.
+async function readOverlays(folderPath: string): Promise<readonly Overlay[]> {
+  const cachePath = overlaysCachePath(folderPath);
+  if (!fs.existsSync(cachePath)) return emptyOverlaySet().overlays;
+  return (await diskOverlayStore(cachePath).all()).overlays;
 }
 
 // Repaint the board for a workspace graph, folding in the agent's annotations and
@@ -287,13 +314,17 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     const active = current;
-    const [enrichments, diagramSet] = await Promise.all([
+    const [enrichments, diagramSet, docs, overlays] = await Promise.all([
       readEnrichments(active.folderPath, active.graph),
       readDiagrams(active.folderPath),
+      readDocs(active.folderPath),
+      readOverlays(active.folderPath),
     ]);
     const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
       enrichments,
       diagrams: diagramSet.diagrams,
+      docs,
+      overlays,
       generatedAt: new Date().toISOString(),
       root: active.folderPath,
     });
@@ -326,13 +357,17 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     const active = current;
-    const [enrichments, diagramSet] = await Promise.all([
+    const [enrichments, diagramSet, docs, overlays] = await Promise.all([
       readEnrichments(active.folderPath, active.graph),
       readDiagrams(active.folderPath),
+      readDocs(active.folderPath),
+      readOverlays(active.folderPath),
     ]);
     const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
       enrichments,
       diagrams: diagramSet.diagrams,
+      docs,
+      overlays,
       generatedAt: new Date().toISOString(),
       root: active.folderPath,
     });
@@ -374,13 +409,17 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     const active = current;
-    const [enrichments, diagramSet] = await Promise.all([
+    const [enrichments, diagramSet, docs, overlays] = await Promise.all([
       readEnrichments(active.folderPath, active.graph),
       readDiagrams(active.folderPath),
+      readDocs(active.folderPath),
+      readOverlays(active.folderPath),
     ]);
     const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
       enrichments,
       diagrams: diagramSet.diagrams,
+      docs,
+      overlays,
       generatedAt: new Date().toISOString(),
       root: active.folderPath,
     });

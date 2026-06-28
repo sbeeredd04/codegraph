@@ -97,6 +97,7 @@ export default function Home() {
       edges={snap.edges}
       diagrams={snap.diagrams}
       docs={snap.docs}
+      overlays={snap.overlays}
       // AI-assist (FR-30) is a local-plane affordance: the user's own agent does
       // the work. Withheld on the source-blind cloud demo, where there's no
       // connected agent — flagged at build time via NEXT_PUBLIC_CODEGRAPH_CLOUD.

@@ -8,6 +8,7 @@
 // Strictly read-only (FR-9): it only reads the selected node + its edges.
 
 import type { GraphNode, GraphEdge } from "@core/graph/types";
+import type { Note, Mark, Group, MarkKind } from "@core/overlays/overlay";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
@@ -19,9 +20,19 @@ interface DetailData {
   readonly callers: readonly GraphEdge[];
 }
 
+/** The agent's overlays for the selected node (FR-37): its note, its typed
+ * markers, and the groups it belongs to — the shape `nodeOverlays` returns. */
+export interface NodeOverlays {
+  readonly note?: Note;
+  readonly marks: readonly Mark[];
+  readonly groups: readonly Group[];
+}
+
 interface DetailPanelProps {
   readonly detail: DetailData;
   readonly byAddress: Map<string, GraphNode>;
+  /** The agent's overlays pinned to this node (FR-37), if any. */
+  readonly overlays?: NodeOverlays;
   /** Clear the selection (closes the panel). */
   readonly onClose: () => void;
   /** Open the read-only source dock for this node (FR-15). */
@@ -37,6 +48,7 @@ const FLOAT_WIDTH = 320;
 export function DetailPanel({
   detail,
   byAddress,
+  overlays,
   onClose,
   onViewSource,
   onJump,
@@ -47,7 +59,13 @@ export function DetailPanel({
   const dot = KIND_COLORS[node.kind] ?? "#8b93a7";
 
   const content = (
-    <DetailContent detail={detail} byAddress={byAddress} onViewSource={onViewSource} onJump={onJump} />
+    <DetailContent
+      detail={detail}
+      byAddress={byAddress}
+      overlays={overlays}
+      onViewSource={onViewSource}
+      onJump={onJump}
+    />
   );
 
   // Floating mode: a draggable card placed at the persisted offset.
@@ -123,21 +141,28 @@ export function DetailPanel({
   );
 }
 
-// The shared lower body: location, the source affordance, signature, neighbours.
+// The shared lower body: the agent's overlays, location, the source affordance,
+// signature, neighbours.
 function DetailContent({
   detail,
   byAddress,
+  overlays,
   onViewSource,
   onJump,
 }: {
   detail: DetailData;
   byAddress: Map<string, GraphNode>;
+  overlays?: NodeOverlays;
   onViewSource: () => void;
   onJump: (address: string) => void;
 }): React.JSX.Element {
   const { node } = detail;
   return (
     <>
+      {/* Agent overlays (FR-37) — typed markers, the node's note, group membership.
+          Sits up top: it's the agent's "look here, this is what's going on". */}
+      <OverlaySection overlays={overlays} />
+
       <div className="mt-3 break-all font-mono text-xs text-zinc-400">
         {node.location.file}:{node.location.line}
       </div>
@@ -159,6 +184,86 @@ function DetailContent({
       <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={onJump} byAddress={byAddress} />
       <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={onJump} byAddress={byAddress} />
     </>
+  );
+}
+
+// Per-mark accent (dark theme). Keyed by kind; severity (when present) is shown
+// as a short suffix rather than recoloring, so the kind stays the primary signal.
+const MARK_STYLE: Record<MarkKind, { label: string; className: string }> = {
+  bug: { label: "bug", className: "border-red-500/40 bg-red-500/10 text-red-300" },
+  breakpoint: { label: "breakpoint", className: "border-rose-500/40 bg-rose-500/10 text-rose-300" },
+  issue: { label: "issue", className: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  todo: { label: "todo", className: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  hotspot: { label: "hotspot", className: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+};
+
+// The agent's overlays for the node, rendered read-only. Agent text is UNTRUSTED:
+// every string here is a React child, so it is escaped — no dangerouslySetInnerHTML.
+function OverlaySection({ overlays }: { overlays?: NodeOverlays }): React.JSX.Element | null {
+  if (!overlays) return null;
+  const { note, marks, groups } = overlays;
+  if (!note && marks.length === 0 && groups.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-2" data-testid="node-overlays">
+      {marks.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" data-testid="node-marks">
+          {marks.map((m) => {
+            const style = MARK_STYLE[m.mark];
+            return (
+              <span
+                key={m.id}
+                title={m.label ? `${style.label}: ${m.label}` : style.label}
+                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style.className}`}
+              >
+                {style.label}
+                {m.severity && <span className="font-normal opacity-70">· {m.severity}</span>}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {note && (
+        <div
+          data-testid="node-note"
+          className="rounded-lg border border-violet-500/25 bg-violet-500/[0.07] p-2.5"
+        >
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300/80">
+            <NoteIcon /> Note
+          </div>
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{note.body}</p>
+        </div>
+      )}
+
+      {groups.length > 0 && (
+        <div data-testid="node-groups">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Groups
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {groups.map((g) => (
+              <span
+                key={g.id}
+                title={`${g.members.length} nodes`}
+                className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[11px] font-medium text-cyan-300"
+              >
+                {g.label}
+                <span className="font-mono text-[10px] opacity-70">{g.members.length}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoteIcon(): React.JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6M9 13h6M9 17h4" />
+    </svg>
   );
 }
 

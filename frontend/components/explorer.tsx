@@ -13,6 +13,8 @@ import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
 import type { Doc } from "@core/docs/doc";
+import type { Overlay } from "@core/overlays/overlay";
+import { nodeOverlays, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
@@ -59,6 +61,9 @@ interface ExplorerProps {
   readonly diagrams?: readonly Diagram[];
   /** Agent-authored knowledge docs (FR-29) carried on the snapshot, if any. */
   readonly docs?: readonly Doc[];
+  /** Agent-authored knowledge overlays (FR-37) carried on the snapshot, if any —
+   * notes, markers, and groups the connected agent pinned onto the graph. */
+  readonly overlays?: readonly Overlay[];
   /** Show the AI-assist "Ask" affordance (FR-30). Local-plane only — withheld on
    * the source-blind cloud demo where the user has no connected agent. */
   readonly assistEnabled?: boolean;
@@ -85,6 +90,7 @@ export function Explorer({
   edges,
   diagrams,
   docs,
+  overlays,
   assistEnabled = false,
   title,
   sourceBase = null,
@@ -187,6 +193,17 @@ export function Explorer({
     const callers = edges.filter((e) => e.to === selected);
     return { node, callees, callers };
   }, [selected, byAddress, edges]);
+
+  // The agent's overlays (FR-37) wrapped as a set so the core query helper can
+  // pick out the selected node's note, markers, and the groups it belongs to.
+  const overlaySet = useMemo(
+    () => ({ version: OVERLAY_SET_VERSION, overlays: overlays ?? [] }),
+    [overlays],
+  );
+  const selectedOverlays = useMemo(
+    () => (detail ? nodeOverlays(overlaySet, detail.node.address) : undefined),
+    [detail, overlaySet],
+  );
 
   // Context handed to the AI-assist panel (FR-30): the selected node and its
   // first-degree neighbours, so the generated prompt anchors the agent's search.
@@ -457,6 +474,7 @@ export function Explorer({
             key={layoutVersion}
             detail={detail}
             byAddress={byAddress}
+            overlays={selectedOverlays}
             onClose={() => setSelected(null)}
             onViewSource={() => setSourceOpen(true)}
             onJump={(a) => focusRef.current?.(a)}
