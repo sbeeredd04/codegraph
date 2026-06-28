@@ -75,6 +75,21 @@ describe("validatePresentationCommand", () => {
     expect(validatePresentationCommand({ kind: "toggle_affordance", affordance: "zoom" })).toBeNull();
   });
 
+  it("validates replay: addresses required, dwellMs optional but finite", () => {
+    expect(validatePresentationCommand({ kind: "replay", addresses: ["a", "b"] })).toEqual({
+      kind: "replay",
+      addresses: ["a", "b"],
+    });
+    expect(validatePresentationCommand({ kind: "replay", addresses: ["a"], dwellMs: 600 })).toEqual({
+      kind: "replay",
+      addresses: ["a"],
+      dwellMs: 600,
+    });
+    expect(validatePresentationCommand({ kind: "replay", addresses: [] })).toBeNull();
+    expect(validatePresentationCommand({ kind: "replay", addresses: ["a"], dwellMs: "fast" })).toBeNull();
+    expect(validatePresentationCommand({ kind: "replay", addresses: ["a"], dwellMs: Number.NaN })).toBeNull();
+  });
+
   it("drops malformed / unknown shapes rather than throwing", () => {
     expect(validatePresentationCommand(null)).toBeNull();
     expect(validatePresentationCommand("highlight_nodes")).toBeNull();
@@ -90,6 +105,7 @@ describe("validatePresentationCommand", () => {
       { kind: "set_projection", projection: "full" },
       { kind: "open_panel", panel: "diagrams" },
       { kind: "toggle_affordance", affordance: "folders" },
+      { kind: "replay", addresses: ["a", "b"] },
     ];
     expect(samples.map((s) => s.kind).sort()).toEqual([...PRESENTATION_COMMAND_KINDS].sort());
     for (const s of samples) expect(validatePresentationCommand(s)).toEqual(s);

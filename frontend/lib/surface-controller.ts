@@ -25,7 +25,10 @@ export interface SurfaceController {
   /** Apply a transient highlight to a node set, or clear it with an empty set.
    * Lives above the ambient overlay tint — it is the driver actively pointing. */
   highlight(addresses: readonly string[], style?: HighlightStyle): void;
-  /** Step through a sequence of addresses over time (FR-40 guided tour /
-   * FR-41 log-trace replay). A typed no-op until Phase C wires it. */
-  replay(addresses: readonly string[]): void;
+  /** Walk a sequence of addresses over time as a guided tour (FR-40): light each
+   * stop cumulatively and follow the camera, one per `dwellMs` beat. Honours
+   * `prefers-reduced-motion` (collapses to the final state). Any other controller
+   * call — or the human taking control — preempts an in-flight tour. The 3D
+   * surface wires this in slice 2; until then its implementation is a no-op. */
+  replay(addresses: readonly string[], opts?: { dwellMs?: number }): void;
 }

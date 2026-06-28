@@ -241,6 +241,13 @@ export function Explorer({
           label = `${cmd.affordance} lens`;
           break;
         }
+        case "replay":
+          // FR-40 guided tour: the controller walks the stops over time; the banner
+          // stays up for the whole tour so the human can reclaim the wheel at any
+          // step (Take control → highlight([]) cancels the in-flight timers).
+          c?.replay(cmd.addresses, cmd.dwellMs !== undefined ? { dwellMs: cmd.dwellMs } : undefined);
+          label = `replaying a ${cmd.addresses.length}-stop tour`;
+          break;
       }
       setPresenting(label);
     },

@@ -72,6 +72,13 @@ export interface ToggleAffordanceCommand {
   /** explicit desired state (idempotent); omitted = flip. */
   readonly on?: boolean;
 }
+export interface ReplayCommand {
+  readonly kind: "replay";
+  /** the ordered tour stops — the surface lights them cumulatively, one per dwell. */
+  readonly addresses: readonly string[];
+  /** per-step dwell in ms; clamped + defaulted by the pure sequencer (replay.ts). */
+  readonly dwellMs?: number;
+}
 
 export type PresentationCommand =
   | HighlightNodesCommand
@@ -79,7 +86,8 @@ export type PresentationCommand =
   | FocusCameraCommand
   | SetProjectionCommand
   | OpenPanelCommand
-  | ToggleAffordanceCommand;
+  | ToggleAffordanceCommand
+  | ReplayCommand;
 
 export const PRESENTATION_COMMAND_KINDS = [
   "highlight_nodes",
@@ -88,6 +96,7 @@ export const PRESENTATION_COMMAND_KINDS = [
   "set_projection",
   "open_panel",
   "toggle_affordance",
+  "replay",
 ] as const;
 
 /**
@@ -172,6 +181,20 @@ export function validatePresentationCommand(raw: unknown): PresentationCommand |
         kind: "toggle_affordance",
         affordance: r.affordance as AffordanceKind,
         ...(typeof r.on === "boolean" ? { on: r.on } : {}),
+      };
+    }
+    case "replay": {
+      const addresses = validAddresses(r.addresses);
+      if (!addresses) return null;
+      // dwellMs is advisory — the sequencer clamps the value; here we only reject
+      // a non-finite number so a NaN/Infinity can't reach the renderer's timers.
+      if (r.dwellMs !== undefined && (typeof r.dwellMs !== "number" || !Number.isFinite(r.dwellMs))) {
+        return null;
+      }
+      return {
+        kind: "replay",
+        addresses,
+        ...(typeof r.dwellMs === "number" ? { dwellMs: r.dwellMs } : {}),
       };
     }
     default:

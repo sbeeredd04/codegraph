@@ -11,7 +11,18 @@ import { test, expect, type Page } from "@playwright/test";
 
 const SEEDED = "ts:src/adapters/cache/repo-cache.ts#repoCacheFile"; // carries a hotspot mark
 const HIGHLIGHT_ACCENT = "#a78bfa";
+const HIGHLIGHT_TRACE = "#34d399"; // the guided-tour / path step colour (FR-40)
 const MARK_HOTSPOT = "#fb923c";
+
+/** Pull N real, distinct node addresses from the live graph for a valid tour. */
+async function tourStops(page: Page, n = 3): Promise<string[]> {
+  return page.evaluate((count) => {
+    const el = document.querySelector("div.absolute.inset-0") as
+      | (HTMLElement & { __sigma?: { getGraph(): { nodes(): string[] } } })
+      | null;
+    return el?.__sigma ? el.__sigma.getGraph().nodes().slice(0, count) : [];
+  }, n);
+}
 
 async function waitForNode(page: Page, address: string): Promise<void> {
   await expect
@@ -77,6 +88,73 @@ test("an open_panel command opens the diagrams drawer (FR-39 view directive)", a
 
   await expect(page.getByRole("dialog", { name: "Knowledge diagrams" })).toBeVisible();
   await expect(page.getByRole("status")).toContainText("opening the diagrams panel");
+});
+
+test("a replay command walks a guided tour step by step, banner up throughout (FR-40)", async ({ page }) => {
+  const stops = await tourStops(page, 3);
+  expect(stops).toHaveLength(3);
+  const [first, , last] = stops;
+
+  const banner = page.getByRole("status");
+  await expect(banner).toHaveCount(0); // the human holds the wheel at rest
+
+  // dwell 500 → stops light at 0 / 500 / 1000ms: a wide margin for the "not yet"
+  // discriminator below while keeping the test quick.
+  await sendCommand(page, { kind: "replay", addresses: stops, dwellMs: 500 });
+
+  // Step 0 runs synchronously: the first stop lights (trace green) at once while
+  // the last stop is NOT lit yet — proving the tour STEPS, not lights-all-at-once.
+  await expect.poll(() => color2d(page, first), { timeout: 5_000 }).toBe(HIGHLIGHT_TRACE);
+  expect(await color2d(page, last)).not.toBe(HIGHLIGHT_TRACE);
+
+  // The preempt banner stays up for the whole tour so the human can reclaim it.
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("The agent is presenting");
+
+  // The tour advances: the trail grows until the last stop lights too (cumulative).
+  await expect.poll(() => color2d(page, last), { timeout: 5_000 }).toBe(HIGHLIGHT_TRACE);
+  expect(await color2d(page, first)).toBe(HIGHLIGHT_TRACE); // earlier stops stay lit
+
+  // A manual "Take control" returns the wheel: banner gone, trail cleared.
+  await banner.getByRole("button", { name: "Take control" }).click();
+  await expect(banner).toHaveCount(0);
+});
+
+test("a manual interrupt preempts an in-flight tour — pending steps never fire (FR-40)", async ({ page }) => {
+  const stops = await tourStops(page, 3);
+  expect(stops).toHaveLength(3);
+  const [first, second, last] = stops;
+
+  // dwell 800 → stops at 0 / 800 / 1600ms. Take control lands well before 800ms.
+  await sendCommand(page, { kind: "replay", addresses: stops, dwellMs: 800 });
+  await expect.poll(() => color2d(page, first), { timeout: 5_000 }).toBe(HIGHLIGHT_TRACE);
+
+  const banner = page.getByRole("status");
+  await expect(banner).toBeVisible();
+  await banner.getByRole("button", { name: "Take control" }).click();
+  await expect(banner).toHaveCount(0);
+
+  // Wait past the 800ms step-2 mark: the cancelled steps must never have lit, and
+  // the trail from step 0 was wiped when control returned.
+  await page.waitForTimeout(1_100);
+  expect(await color2d(page, second)).not.toBe(HIGHLIGHT_TRACE);
+  expect(await color2d(page, last)).not.toBe(HIGHLIGHT_TRACE);
+  expect(await color2d(page, first)).not.toBe(HIGHLIGHT_TRACE);
+});
+
+test("a replay honours prefers-reduced-motion — instant final state, no stepping (FR-40)", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const stops = await tourStops(page, 3);
+  expect(stops).toHaveLength(3);
+  const [first, , last] = stops;
+
+  // A huge dwell: were it stepping, the last stop wouldn't light for 10s. Under
+  // reduced motion the plan collapses to one instant step lighting the whole trail.
+  await sendCommand(page, { kind: "replay", addresses: stops, dwellMs: 5_000 });
+
+  await expect.poll(() => color2d(page, first), { timeout: 2_000 }).toBe(HIGHLIGHT_TRACE);
+  await expect.poll(() => color2d(page, last), { timeout: 2_000 }).toBe(HIGHLIGHT_TRACE);
+  await expect(page.getByRole("status")).toContainText("replaying a 3-stop tour");
 });
 
 test("a malformed command is ignored — no drive, no banner (untrusted guard)", async ({ page }) => {

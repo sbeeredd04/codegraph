@@ -22,6 +22,7 @@ import {
   type PathHighlight,
 } from "@core/graph/path";
 import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
+import { planReplay } from "@core/presentation/replay";
 import type { NodeKind } from "@core/graph/types";
 import {
   buildRenderModel,
@@ -87,6 +88,9 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // read by the nodeReducer above every ambient layer. null when nothing is driven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
+  // FR-40: in-flight guided-tour step timers. Any controller call cancels them so
+  // a manual action (or Take control) preempts the agent's tour cleanly.
+  const replayTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cbRef = useRef(props);
 
   // Sync the "latest value" refs after every commit. Declared before the heavy
@@ -361,27 +365,59 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       void renderer.getCamera().animate({ x: cx, y: cy, ratio }, { duration: 420 });
     }
 
+    // FR-40: cancel any in-flight guided tour. Called by every controller entry
+    // point so a manual focus/frame/highlight — or the human's Take control, which
+    // routes through highlight([]) — preempts the agent's tour at once.
+    function cancelReplay(): void {
+      for (const t of replayTimersRef.current) clearTimeout(t);
+      replayTimersRef.current = [];
+    }
+
     // Expose the imperative surface controller for the parent / FR-39 command bus
-    // (FR-43). Generalises the old single focusRef into focus/frame/highlight.
+    // (FR-43). Generalises the old single focusRef into focus/frame/highlight/replay.
     const controller: SurfaceController = {
       focus(addresses) {
+        cancelReplay();
         const present = addresses.filter((a) => g.hasNode(a));
         if (present.length === 0) return;
         cbRef.current.onSelectNode(present[0]);
         fitToPath(present, present.length === 1 ? 0.55 : 0.75);
       },
       frame(addresses) {
+        cancelReplay();
         fitToPath(addresses.filter((a) => g.hasNode(a)));
       },
       highlight(addresses, style = "accent") {
+        cancelReplay();
         const present = addresses.filter((a) => g.hasNode(a));
         highlightRef.current = present.length
           ? { set: new Set(present), color: HIGHLIGHT_STYLE_COLOR[style] }
           : null;
         renderer.refresh();
       },
-      replay() {
-        // FR-40/41 (Phase C) — guided tour / log-trace stepping. No-op for now.
+      replay(addresses, opts) {
+        // FR-40 guided tour: schedule the pure plan's steps on the wall clock. Each
+        // step lights the cumulative trail (trace green) and follows the camera; the
+        // reduced-motion plan collapses to one instant final-state step. Stepping is
+        // transient highlight only — never a selection or a source touch (FR-9).
+        cancelReplay();
+        const reducedMotion =
+          typeof window !== "undefined" &&
+          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+        const stops = addresses.filter((a) => g.hasNode(a));
+        const plan = planReplay(stops, { dwellMs: opts?.dwellMs, reducedMotion });
+        for (const step of plan.steps) {
+          const run = (): void => {
+            highlightRef.current = {
+              set: new Set(step.highlight),
+              color: HIGHLIGHT_STYLE_COLOR.trace,
+            };
+            renderer.refresh();
+            fitToPath([step.focus], 0.55);
+          };
+          if (step.startMs === 0) run();
+          else replayTimersRef.current.push(setTimeout(run, step.startMs));
+        }
       },
     };
     if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = controller;
@@ -392,6 +428,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     }
 
     return () => {
+      cancelReplay();
       renderer.kill();
       rendererRef.current = null;
       graphRef.current = null;
