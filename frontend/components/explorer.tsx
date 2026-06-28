@@ -17,6 +17,7 @@ import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import { NodeSourceViewer } from "./node-source-viewer";
+import { ResizableDock } from "./resizable-dock";
 import { CommandPalette } from "./command-palette";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
@@ -408,52 +409,67 @@ export function Explorer({
           ))}
         </div>
 
-        {/* Node detail panel — hidden while the source viewer is docked */}
+        {/* Node detail dock (FR-15 content, FR-34 workspace frame) — collapsible +
+            resizable; hidden while the source viewer is docked */}
         {detail && !sourceOpen && (
-          <aside className="absolute right-3 top-3 max-h-[calc(100%-1.5rem)] w-72 overflow-auto rounded-xl border border-zinc-800 bg-zinc-900/95 p-4 text-sm shadow-2xl backdrop-blur">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate font-semibold text-zinc-50" title={detail.node.name}>
-                  {displayLabel(detail.node.name, detail.node.kind)}
+          <ResizableDock
+            storageKey="codegraph:dock:detail"
+            side="right"
+            bounds={{ defaultWidth: 320, minWidth: 264, maxWidth: 560 }}
+            label="Details"
+            railAccent={
+              <span
+                aria-hidden
+                className="size-2 rounded-full"
+                style={{ backgroundColor: KIND_COLORS[detail.node.kind] ?? "#8b93a7" }}
+              />
+            }
+          >
+            <div className="p-4 text-sm" data-testid="detail-body">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-zinc-50" title={detail.node.name}>
+                    {displayLabel(detail.node.name, detail.node.kind)}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
+                    <span
+                      className="inline-block size-2 rounded-full"
+                      style={{ backgroundColor: KIND_COLORS[detail.node.kind] ?? "#8b93a7" }}
+                    />
+                    {detail.node.kind}
+                  </div>
                 </div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
-                  <span
-                    className="inline-block size-2 rounded-full"
-                    style={{ backgroundColor: KIND_COLORS[detail.node.kind] ?? "#8b93a7" }}
-                  />
-                  {detail.node.kind}
-                </div>
+                <button
+                  onClick={() => setSelected(null)}
+                  aria-label="Close detail"
+                  className="-mr-1 -mt-1 rounded p-1 text-zinc-500 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+                >
+                  ✕
+                </button>
               </div>
+
+              <div className="mt-3 break-all font-mono text-xs text-zinc-400">
+                {detail.node.location.file}:{detail.node.location.line}
+              </div>
+
+              {/* View source (FR-15) — opens the read-only code dock */}
               <button
-                onClick={() => setSelected(null)}
-                aria-label="Close detail"
-                className="-mr-1 -mt-1 rounded p-1 text-zinc-500 hover:text-zinc-200"
+                onClick={() => setSourceOpen(true)}
+                className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/60 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-violet-500/50 hover:bg-violet-500/10 hover:text-violet-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
               >
-                ✕
+                <span aria-hidden>{"</>"}</span> View source
               </button>
+
+              {detail.node.signature && (
+                <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-950/60 p-2 font-mono text-[11px] leading-relaxed text-zinc-300">
+                  {detail.node.signature}
+                </pre>
+              )}
+
+              <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
+              <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
             </div>
-
-            <div className="mt-3 break-all font-mono text-xs text-zinc-400">
-              {detail.node.location.file}:{detail.node.location.line}
-            </div>
-
-            {/* View source (FR-15) — opens the read-only code dock */}
-            <button
-              onClick={() => setSourceOpen(true)}
-              className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/60 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-violet-500/50 hover:bg-violet-500/10 hover:text-violet-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-            >
-              <span aria-hidden>{"</>"}</span> View source
-            </button>
-
-            {detail.node.signature && (
-              <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-950/60 p-2 font-mono text-[11px] leading-relaxed text-zinc-300">
-                {detail.node.signature}
-              </pre>
-            )}
-
-            <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
-            <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
-          </aside>
+          </ResizableDock>
         )}
 
         {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
