@@ -6,8 +6,8 @@
 // breaking enrichment (local-first, graceful — AD-1 keeps this I/O out of core).
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 import type { EnrichmentCache, NodeEnrichment } from "../../core/semantic/enrichment.js";
+import { writeJsonSync } from "../store/repo-json-store.js";
 
 /** Accept only well-formed entries when loading — a hand-edited or partial file
  * must never inject junk into the cache. */
@@ -41,12 +41,7 @@ export function diskEnrichmentCache(filePath: string): EnrichmentCache {
   };
 
   const persist = (map: Map<string, NodeEnrichment>): void => {
-    try {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, JSON.stringify(Object.fromEntries(map), null, 2));
-    } catch {
-      // read-only FS or similar → stay in-memory only
-    }
+    writeJsonSync(filePath, Object.fromEntries(map));
   };
 
   return {
