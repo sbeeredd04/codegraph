@@ -10,6 +10,8 @@ import { diskEnrichmentCache } from "../semantic/disk-cache.js";
 import { enrichmentCachePath } from "../semantic/cache-path.js";
 import { diskDiagramStore } from "../diagrams/disk-store.js";
 import { diagramsCachePath } from "../diagrams/cache-path.js";
+import { diskDocStore } from "../docs/disk-store.js";
+import { docsCachePath } from "../docs/cache-path.js";
 import { createGraphMcpServer } from "./server.js";
 import type { RecentChanges } from "./tools.js";
 import type { CodeGraph } from "../../core/graph/graph.js";
@@ -67,7 +69,14 @@ async function main(): Promise<void> {
   // the agent draws, the human sees. Metadata only — never touches source (FR-9).
   const diagrams = diskDiagramStore(diagramsCachePath(root));
 
-  const server = createGraphMcpServer(() => current, recentChanges, annotations, diagrams);
+  // Agent-authored knowledge docs (Epic 7 / FR-29): the connected agent writes
+  // long-form Markdown via save_doc; we persist it at a per-repo path shared with
+  // the extension board (docsCachePath) so what the agent writes, the human reads.
+  // Markdown is agent-written and UNTRUSTED — length-capped on write, sanitized at
+  // the render edge. Metadata only — never touches source (FR-9).
+  const docs = diskDocStore(docsCachePath(root));
+
+  const server = createGraphMcpServer(() => current, recentChanges, annotations, diagrams, docs);
   await server.connect(new StdioServerTransport());
   process.stderr.write(
     `codegraph MCP ready on ${root} — ${coverage.parsed}/${coverage.found} files, ` +

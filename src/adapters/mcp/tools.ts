@@ -9,6 +9,7 @@ import {
   KNOWN_DIAGRAM_CATEGORIES,
   type DiagramStore,
 } from "../../core/diagrams/diagram.js";
+import { validateDoc, KNOWN_DOC_CATEGORIES, type DocStore } from "../../core/docs/doc.js";
 import {
   findNodes,
   describeNode,
@@ -83,6 +84,7 @@ export function graphTools(
   recentChanges?: RecentChangesProvider,
   annotations?: NodeAnnotations,
   diagrams?: DiagramStore,
+  docs?: DocStore,
 ): GraphTool[] {
   const tools: GraphTool[] = [
     {
@@ -324,6 +326,78 @@ export function graphTools(
           const id = String(args.id);
           const removed = await diagrams.remove(id);
           return removed ? ok({ deleted: id }) : fail(`codegraph: no diagram with id "${id}".`);
+        },
+      },
+    );
+  }
+
+  if (docs) {
+    tools.push(
+      {
+        name: "save_doc",
+        title: "Save doc",
+        description:
+          "Save a long-form Markdown doc you wrote ABOUT this repo onto its knowledge layer — the prose " +
+          "layer above the structure graph and the Mermaid diagrams: an onboarding guide, a module " +
+          "deep-dive, an architecture overview, 'how this subsystem fits together'. Explore first " +
+          "(find_nodes, neighborhood, dependencies, blast_radius, graph_stats), then write the doc and " +
+          "link it back to the graph with `related` node addresses. Prefer SEVERAL focused docs over one " +
+          "giant one, each categorized — you choose the categories (suggested: " +
+          `${KNOWN_DOC_CATEGORIES.join(", ")}). Re-saving the same title+category updates that doc in ` +
+          "place. The human board and the web explorer render these (Markdown is sanitized at the render " +
+          "edge). Writes graph metadata only; it never touches source files.",
+        inputSchema: {
+          title: z.string().min(1).describe("Short, specific title, e.g. 'Onboarding: the graph pipeline'."),
+          category: z
+            .string()
+            .min(1)
+            .describe(`Category — you decide (suggested: ${KNOWN_DOC_CATEGORIES.join(", ")}).`),
+          markdown: z
+            .string()
+            .min(1)
+            .describe("Markdown body. Use codegraph://node/<address> links to deep-link into the graph."),
+          related: z
+            .array(z.string())
+            .optional()
+            .describe("Graph node addresses this doc is about, to link it back to the graph."),
+        },
+        handler: async (args) => {
+          const result = validateDoc({
+            title: args.title,
+            category: args.category,
+            markdown: args.markdown,
+            related: args.related,
+            updatedAt: new Date().toISOString(),
+          });
+          if (!result.ok) return fail(`codegraph: ${result.error}`);
+          await docs.save(result.doc);
+          return ok({
+            saved: result.doc.id,
+            title: result.doc.title,
+            category: result.doc.category,
+          });
+        },
+      },
+      {
+        name: "list_docs",
+        title: "List docs",
+        description:
+          "List the Markdown docs already saved for this repo (id, title, category, and related nodes). " +
+          "Review these before adding more so you refine and fill gaps rather than duplicate.",
+        inputSchema: {},
+        handler: async () => ok(await docs.all()),
+      },
+      {
+        name: "delete_doc",
+        title: "Delete doc",
+        description: "Delete a saved doc by its id (as returned by save_doc or list_docs).",
+        inputSchema: {
+          id: z.string().min(1).describe("The doc id, e.g. 'onboarding/the-graph-pipeline'."),
+        },
+        handler: async (args) => {
+          const id = String(args.id);
+          const removed = await docs.remove(id);
+          return removed ? ok({ deleted: id }) : fail(`codegraph: no doc with id "${id}".`);
         },
       },
     );

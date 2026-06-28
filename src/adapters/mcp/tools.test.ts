@@ -11,6 +11,7 @@ import {
   removeDiagram,
   type DiagramStore,
 } from "../../core/diagrams/diagram.js";
+import { emptyDocSet, upsertDoc, removeDoc, type DocStore } from "../../core/docs/doc.js";
 
 const node = (address: string, kind: GraphNode["kind"], name?: string): GraphNode => ({
   address,
@@ -269,6 +270,72 @@ describe("MCP diagram tools (agent-authored knowledge diagrams)", () => {
     expect(parse(ok.content[0].text).deleted).toBe("workflow/login-flow");
     expect((await store.all()).diagrams).toHaveLength(0);
     const miss = await tools.get("delete_diagram")!.handler({ id: "workflow/login-flow" });
+    expect(miss.isError).toBe(true);
+  });
+});
+
+describe("MCP doc tools (agent-authored knowledge docs)", () => {
+  const memStore = (): DocStore => {
+    let set = emptyDocSet();
+    return {
+      all: () => Promise.resolve(set),
+      save: (d) => {
+        set = upsertDoc(set, d);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        const had = set.docs.some((x) => x.id === id);
+        set = removeDoc(set, id);
+        return Promise.resolve(had);
+      },
+    };
+  };
+  // Docs are injected as the 5th graphTools argument (after diagrams).
+  const docTools = (g: CodeGraph, store: DocStore) =>
+    new Map(graphTools(() => g, undefined, undefined, undefined, store).map((t) => [t.name, t]));
+
+  it("appears only when a doc store is injected", () => {
+    expect([...toolMap(fixture()).keys()]).not.toContain("save_doc");
+    const names = [...docTools(fixture(), memStore()).keys()];
+    expect(names).toEqual(expect.arrayContaining(["save_doc", "list_docs", "delete_doc"]));
+  });
+
+  it("save_doc validates, stores, and returns the computed id", async () => {
+    const store = memStore();
+    const tools = docTools(fixture(), store);
+    const r = await tools.get("save_doc")!.handler({
+      title: "The graph pipeline",
+      category: "Onboarding",
+      markdown: "# Pipeline\n\nHow indexing works.",
+    });
+    expect(parse(r.content[0].text).saved).toBe("onboarding/the-graph-pipeline");
+    const set = await store.all();
+    expect(set.docs[0].markdown).toContain("How indexing works");
+  });
+
+  it("list_docs returns what save_doc stored", async () => {
+    const store = memStore();
+    const tools = docTools(fixture(), store);
+    await tools.get("save_doc")!.handler({ title: "Arch", category: "architecture", markdown: "# Arch\n\nx." });
+    const r = await tools.get("list_docs")!.handler({});
+    expect(parse(r.content[0].text).docs).toHaveLength(1);
+  });
+
+  it("save_doc errors cleanly on invalid input (empty markdown)", async () => {
+    const r = await docTools(fixture(), memStore())
+      .get("save_doc")!
+      .handler({ title: "X", category: "guide", markdown: "   " });
+    expect(r.isError).toBe(true);
+  });
+
+  it("delete_doc removes a saved doc and errors on an unknown id", async () => {
+    const store = memStore();
+    const tools = docTools(fixture(), store);
+    await tools.get("save_doc")!.handler({ title: "The graph pipeline", category: "onboarding", markdown: "# x\n\ny." });
+    const ok = await tools.get("delete_doc")!.handler({ id: "onboarding/the-graph-pipeline" });
+    expect(parse(ok.content[0].text).deleted).toBe("onboarding/the-graph-pipeline");
+    expect((await store.all()).docs).toHaveLength(0);
+    const miss = await tools.get("delete_doc")!.handler({ id: "onboarding/the-graph-pipeline" });
     expect(miss.isError).toBe(true);
   });
 });
