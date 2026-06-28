@@ -23,6 +23,7 @@ import type { GraphDelta } from "../core/graph/types.js";
 import type { RankedChange } from "../core/graph/change-feed.js";
 import type { NodeEnrichment } from "../core/semantic/enrichment.js";
 import { GraphPanel } from "../adapters/surfaces/webview/panel.js";
+import { ExplorerPanel } from "../adapters/surfaces/webview/explorer-panel.js";
 
 // Extension host = composition root (AD-1). It wires adapters to the pure core;
 // the core never imports vscode.
@@ -356,7 +357,37 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, exportReport, {
+  // Open the unified explorer (Epic 7.4): the SAME Next.js app the web serves,
+  // hosted in the webview from one codebase. Kept on its own command — distinct
+  // from the bespoke board (codegraph.openWorkspace) — until the Next explorer
+  // reaches parity, so it never regresses the diagrams/index/feed surfaces
+  // (PARITY WATCH). Only the graph snapshot is posted; source stays host-local.
+  const openExplorer = vscode.commands.registerCommand("codegraph.openExplorer", async () => {
+    if (!current) {
+      void vscode.window.showWarningMessage("codegraph: open the workspace graph first.");
+      return;
+    }
+    if (!ExplorerPanel.isAvailable(context)) {
+      void vscode.window.showWarningMessage(
+        "codegraph: the unified explorer isn't bundled in this build. Run `npm run build:explorer` to include it.",
+      );
+      return;
+    }
+    const active = current;
+    const [enrichments, diagramSet] = await Promise.all([
+      readEnrichments(active.folderPath, active.graph),
+      readDiagrams(active.folderPath),
+    ]);
+    const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
+      enrichments,
+      diagrams: diagramSet.diagrams,
+      generatedAt: new Date().toISOString(),
+      root: active.folderPath,
+    });
+    ExplorerPanel.show(context, snapshot);
+  });
+
+  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, exportReport, openExplorer, {
     dispose: () => {
       watcher?.dispose();
       coalescer?.dispose();

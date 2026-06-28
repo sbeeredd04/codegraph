@@ -79,9 +79,30 @@ function copyMermaid() {
   }
 }
 
+// Bundle the Next.js static export (the unified explorer surface, Epic 7.4) into
+// the extension under media/explorer, so the webview can mount the SAME app the
+// web serves. The export is produced by `npm --prefix frontend run build` (run it
+// via `npm run build:explorer`). When it is absent — a core-only build — we skip
+// it, and the codegraph.openExplorer command degrades to a "not bundled" message.
+function copyExplorerExport() {
+  const src = path.join(__dirname, "frontend", "out");
+  const dest = path.join(__dirname, "media", "explorer");
+  if (!fs.existsSync(path.join(src, "index.html"))) {
+    console.log(
+      "[explorer] frontend/out not found — skipping (run `npm run build:explorer` to bundle the unified explorer).",
+    );
+    return;
+  }
+  // Replace wholesale so a stale prior export never lingers in the bundle.
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.cpSync(src, dest, { recursive: true });
+  console.log("[explorer] bundled frontend/out -> media/explorer");
+}
+
 async function main() {
   copyViewerHtml();
   copyMermaid();
+  copyExplorerExport();
   const contexts = await Promise.all(builds.map((b) => esbuild.context(b)));
   if (watch) {
     await Promise.all(contexts.map((c) => c.watch()));

@@ -44,6 +44,10 @@
       {
         "command": "codegraph.exportReport",
         "title": "codegraph: Export Architecture Report (Markdown + diagrams)"
+      },
+      {
+        "command": "codegraph.openExplorer",
+        "title": "codegraph: Open Unified Explorer (preview)"
       }
     ],
     "configuration": {
@@ -77,6 +81,7 @@
   },
   "scripts": {
     "build": "node esbuild.js",
+    "build:explorer": "npm --prefix frontend run build && node esbuild.js",
     "watch": "node esbuild.js --watch",
     "mcp": "node dist/mcp-server.js",
     "typecheck": "tsc --noEmit",
