@@ -59,6 +59,18 @@ const GROUP_TINT = "#5b8a9a";
 // In a seeded group ("Snapshot pipeline") but carrying no mark of its own.
 const GROUPED_ONLY = "ts:src/adapters/surfaces/webview/panel.ts";
 
+/** The overlay-resolved draw colour a node gets on the 3D surface, via the dev
+ * __overlay3d hook (the 3D canvas has no per-node display API like Sigma's). */
+async function overlay3dColor(page: Page, address: string): Promise<string | null> {
+  return page.evaluate((addr) => {
+    const el = document.querySelector('[data-surface="3d"]') as
+      | (HTMLElement & { __overlay3d?: (a: string) => string | null })
+      | null;
+    const c = el?.__overlay3d?.(addr) ?? null;
+    return c ? c.toLowerCase() : null;
+  }, address);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Dataset").selectOption("codegraph");
@@ -116,4 +128,15 @@ test("a grouped, unmarked node wears the recessive group tint", async ({ page })
   await expect
     .poll(async () => (await nodeDisplay(page, GROUPED_ONLY))?.color, { timeout: 10_000 })
     .toBe(GROUP_TINT);
+});
+
+test("the ambient overlay tint carries to the 3D surface (FR-37 parity)", async ({ page }) => {
+  // Switch to the 3D render surface; it builds its own scene from the same nodes.
+  await page.getByRole("button", { name: "3d", exact: true }).click();
+  await expect(page.locator('[data-surface="3d"] canvas')).toBeVisible();
+
+  // The 3D draw resolves overlay colour through the same overlay-style source as
+  // 2D: the hotspot mark paints orange, and a grouped-but-unmarked node the tint.
+  await expect.poll(() => overlay3dColor(page, SEEDED), { timeout: 15_000 }).toBe(MARK_HOTSPOT);
+  expect(await overlay3dColor(page, GROUPED_ONLY)).toBe(GROUP_TINT);
 });

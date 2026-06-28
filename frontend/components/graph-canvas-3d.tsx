@@ -19,6 +19,7 @@ import type { NodeKind } from "@core/graph/types";
 import { buildRenderModel, findOrphanAddresses } from "@adapters/surfaces/webview/render-model";
 import { lift3d, project3d, nearestNode, type Point3 } from "@adapters/surfaces/webview/layout3d";
 import type { GraphSurfaceProps } from "./graph-surface";
+import { GROUP_TINT } from "@/lib/overlay-style";
 
 const BG = "#0e0f13";
 const EDGE = "120,130,160"; // rgb of the recessive edge tone (alpha applied per-frame)
@@ -59,10 +60,16 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // by the heavy effect, read by the light selection effect below.
   const focusHlRef = useRef<FocusHighlight | null>(null);
   const drawRef = useRef<(() => void) | null>(null);
+  // The agent's overlay highlights (FR-37), read live by the draw loop so a
+  // marks/groups change repaints the tint without re-running the heavy build.
+  const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
+  const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
 
   // Keep callbacks/data current for the handlers without re-running the heavy build.
   useEffect(() => {
     cbRef.current = props;
+    markedRef.current = props.markedNodes;
+    groupedRef.current = props.groupedNodes;
   });
 
   // Light effect: selection (or the edge set) changed — recompute the focus lens
@@ -71,6 +78,12 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     focusHlRef.current = focusHighlight(props.selected, props.edges);
     drawRef.current?.();
   }, [props.selected, props.edges]);
+
+  // Light effect: the agent's overlays changed — the draw loop reads the live
+  // refs, so a marks/groups update just repaints the tint (no rebuild/relayout).
+  useEffect(() => {
+    drawRef.current?.();
+  }, [props.markedNodes, props.groupedNodes]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -127,6 +140,13 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     const edges: ReadonlyArray<readonly [string, string]> = g.mapEdges(
       (_e, _a, s, t) => [s, t] as const,
     );
+    const sceneById = new Map(scene.map((s) => [s.id, s]));
+    // The overlay tint a node draws with (FR-37): a mark colour wins, else the
+    // group tint, else the node's kind colour. Read the live refs so an overlay
+    // change repaints without a rebuild; shared by draw() and the e2e hook so the
+    // test asserts exactly what's painted.
+    const markColorOf = (id: string): string | undefined => markedRef.current?.get(id);
+    const isGrouped = (id: string): boolean => Boolean(groupedRef.current?.has(id));
 
     // Centre the box so rotation pivots about the graph's middle, and pick a fit
     // scale from its 3D radius so the whole graph stays framed at any rotation.
@@ -220,17 +240,30 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         const n = near(p.depth);
         const inFocus = !focus || focus.nodes.has(p.n.id);
         const isCenter = focus?.center === p.n.id;
+        // Agent overlay tint (FR-37): a marked node wears its mark colour and
+        // grows a touch so it pops; an unmarked group member takes the recessive
+        // tint. Ambient, like the 2D layer — it yields to the focus dim off-focus.
+        const markColor = markColorOf(p.n.id);
+        const grouped = !markColor && isGrouped(p.n.id);
+        const baseColor = markColor ?? (grouped ? GROUP_TINT : p.n.color);
         let r = Math.max(1.5, (2 + p.n.size) * (0.5 + 0.7 * n));
         if (isCenter) r += 2.5;
+        else if (markColor) r += 1.5;
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
         ctx.fillStyle = inFocus
-          ? fade(isCenter ? SELECTED : p.n.color, 0.35 + 0.65 * n)
+          ? fade(isCenter ? SELECTED : baseColor, 0.35 + 0.65 * n)
           : fade(DIM_NODE, 0.25 + 0.45 * n);
         ctx.fill();
         if (p.n.id === hoverId || isCenter) {
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = isCenter ? SELECTED : LABEL;
+          ctx.stroke();
+        } else if (markColor && inFocus) {
+          // A mark-coloured ring reads the node as a deliberate marker, not just
+          // a recoloured disc — the 3D echo of the 2D force-label pop.
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = markColor;
           ctx.stroke();
         }
       }
@@ -243,6 +276,13 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         toLabel.add(focus.center);
         if (focus.nodes.size <= FOCUS_LABEL_CAP) {
           for (const id of focus.nodes) toLabel.add(id);
+        }
+      }
+      // The agent's marked nodes label too (its pointer) when visible under the
+      // current lens — at rest that's all of them, under focus only the in-focus.
+      if (markedRef.current) {
+        for (const id of markedRef.current.keys()) {
+          if (!focus || focus.nodes.has(id)) toLabel.add(id);
         }
       }
       if (toLabel.size) {
@@ -269,6 +309,21 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       });
     };
     drawRef.current = requestDraw; // let the selection effect repaint this frame
+
+    // E2E hook (dev only — `process.env.NODE_ENV` is statically "production" in
+    // the static export, so this is tree-shaken from shipped builds, like the 2D
+    // __sigma hook). Returns a node's overlay-resolved draw colour (or null when
+    // it's not in the scene) so a test can assert the 3D tint without pixel-
+    // sampling the canvas. Resolves through the SAME helpers draw() uses.
+    if (process.env.NODE_ENV !== "production") {
+      (container as unknown as { __overlay3d?: (a: string) => string | null }).__overlay3d = (
+        address: string,
+      ): string | null => {
+        const s = sceneById.get(address);
+        if (!s) return null;
+        return markColorOf(address) ?? (isGrouped(address) ? GROUP_TINT : s.color);
+      };
+    }
 
     // --- Interaction: drag = rotate, wheel = zoom, click = select, hover = highlight.
     let dragging = false;
