@@ -20,7 +20,8 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@core/*": ["../src/core/*"]
+      "@core/*": ["./vendor/core/core/*"],
+      "@adapters/*": ["./vendor/core/adapters/*"]
     }
   },
   "include": [
@@ -29,8 +30,7 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts",
-    "../src/core/**/*.ts"
+    "**/*.mts"
   ],
   "exclude": ["node_modules"]
 }
