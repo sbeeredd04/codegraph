@@ -125,16 +125,18 @@ describe("MCP recent_changes tool", () => {
 
   it("appears only when a change provider is injected", () => {
     expect([...toolMap(fixture()).keys()]).not.toContain("recent_changes"); // graph-only mode
-    const withProvider = graphTools(() => fixture(), async () => recentFixture).map((t) => t.name);
+    const withProvider = graphTools(() => fixture(), { recentChanges: async () => recentFixture }).map((t) => t.name);
     expect(withProvider).toContain("recent_changes");
   });
 
   it("returns the provider's ranked feed and forwards the requested ref", async () => {
     let asked: string | undefined;
     const tools = new Map(
-      graphTools(() => fixture(), async (ref) => {
-        asked = ref;
-        return recentFixture;
+      graphTools(() => fixture(), {
+        recentChanges: async (ref) => {
+          asked = ref;
+          return recentFixture;
+        },
       }).map((t) => [t.name, t]),
     );
     const r = await tools.get("recent_changes")!.handler({ ref: "main" });
@@ -145,9 +147,11 @@ describe("MCP recent_changes tool", () => {
   it("defaults the baseline ref to HEAD", async () => {
     let asked: string | undefined;
     const tools = new Map(
-      graphTools(() => fixture(), async (ref) => {
-        asked = ref;
-        return recentFixture;
+      graphTools(() => fixture(), {
+        recentChanges: async (ref) => {
+          asked = ref;
+          return recentFixture;
+        },
       }).map((t) => [t.name, t]),
     );
     await tools.get("recent_changes")!.handler({});
@@ -156,8 +160,10 @@ describe("MCP recent_changes tool", () => {
 
   it("reports a clean error result when the provider throws (e.g. not a git repo)", async () => {
     const tools = new Map(
-      graphTools(() => fixture(), async () => {
-        throw new Error("codegraph: not a git repository.");
+      graphTools(() => fixture(), {
+        recentChanges: async () => {
+          throw new Error("codegraph: not a git repository.");
+        },
       }).map((t) => [t.name, t]),
     );
     const r = await tools.get("recent_changes")!.handler({});
@@ -173,7 +179,7 @@ describe("MCP annotate_node tool (agent-driven enrichment)", () => {
   };
   const annTools = (g: CodeGraph) => {
     const annotations = createNodeAnnotations(() => g, memCache());
-    return new Map(graphTools(() => g, undefined, annotations).map((t) => [t.name, t]));
+    return new Map(graphTools(() => g, { annotations }).map((t) => [t.name, t]));
   };
 
   it("appears only when an annotation store is injected", () => {
@@ -233,7 +239,7 @@ describe("MCP diagram tools (agent-authored knowledge diagrams)", () => {
     };
   };
   const dgTools = (g: CodeGraph, store: DiagramStore) =>
-    new Map(graphTools(() => g, undefined, undefined, store).map((t) => [t.name, t]));
+    new Map(graphTools(() => g, { diagrams: store }).map((t) => [t.name, t]));
 
   it("appears only when a diagram store is injected", () => {
     expect([...toolMap(fixture()).keys()]).not.toContain("save_diagram");
@@ -299,7 +305,7 @@ describe("MCP doc tools (agent-authored knowledge docs)", () => {
   };
   // Docs are injected as the 5th graphTools argument (after diagrams).
   const docTools = (g: CodeGraph, store: DocStore) =>
-    new Map(graphTools(() => g, undefined, undefined, undefined, store).map((t) => [t.name, t]));
+    new Map(graphTools(() => g, { docs: store }).map((t) => [t.name, t]));
 
   it("appears only when a doc store is injected", () => {
     expect([...toolMap(fixture()).keys()]).not.toContain("save_doc");
@@ -366,7 +372,7 @@ describe("MCP overlay tools (agent-authored knowledge overlays)", () => {
   // Overlays are injected as the 6th graphTools argument (after docs).
   const overlayTools = (g: CodeGraph, store: OverlayStore) =>
     new Map(
-      graphTools(() => g, undefined, undefined, undefined, undefined, store).map((t) => [t.name, t]),
+      graphTools(() => g, { overlays: store }).map((t) => [t.name, t]),
     );
 
   it("appears only when an overlay store is injected", () => {
@@ -515,11 +521,11 @@ describe("MCP codegraph_onboard tool (FR-42 agent onboarding playbook)", () => {
   };
   // The onboard tool needs all three knowledge stores (graphTools args 4/5/6).
   const onboardTools = (g: CodeGraph, dg: DiagramStore, dc: DocStore, ov: OverlayStore) =>
-    new Map(graphTools(() => g, undefined, undefined, dg, dc, ov).map((t) => [t.name, t]));
+    new Map(graphTools(() => g, { diagrams: dg, docs: dc, overlays: ov }).map((t) => [t.name, t]));
 
   it("appears only when the diagram, doc, AND overlay stores are all injected", () => {
     // Just one store: the onboard tool stays hidden.
-    expect([...new Map(graphTools(() => fixture(), undefined, undefined, dgStore()).map((t) => [t.name, t])).keys()])
+    expect([...new Map(graphTools(() => fixture(), { diagrams: dgStore() }).map((t) => [t.name, t])).keys()])
       .not.toContain("codegraph_onboard");
     expect([...onboardTools(fixture(), dgStore(), dcStore(), ovStore()).keys()]).toContain("codegraph_onboard");
   });
@@ -553,7 +559,7 @@ describe("MCP driving tools (FR-39 live presentation commands)", () => {
   // The command sink is injected as the 7th graphTools argument (after overlays).
   const driveTools = (g: CodeGraph, sink: PresentationCommandSink) =>
     new Map(
-      graphTools(() => g, undefined, undefined, undefined, undefined, undefined, sink).map((t) => [t.name, t]),
+      graphTools(() => g, { commands: sink }).map((t) => [t.name, t]),
     );
 
   it("appears only when a command sink is injected", () => {

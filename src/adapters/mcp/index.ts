@@ -96,15 +96,14 @@ async function main(): Promise<void> {
   // view directives, and never touches source (FR-9).
   const commands = diskCommandSink(presentationCommandsPath(root));
 
-  const server = createGraphMcpServer(
-    () => current,
+  const server = createGraphMcpServer(() => current, {
     recentChanges,
     annotations,
     diagrams,
     docs,
     overlays,
     commands,
-  );
+  });
   await server.connect(new StdioServerTransport());
   process.stderr.write(
     `codegraph MCP ready on ${root} — ${coverage.parsed}/${coverage.found} files, ` +

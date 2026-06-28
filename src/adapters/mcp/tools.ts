@@ -79,6 +79,24 @@ export interface RecentChanges {
  */
 export type RecentChangesProvider = (ref: string) => Promise<RecentChanges>;
 
+/**
+ * Optional capabilities injected into {@link graphTools}. Every field gates a
+ * group of write/drive tools that only appear when the host wires the backing
+ * store: `recentChanges` → the live change feed, `annotations` → annotate_node,
+ * `diagrams`/`docs`/`overlays` → the knowledge write tools (and, when all three
+ * are present, codegraph_onboard), `commands` → the FR-39 driving tools. Passed
+ * as one bag rather than a positional tail so adding a capability never reorders
+ * existing call sites (and callers needing only the last one skip the noise).
+ */
+export interface GraphToolDeps {
+  readonly recentChanges?: RecentChangesProvider;
+  readonly annotations?: NodeAnnotations;
+  readonly diagrams?: DiagramStore;
+  readonly docs?: DocStore;
+  readonly overlays?: OverlayStore;
+  readonly commands?: PresentationCommandSink;
+}
+
 const KIND = z.enum(["module", "class", "function", "method", "workflow"]);
 const ADDRESS = z.string().min(1).describe("A node address, e.g. ts:src/auth.ts#login");
 const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to"]);
@@ -105,19 +123,13 @@ const fail = (message: string): McpToolResult => ({
 
 /**
  * Build the graph tools bound to a graph accessor (re-read each call so live
- * updates show). Pass `recentChanges` to also expose the `recent_changes` tool —
- * the live "what just changed" feed (omitted in graph-only contexts that have no
- * git baseline to diff against).
+ * updates show). The read-only query tools are always present; the optional
+ * write/drive tools appear only when their backing capability is supplied in
+ * {@link GraphToolDeps} (omitted in graph-only contexts — e.g. no git baseline
+ * for `recent_changes`, no store for the knowledge write tools).
  */
-export function graphTools(
-  getGraph: () => CodeGraph,
-  recentChanges?: RecentChangesProvider,
-  annotations?: NodeAnnotations,
-  diagrams?: DiagramStore,
-  docs?: DocStore,
-  overlays?: OverlayStore,
-  commands?: PresentationCommandSink,
-): GraphTool[] {
+export function graphTools(getGraph: () => CodeGraph, deps: GraphToolDeps = {}): GraphTool[] {
+  const { recentChanges, annotations, diagrams, docs, overlays, commands } = deps;
   const tools: GraphTool[] = [
     {
       name: "find_nodes",
