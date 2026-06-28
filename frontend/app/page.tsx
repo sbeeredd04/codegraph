@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { loadSnapshot, type GraphSnapshot } from "@/lib/graph-data";
+import { isWebviewHost, subscribeToSnapshot } from "@/lib/webview-bridge";
 import { Explorer } from "@/components/explorer";
 
 // The interactive product: load a snapshot and hand its nodes/edges to the
@@ -31,6 +32,9 @@ export default function Home() {
   const [datasetId, setDatasetId] = useState<string>(DATASETS[0].id);
   const [snap, setSnap] = useState<GraphSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True once the graph arrived live from the VS Code webview host — then the
+  // sample dataset switcher and the bundled source sidecar no longer apply.
+  const [live, setLive] = useState(false);
 
   const current = useMemo(
     () => DATASETS.find((d) => d.id === datasetId) ?? DATASETS[0],
@@ -38,9 +42,17 @@ export default function Home() {
   );
 
   useEffect(() => {
-    // Only setState inside the async callbacks — no synchronous reset, which
-    // would cascade a render. Switching datasets keeps the prior graph on screen
-    // until the next snapshot resolves (a local fetch, so effectively instant).
+    // Inside the VS Code webview the host posts the live graph; on the standalone
+    // web we fetch a bundled sample. setState happens only in the async callbacks
+    // / event handlers below — never synchronously here (the React-compiler rule
+    // forbids it, and a synchronous reset would cascade a render anyway).
+    if (isWebviewHost()) {
+      return subscribeToSnapshot((s) => {
+        setSnap(s);
+        setError(null);
+        setLive(true);
+      });
+    }
     let cancelled = false;
     loadSnapshot(current.url)
       .then((s) => {
@@ -80,8 +92,10 @@ export default function Home() {
       nodes={snap.nodes}
       edges={snap.edges}
       title={`${snap.root ?? "snapshot"} · ${snap.nodeCount} nodes`}
-      sourceBase={current.sourceBase}
-      datasets={DATASETS}
+      // Live (webview) graphs carry no bundled source sidecar and have no sample
+      // datasets to switch between, so both affordances are withheld.
+      sourceBase={live ? null : current.sourceBase}
+      datasets={live ? undefined : DATASETS}
       datasetId={current.id}
       onDataset={setDatasetId}
     />
