@@ -5,13 +5,14 @@
 // single ref and the mounted surface populates it, so the call-site is identical
 // across surfaces (AD-15). Generalises the old single `(address) => void` focusRef.
 
-/** A transient visual emphasis a driver can pulse onto a node set — distinct from
- * a persistent overlay MARK (a saved agent annotation, FR-37). This is live: it
- * is never serialised, it wins over the ambient mark tint while engaged, and it
- * clears the moment the driver moves on. */
-export type HighlightStyle = "accent" | "trace" | "warn";
-
-export const HIGHLIGHT_STYLES: readonly HighlightStyle[] = ["accent", "trace", "warn"];
+// The transient-highlight vocabulary is owned by the core presentation-command
+// codec (FR-39) so the driving command and the renderer agree by construction;
+// re-exported here for the controller's own callers. A highlight is live emphasis
+// distinct from a persistent overlay MARK (FR-37): never serialised, it wins over
+// the ambient mark tint while engaged and clears the moment the driver moves on.
+import type { HighlightStyle } from "@core/presentation/command";
+export { HIGHLIGHT_STYLES } from "@core/presentation/command";
+export type { HighlightStyle };
 
 export interface SurfaceController {
   /** The primary "look here": select the set's head + frame the whole set. A

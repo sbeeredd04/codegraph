@@ -8,11 +8,15 @@
 // frontend bridge across the boundary.
 
 import type { GraphSnapshot } from "../../../core/graph/export.js";
+import type { PresentationCommand } from "../../../core/presentation/command.js";
 
 /** webview → host: "mounted, send me the graph." */
 export const READY_TYPE = "codegraph:ready" as const;
 /** host → webview: the live graph to render (source stays host-local, AD-16). */
 export const SNAPSHOT_TYPE = "codegraph:snapshot" as const;
+/** host → webview: a live presentation directive from the agent (FR-39). Ephemeral
+ * — it drives the view and is NEVER folded into the portable GraphSnapshot. */
+export const COMMAND_TYPE = "codegraph:command" as const;
 
 export interface SnapshotMessage {
   readonly type: typeof SNAPSHOT_TYPE;
@@ -33,6 +37,19 @@ export function isReadyMessage(msg: unknown): boolean {
   return (
     typeof msg === "object" && msg !== null && (msg as { type?: unknown }).type === READY_TYPE
   );
+}
+
+/** host → webview: the presentation-command envelope the export's bridge expects.
+ *  The command is graph-identity addressed + view directives only — no source,
+ *  no host path — so it is cloud-safe (AD-14) and read-only (FR-9). */
+export interface CommandMessage {
+  readonly type: typeof COMMAND_TYPE;
+  readonly command: PresentationCommand;
+}
+
+/** Wrap a validated presentation command in its host → webview envelope. */
+export function commandMessage(command: PresentationCommand): CommandMessage {
+  return { type: COMMAND_TYPE, command };
 }
 
 /** The host → webview snapshot envelope the export's bridge expects. The

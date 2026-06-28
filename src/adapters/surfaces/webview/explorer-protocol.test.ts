@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   READY_TYPE,
   SNAPSHOT_TYPE,
+  COMMAND_TYPE,
   isReadyMessage,
   snapshotMessage,
+  commandMessage,
   withTrailingSlash,
 } from "./explorer-protocol.js";
 import type { GraphSnapshot } from "../../../core/graph/export.js";
@@ -53,6 +55,15 @@ describe("explorer-protocol — the host↔export message contract", () => {
 
     // A rootless host posts a minimal envelope, not editorRoot: undefined.
     expect("editorRoot" in snapshotMessage(SNAPSHOT)).toBe(false);
+  });
+
+  it("wraps a presentation command in its host → webview envelope (FR-39)", () => {
+    const msg = commandMessage({ kind: "highlight_nodes", addresses: ["a", "b"] });
+    expect(msg.type).toBe("codegraph:command");
+    expect(COMMAND_TYPE).toBe("codegraph:command"); // mirror webview-bridge — guard drift
+    expect(msg.command).toEqual({ kind: "highlight_nodes", addresses: ["a", "b"] });
+    // A command is ephemeral — it must never ride the snapshot envelope.
+    expect("command" in snapshotMessage(SNAPSHOT)).toBe(false);
   });
 
   it("guarantees a single trailing slash on the base href, idempotently", () => {

@@ -20,6 +20,10 @@ import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
+import { findPathInEdges } from "@core/graph/path";
+import type { PresentationCommand } from "@core/presentation/command";
+import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
+import { PresentingBanner } from "./presenting-banner";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
@@ -118,6 +122,9 @@ export function Explorer({
   // Bumped by "Reset layout" — used as a remount key so every dock re-reads its
   // (now-cleared) localStorage and returns to defaults.
   const [layoutVersion, setLayoutVersion] = useState(0);
+  // FR-39: a short description of what the agent is currently driving, or null
+  // when the human holds the wheel. Drives the user-sovereignty preempt banner.
+  const [presenting, setPresenting] = useState<string | null>(null);
   const controllerRef = useRef<SurfaceController | null>(null);
   const diagramList = diagrams ?? [];
   const docList = docs ?? [];
@@ -165,6 +172,86 @@ export function Explorer({
     }
     setLayoutVersion((v) => v + 1);
   }, []);
+
+  // FR-39: take back the wheel — clear the agent's transient highlight and hide
+  // the preempt banner. An explicit dismissal returns the surface to the human.
+  const takeControl = useCallback(() => {
+    controllerRef.current?.highlight([]);
+    setPresenting(null);
+  }, []);
+
+  // FR-39: apply one inbound presentation command from the agent. Highlight/camera
+  // directives route through the FR-43 surface controller; panel/projection/lens
+  // directives flip explorer view state. Every command raises the preempt banner
+  // so the human always knows — and can reclaim — control. Read-only (FR-9): a
+  // command only ever changes the VIEW, never the user's source.
+  const dispatchCommand = useCallback(
+    (cmd: PresentationCommand) => {
+      const c = controllerRef.current;
+      let label = "presenting";
+      switch (cmd.kind) {
+        case "highlight_nodes":
+          c?.highlight(cmd.addresses, cmd.style);
+          label = `highlighting ${cmd.addresses.length} node${cmd.addresses.length === 1 ? "" : "s"}`;
+          break;
+        case "highlight_path": {
+          const path = findPathInEdges(nodes, edges, cmd.from, cmd.to);
+          if (path?.found && path.nodes.length) {
+            c?.highlight(path.nodes, "trace");
+            label = `tracing a ${path.nodes.length}-node path`;
+          } else {
+            label = "no path between those nodes";
+          }
+          break;
+        }
+        case "focus_camera":
+          if (cmd.select === false) c?.frame(cmd.addresses);
+          else c?.focus(cmd.addresses);
+          label = "moving the camera";
+          break;
+        case "set_projection":
+          setProjection(cmd.projection);
+          label = `projection → ${cmd.projection}`;
+          break;
+        case "open_panel": {
+          const open = cmd.open !== false;
+          if (cmd.panel === "diagrams") {
+            setDocsOpen(false);
+            setDiagramsOpen(open);
+          } else if (cmd.panel === "docs") {
+            setDiagramsOpen(false);
+            setDocsOpen(open);
+          } else if (cmd.panel === "ask") {
+            setAskOpen(open);
+          } else if (cmd.panel === "detail" && !open) {
+            setSelected(null);
+          }
+          label = `${open ? "opening" : "closing"} the ${cmd.panel} panel`;
+          break;
+        }
+        case "toggle_affordance": {
+          const setOn =
+            cmd.affordance === "orphans"
+              ? setOrphanMode
+              : cmd.affordance === "folders"
+                ? setFolderClustered
+                : setTraceArmed;
+          if (typeof cmd.on === "boolean") setOn(cmd.on);
+          else setOn((v) => !v);
+          label = `${cmd.affordance} lens`;
+          break;
+        }
+      }
+      setPresenting(label);
+    },
+    [nodes, edges],
+  );
+
+  // FR-39: subscribe to the host's live presentation commands (the agent driving
+  // the board). The bridge validates each through the shared core codec; off the
+  // webview the handler never fires. Re-subscribes when the graph changes so a
+  // path-trace resolves against the current edges.
+  useEffect(() => subscribeToPresentationCommands(dispatchCommand), [dispatchCommand]);
 
   // Global ⌘K / Ctrl+K toggles the palette. The listener owns the toggle so the
   // palette can mount only while open (fresh state, no reset effect). setState in
@@ -468,6 +555,9 @@ export function Explorer({
             />
           );
         })()}
+
+        {/* FR-39: user-sovereignty preempt banner — shown while the agent drives. */}
+        {presenting !== null && <PresentingBanner action={presenting} onDismiss={takeControl} />}
 
         {/* Kind legend */}
         <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur">

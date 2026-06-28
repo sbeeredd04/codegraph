@@ -5,6 +5,10 @@
 // never leaves the host (AD-14 / AD-16).
 
 import type { GraphSnapshot } from "@core/graph/export";
+import {
+  validatePresentationCommand,
+  type PresentationCommand,
+} from "@core/presentation/command";
 
 /** Host → webview: the live graph to render. */
 export interface SnapshotMessage {
@@ -72,5 +76,26 @@ export function subscribeToSnapshot(onSnapshot: (live: LiveSnapshot) => void): (
   };
   window.addEventListener("message", onMessage);
   vscode()?.postMessage({ type: "codegraph:ready" } satisfies ReadyMessage);
+  return () => window.removeEventListener("message", onMessage);
+}
+
+/**
+ * Subscribe to live presentation commands from the host (FR-39) — the agent
+ * driving the board. Each inbound message is validated through the SAME core
+ * codec the host uses (the command is agent-authored, hence UNTRUSTED), so a
+ * malformed directive is dropped, never dispatched. Returns an unsubscribe fn;
+ * safe to call outside a webview (the handler simply never fires). Commands are
+ * ephemeral and never persisted — they ride the live message only.
+ */
+export function subscribeToPresentationCommands(
+  onCommand: (command: PresentationCommand) => void,
+): () => void {
+  const onMessage = (e: MessageEvent): void => {
+    const data = e.data as { type?: unknown; command?: unknown } | null;
+    if (typeof data !== "object" || data === null || data.type !== "codegraph:command") return;
+    const command = validatePresentationCommand(data.command);
+    if (command) onCommand(command);
+  };
+  window.addEventListener("message", onMessage);
   return () => window.removeEventListener("message", onMessage);
 }
