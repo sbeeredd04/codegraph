@@ -670,6 +670,25 @@ export function graphTools(
         },
         handler: (args) => drive({ kind: "toggle_affordance", affordance: args.affordance, on: args.on }),
       },
+      {
+        name: "guided_tour",
+        title: "Guided tour",
+        description:
+          "Walk the human through an ORDERED sequence of nodes on the LIVE board over time — a guided tour. " +
+          "The board lights each stop in turn (a growing trace trail) and follows the camera, pausing " +
+          "dwellMs at each, with a 'replaying…' banner the human can interrupt at any step. Use it to " +
+          "narrate a flow step by step — e.g. request → handler → service → store. Pass the addresses in " +
+          "the order you want them visited. Drives the view only; never touches source files. Requires the " +
+          "human to have the explorer open.",
+        inputSchema: {
+          addresses: z.array(ADDRESS).min(1).describe("The tour stops, in the order to visit them."),
+          dwellMs: z
+            .number()
+            .optional()
+            .describe("Pause per stop in ms (clamped 200–10000; default 1200)."),
+        },
+        handler: (args) => drive({ kind: "replay", addresses: args.addresses, dwellMs: args.dwellMs }),
+      },
     );
   }
 

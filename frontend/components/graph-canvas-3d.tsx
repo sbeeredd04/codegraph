@@ -15,6 +15,7 @@ import forceAtlas2 from "graphology-layout-forceatlas2";
 import { projectGraph } from "@core/graph/projection";
 import { pathEdgeKey } from "@core/graph/path";
 import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
+import { planReplay } from "@core/presentation/replay";
 import type { NodeKind } from "@core/graph/types";
 import { buildRenderModel, findOrphanAddresses } from "@adapters/surfaces/webview/render-model";
 import { lift3d, project3d, nearestNode, type Point3 } from "@adapters/surfaces/webview/layout3d";
@@ -68,6 +69,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // resolved above the ambient overlay tint in the draw loop. null when undriven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
+  // FR-40: in-flight guided-tour step timers — mirror the 2D surface so both step
+  // identically (AD-15). Any controller call cancels them so a manual action
+  // (or Take control) preempts the agent's tour cleanly.
+  const replayTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Keep callbacks/data current for the handlers without re-running the heavy build.
   useEffect(() => {
@@ -430,27 +435,60 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       requestDraw();
     };
 
+    // FR-40: cancel any in-flight guided tour. Called by every controller entry
+    // point so a manual focus/frame/highlight — or the human's Take control, which
+    // routes through highlight([]) — preempts the agent's tour at once.
+    const cancelReplay = (): void => {
+      for (const t of replayTimersRef.current) clearTimeout(t);
+      replayTimersRef.current = [];
+    };
+
     // Imperative surface controller (FR-43) — the same contract the 2D canvas
     // implements, against the 3D substrate. Generalises the old focusRef.
     const controller: SurfaceController = {
       focus(addresses) {
+        cancelReplay();
         const present = addresses.filter((a) => centered.has(a));
         if (present.length === 0) return;
         frameAddresses(present);
         cbRef.current.onSelectNode(present[0]);
       },
       frame(addresses) {
+        cancelReplay();
         frameAddresses(addresses.filter((a) => centered.has(a)));
       },
       highlight(addresses, style = "accent") {
+        cancelReplay();
         const present = addresses.filter((a) => centered.has(a));
         highlightRef.current = present.length
           ? { set: new Set(present), color: HIGHLIGHT_STYLE_COLOR[style] }
           : null;
         requestDraw();
       },
-      replay() {
-        // FR-40/41 (Phase C) — guided tour / log-trace stepping. No-op for now.
+      replay(addresses, opts) {
+        // FR-40 guided tour on the 3D substrate — schedules the SAME pure plan the
+        // 2D surface uses so both step identically (AD-15). Each step lights the
+        // cumulative trace trail and pans the camera to the stop; reduced motion
+        // collapses to one instant final-state step. Transient highlight only —
+        // never a selection or a source touch (FR-9).
+        cancelReplay();
+        const reducedMotion =
+          typeof window !== "undefined" &&
+          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+        const stops = addresses.filter((a) => centered.has(a));
+        const plan = planReplay(stops, { dwellMs: opts?.dwellMs, reducedMotion });
+        for (const step of plan.steps) {
+          const run = (): void => {
+            highlightRef.current = {
+              set: new Set(step.highlight),
+              color: HIGHLIGHT_STYLE_COLOR.trace,
+            };
+            frameAddresses([step.focus]);
+            requestDraw();
+          };
+          if (step.startMs === 0) run();
+          else replayTimersRef.current.push(setTimeout(run, step.startMs));
+        }
       },
     };
     if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = controller;
@@ -467,6 +505,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     draw();
 
     return () => {
+      cancelReplay();
       if (raf) cancelAnimationFrame(raf);
       drawRef.current = null;
       ro.disconnect();

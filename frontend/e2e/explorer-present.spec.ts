@@ -49,6 +49,35 @@ async function color2d(page: Page, address: string): Promise<string | null> {
   }, address);
 }
 
+/** The 3D node's overlay-resolved draw colour, via the dev __overlay3d hook. */
+async function color3d(page: Page, address: string): Promise<string | null> {
+  return page.evaluate((addr) => {
+    const el = document.querySelector('[data-surface="3d"]') as
+      | (HTMLElement & { __overlay3d?: (a: string) => string | null })
+      | null;
+    const c = el?.__overlay3d?.(addr) ?? null;
+    return c ? c.toLowerCase() : null;
+  }, address);
+}
+
+/** Switch to the 3D surface and wait for its controller + scene to settle. */
+async function switchTo3D(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "3d", exact: true }).click();
+  await expect(page.locator('[data-surface="3d"] canvas')).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          Boolean(
+            (document.querySelector('[data-surface="3d"]') as (HTMLElement & { __controller?: unknown }) | null)
+              ?.__controller,
+          ),
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
+
 /** Post a command in the exact envelope the host sends. */
 async function sendCommand(page: Page, command: unknown): Promise<void> {
   await page.evaluate((command) => {
@@ -155,6 +184,37 @@ test("a replay honours prefers-reduced-motion — instant final state, no steppi
   await expect.poll(() => color2d(page, first), { timeout: 2_000 }).toBe(HIGHLIGHT_TRACE);
   await expect.poll(() => color2d(page, last), { timeout: 2_000 }).toBe(HIGHLIGHT_TRACE);
   await expect(page.getByRole("status")).toContainText("replaying a 3-stop tour");
+});
+
+test("a replay command walks the same guided tour on the 3D surface, banner up (FR-40 parity)", async ({ page }) => {
+  // Capture real stops from the (still-2D) graph before switching surfaces — the
+  // 3D scene projects the same nodes, so these addresses are valid there too.
+  const stops = await tourStops(page, 3);
+  expect(stops).toHaveLength(3);
+  const [first, , last] = stops;
+
+  await switchTo3D(page);
+
+  const banner = page.getByRole("status");
+  await expect(banner).toHaveCount(0);
+
+  // Drive through the REAL command path (postMessage → dispatch → mounted 3D
+  // controller) so this proves the banner AND the 3D stepping together.
+  await sendCommand(page, { kind: "replay", addresses: stops, dwellMs: 500 });
+
+  // Step 0 lights the first stop (trace) at once while the last is NOT yet lit.
+  await expect.poll(() => color3d(page, first), { timeout: 5_000 }).toBe(HIGHLIGHT_TRACE);
+  expect(await color3d(page, last)).not.toBe(HIGHLIGHT_TRACE);
+
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("The agent is presenting");
+
+  // The tour advances on 3D too: the last stop eventually lights (cumulative trail).
+  await expect.poll(() => color3d(page, last), { timeout: 5_000 }).toBe(HIGHLIGHT_TRACE);
+
+  // Take control returns the wheel and cancels any pending 3D steps.
+  await banner.getByRole("button", { name: "Take control" }).click();
+  await expect(banner).toHaveCount(0);
 });
 
 test("a malformed command is ignored — no drive, no banner (untrusted guard)", async ({ page }) => {

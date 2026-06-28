@@ -489,6 +489,7 @@ describe("MCP driving tools (FR-39 live presentation commands)", () => {
         "set_projection",
         "open_panel",
         "toggle_affordance",
+        "guided_tour",
       ]),
     );
   });
@@ -532,6 +533,29 @@ describe("MCP driving tools (FR-39 live presentation commands)", () => {
       { kind: "open_panel", panel: "diagrams", open: false },
       { kind: "toggle_affordance", affordance: "orphans" },
     ]);
+  });
+
+  it("guided_tour emits an ordered replay command carrying the dwell (FR-40)", async () => {
+    const { sink, emitted } = memSink();
+    const r = await driveTools(fixture(), sink).get("guided_tour")!.handler({
+      addresses: ["ts:m.ts#foo", "ts:m.ts#util"],
+      dwellMs: 600,
+    });
+    expect(parse(r.content[0].text).presented).toEqual({
+      kind: "replay",
+      addresses: ["ts:m.ts#foo", "ts:m.ts#util"],
+      dwellMs: 600,
+    });
+    expect(emitted).toEqual([
+      { kind: "replay", addresses: ["ts:m.ts#foo", "ts:m.ts#util"], dwellMs: 600 },
+    ]);
+  });
+
+  it("guided_tour omits an absent dwell so the emitted command stays minimal", async () => {
+    const { sink, emitted } = memSink();
+    await driveTools(fixture(), sink).get("guided_tour")!.handler({ addresses: ["ts:m.ts#foo"] });
+    expect(emitted[0]).toEqual({ kind: "replay", addresses: ["ts:m.ts#foo"] });
+    expect("dwellMs" in emitted[0]).toBe(false);
   });
 
   it("highlight_path emits the from/to the board will resolve", async () => {
