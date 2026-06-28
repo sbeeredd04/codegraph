@@ -13,6 +13,7 @@ import {
   animateNodeEntrance,
 } from "./graph-view.js";
 import { createDiagramDrawer } from "./diagram-drawer.js";
+import { createKnowledgeIndex } from "./knowledge-drawer.js";
 import { createCommandPalette } from "./command-palette.js";
 import type { SearchableNode } from "../src/core/search/node-search.js";
 import type { GraphEdge } from "../src/core/graph/types.js";
@@ -116,6 +117,25 @@ const trace = createTraceController({
   getNodes: () => allNodes,
   getEdges: () => allEdges,
 });
+
+// Knowledge index (PM-backlog #4): the repo's table of contents — annotations by
+// role + diagrams by category. The model is built host-side and sent on each
+// render. A node entry reuses gotoRelatedNode (projection-fallback focus); a
+// diagram entry deep-links the diagrams drawer.
+const knowledge = createKnowledgeIndex(
+  {
+    toggle: document.getElementById("index-toggle") as HTMLButtonElement,
+    toggleCount: document.getElementById("index-count") as HTMLElement,
+    drawer: document.getElementById("index-panel") as HTMLElement,
+    drawerCount: document.getElementById("ki-count") as HTMLElement,
+    close: document.getElementById("ki-close") as HTMLButtonElement,
+    index: document.getElementById("ki-list") as HTMLElement,
+  },
+  {
+    onSelectNode: (address) => gotoRelatedNode(address),
+    onOpenDiagram: (id) => diagrams.openTo(id),
+  },
+);
 
 // Switch the projection from code (mirrors a toolbar click): reflect the active
 // segment and ask the host to re-render. No-op if already on that projection's view.
@@ -269,6 +289,7 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (msg.allEdges) allEdges = msg.allEdges;
     render(msg.payload);
     if (msg.diagrams) diagrams.update(msg.diagrams);
+    if (msg.knowledgeIndex) knowledge.update(msg.knowledgeIndex);
     // A related-node click switched projection to reach a hidden node — focus it
     // now that the full view has painted, then clear (one-shot).
     if (pendingFocus) {

@@ -2,6 +2,7 @@ import type { GraphNode, GraphEdge, NodeKind, EdgeType, GraphDelta } from "../..
 import type { RankedChange } from "../../../core/graph/change-feed.js";
 import type { NodeEnrichment } from "../../../core/semantic/enrichment.js";
 import type { DiagramPanelModel } from "./diagram-view.js";
+import type { KnowledgeIndexModel } from "./knowledge-view.js";
 import type { SearchableNode } from "../../../core/search/node-search.js";
 
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
@@ -119,6 +120,11 @@ export interface RenderMessage {
    * route over the whole graph regardless of the active view (PM-backlog #3).
    * Projection-independent like allNodes; older webviews simply ignore it. */
   readonly allEdges?: readonly GraphEdge[];
+  /** The knowledge index — annotated nodes by role + diagrams by category (the
+   * repo's table of contents, PM-backlog #4). Built host-side because the webview
+   * only carries per-projection enrichment, not the full annotation set. Rides
+   * alongside the payload like diagrams; older webviews simply ignore it. */
+  readonly knowledgeIndex?: KnowledgeIndexModel;
 }
 
 /**
