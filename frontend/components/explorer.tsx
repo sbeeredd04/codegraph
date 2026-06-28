@@ -62,6 +62,7 @@ export function Explorer({
 }: ExplorerProps): React.JSX.Element {
   const [projection, setProjection] = useState<ProjectionKind>("full");
   const [renderMode, setRenderMode] = useState<RenderMode>("2d");
+  const [folderClustered, setFolderClustered] = useState(false);
   const [orphanMode, setOrphanMode] = useState(false);
   const [traceArmed, setTraceArmed] = useState(false);
   const [orphanCount, setOrphanCount] = useState(0);
@@ -216,6 +217,21 @@ export function Explorer({
           ))}
         </div>
 
+        {/* Folder clustering (FR-26) — gather nodes into per-folder regions; 2D only */}
+        <button
+          aria-pressed={folderClustered}
+          disabled={renderMode === "3d"}
+          title="Gather nodes into per-folder regions"
+          onClick={() => setFolderClustered((v) => !v)}
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            folderClustered
+              ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"
+              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Folders
+        </button>
+
         {/* Orphan overlay (FR-12) — 2D only for now */}
         <button
           aria-pressed={orphanMode}
@@ -281,6 +297,7 @@ export function Explorer({
               edges={edges}
               projection={projection}
               selected={selected}
+              folderClustered={folderClustered}
               orphanMode={orphanMode}
               traceArmed={traceArmed}
               onHoverNode={setHovered}

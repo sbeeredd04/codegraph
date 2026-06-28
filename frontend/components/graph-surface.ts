@@ -16,6 +16,8 @@ export interface GraphSurfaceProps {
    * (FR-25): the surface lifts this node + its first-degree neighbours out of the
    * hairball and recedes the rest. */
   readonly selected: string | null;
+  /** Gather nodes into per-folder regions (FR-26). 2D surface only for now. */
+  readonly folderClustered: boolean;
   /** Dim everything except dead-code candidates (FR-12). 2D surface only for now. */
   readonly orphanMode: boolean;
   /** When true, a click picks the path source then traces to the target. 2D only. */

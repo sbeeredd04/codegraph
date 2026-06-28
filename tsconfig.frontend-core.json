@@ -25,7 +25,8 @@
     "src/adapters/surfaces/webview/render-model.ts",
     "src/adapters/surfaces/webview/card.ts",
     "src/adapters/surfaces/webview/lod.ts",
-    "src/adapters/surfaces/webview/layout3d.ts"
+    "src/adapters/surfaces/webview/layout3d.ts",
+    "src/adapters/surfaces/webview/folder-layout.ts"
   ],
   "exclude": ["node_modules", "**/*.test.ts", "src/core/watch/**"]
 }

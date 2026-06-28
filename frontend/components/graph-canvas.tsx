@@ -28,7 +28,13 @@ import {
   findOrphanAddresses,
 } from "@adapters/surfaces/webview/render-model";
 import { nodeHiddenAtRatio } from "@adapters/surfaces/webview/lod";
+import { clusterByFolder } from "@adapters/surfaces/webview/folder-layout";
 import type { GraphSurfaceProps } from "./graph-surface";
+
+interface XY {
+  x: number;
+  y: number;
+}
 
 // Recessive tones for off-focus elements, shared with the webview surfaces so
 // the orphan overlay and trace lens read identically across all three.
@@ -56,6 +62,11 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
+  // The force layout's positions and the folder-clustered positions, both derived
+  // from a single forceAtlas2 run so the Folders toggle is a cheap swap, never a
+  // relayout (FR-26).
+  const basePosRef = useRef<Map<string, XY> | null>(null);
+  const clusteredPosRef = useRef<Map<string, XY> | null>(null);
 
   // Live state the reducers/handlers read fresh on every refresh — kept in refs
   // so flipping orphan mode or the traced path never triggers the heavy rebuild.
@@ -124,6 +135,30 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       });
     }
     graphRef.current = g;
+
+    // Snapshot the force layout, then derive the folder-clustered layout from it
+    // once (FR-26). Toggling Folders later just swaps between these two maps — no
+    // forceAtlas2 rerun. Apply the current mode now so the first paint matches.
+    const basePos = new Map<string, XY>();
+    g.forEachNode((id, a) => basePos.set(id, { x: a.x as number, y: a.y as number }));
+    basePosRef.current = basePos;
+    clusteredPosRef.current = clusterByFolder(
+      g.mapNodes((id, a) => ({
+        id,
+        file: (a.file as string) ?? "",
+        x: a.x as number,
+        y: a.y as number,
+      })),
+    ).positions;
+    if (cbRef.current.folderClustered) {
+      g.forEachNode((id) => {
+        const p = clusteredPosRef.current!.get(id);
+        if (p) {
+          g.setNodeAttribute(id, "x", p.x);
+          g.setNodeAttribute(id, "y", p.y);
+        }
+      });
+    }
 
     const renderer = new Sigma(g, container, {
       defaultEdgeColor: EDGE_COLOR,
@@ -320,6 +355,24 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     focusRefHl.current = focusHighlight(props.selected, props.edges);
     rendererRef.current?.refresh();
   }, [props.selected, props.edges]);
+
+  // Light effect: Folders toggled — swap to the clustered (or base) positions and
+  // re-frame. No relayout: both maps were computed in the heavy effect (FR-26).
+  useEffect(() => {
+    const g = graphRef.current;
+    const r = rendererRef.current;
+    const target = props.folderClustered ? clusteredPosRef.current : basePosRef.current;
+    if (!g || !r || !target) return;
+    g.forEachNode((id) => {
+      const p = target.get(id);
+      if (p) {
+        g.setNodeAttribute(id, "x", p.x);
+        g.setNodeAttribute(id, "y", p.y);
+      }
+    });
+    r.refresh();
+    r.getCamera().animatedReset({ duration: 400 });
+  }, [props.folderClustered]);
 
   // Disarming trace clears any in-progress source + highlight.
   useEffect(() => {
