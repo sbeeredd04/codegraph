@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { CodeGraph } from "./graph.js";
 import type { EdgeType, GraphNode, NodeKind } from "./types.js";
-import { findPath } from "./path.js";
+import { findPath, findPathInEdges, pathHighlight, pathEdgeKey } from "./path.js";
 
 function node(address: string, kind: NodeKind = "function"): GraphNode {
   const name = address.split("#")[1] ?? address;
@@ -119,5 +119,40 @@ describe("findPath", () => {
     const r = findPath(g, "w1", "w2");
     expect(r!.found).toBe(true);
     expect(r!.steps[0].type).toBe("hands-off-to");
+  });
+});
+
+describe("findPathInEdges (raw-array entry)", () => {
+  const nodes: GraphNode[] = ["a", "b", "c"].map((a) => node(a));
+  const edges: { from: string; to: string; type: EdgeType }[] = [
+    { from: "a", to: "b", type: "calls" },
+    { from: "b", to: "c", type: "calls" },
+  ];
+
+  it("matches the CodeGraph entry on the same data", () => {
+    const r = findPathInEdges(nodes, edges, "a", "c");
+    expect(r!.found).toBe(true);
+    expect(r!.nodes).toEqual(["a", "b", "c"]);
+  });
+
+  it("returns undefined for an unknown endpoint", () => {
+    expect(findPathInEdges(nodes, edges, "a", "z")).toBeUndefined();
+  });
+});
+
+describe("pathHighlight", () => {
+  it("derives node + edge highlight sets from a found path", () => {
+    const g = build(["a", "b", "c"], [["a", "b", "calls"], ["b", "c", "calls"]]);
+    const hl = pathHighlight(findPath(g, "a", "c"));
+    expect([...hl.nodes].sort()).toEqual(["a", "b", "c"]);
+    expect(hl.edges.has(pathEdgeKey("a", "b"))).toBe(true);
+    expect(hl.edges.has(pathEdgeKey("b", "c"))).toBe(true);
+    expect(hl.edges.has(pathEdgeKey("a", "c"))).toBe(false); // not a direct hop
+  });
+
+  it("is empty for a not-found or undefined path", () => {
+    const g = build(["a", "b"], [["a", "b", "calls"]]);
+    expect(pathHighlight(findPath(g, "b", "a")).nodes.size).toBe(0);
+    expect(pathHighlight(undefined).edges.size).toBe(0);
   });
 });

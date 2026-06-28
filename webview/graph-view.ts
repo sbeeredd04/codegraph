@@ -12,6 +12,7 @@ import type Sigma from "sigma";
 import type Graph from "graphology";
 import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
 import { capabilityCardHtml } from "../src/adapters/surfaces/webview/card.js";
+import { pathEdgeKey, type PathHighlight } from "../src/core/graph/path.js";
 import type { NodeKind } from "../src/core/graph/types.js";
 import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 
@@ -20,6 +21,10 @@ import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 // Shared so the panel and the viewer read the same.
 export const ORPHAN_DIM_NODE = "#39414f";
 export const ORPHAN_DIM_EDGE = "#262c38";
+
+// Trace-path lens (PM-backlog #3): when a path is highlighted, off-path elements
+// recede (reusing the orphan dim tones) and the route's edges light up in accent.
+export const PATH_EDGE = "#a78bfa";
 
 interface CardNodeAttrs {
   label: string;
@@ -68,15 +73,24 @@ interface LensConfig {
   lod: boolean;
   /** Read fresh on every reducer run so toggling the overlay needs no relayout. */
   isOrphanMode: () => boolean;
+  /** The currently-traced path, if any — read fresh per reducer run. When set,
+   * its nodes/edges lead and everything else recedes (PM-backlog #3). */
+  pathOn?: () => PathHighlight | undefined;
 }
 
 /**
- * Install the two composed view lenses on a renderer (re-run cheaply on every
- * refresh()): semantic-zoom LOD for large graphs (FR-5) and the orphan overlay
- * (FR-12). Identical across both surfaces.
+ * Install the composed view lenses on a renderer (re-run cheaply on every
+ * refresh()): semantic-zoom LOD for large graphs (FR-5), the orphan overlay
+ * (FR-12), and the trace-path highlight (PM-backlog #3). Identical across both
+ * surfaces; the path lens is a no-op when no `pathOn` is supplied.
  */
-export function installLensReducers({ renderer, graph, lod, isOrphanMode }: LensConfig): void {
+export function installLensReducers({ renderer, graph, lod, isOrphanMode, pathOn }: LensConfig): void {
   const camera = renderer.getCamera();
+  // A path with at least one node is "active"; an empty highlight reads as off.
+  const activePath = (): PathHighlight | undefined => {
+    const hl = pathOn?.();
+    return hl && hl.nodes.size > 0 ? hl : undefined;
+  };
   renderer.setSetting("nodeReducer", (node: string, data: { kind: NodeKind }) => {
     const res: { kind: NodeKind; hidden?: boolean; color?: string; label?: string; forceLabel?: boolean } = {
       ...data,
@@ -91,16 +105,36 @@ export function installLensReducers({ renderer, graph, lod, isOrphanMode }: Lens
         res.label = "";
       }
     }
+    // Path lens takes precedence: a node on the traced route is always shown and
+    // labeled; off-path nodes recede so the route is unmistakable.
+    const path = activePath();
+    if (path) {
+      if (path.nodes.has(node)) {
+        res.hidden = false;
+        res.forceLabel = true;
+        res.color = graph.getNodeAttribute(node, "color") as string; // undim if orphan-mode dimmed it
+        res.label = graph.getNodeAttribute(node, "label") as string;
+      } else {
+        res.color = ORPHAN_DIM_NODE;
+        res.label = "";
+      }
+    }
     return res;
   });
   renderer.setSetting("edgeReducer", (edge: string, data: object) => {
-    const res: { hidden?: boolean; color?: string } = { ...data };
+    const res: { hidden?: boolean; color?: string; size?: number; zIndex?: number } = { ...data };
     if (lod) {
       const sk = graph.getNodeAttribute(graph.source(edge), "kind") as NodeKind;
       const tk = graph.getNodeAttribute(graph.target(edge), "kind") as NodeKind;
       if (nodeHiddenAtRatio(sk, camera.ratio) || nodeHiddenAtRatio(tk, camera.ratio)) res.hidden = true;
     }
     if (isOrphanMode()) res.color = ORPHAN_DIM_EDGE; // recede the wiring so nodes lead
+    const path = activePath();
+    if (path) {
+      res.color = path.edges.has(pathEdgeKey(graph.source(edge), graph.target(edge)))
+        ? PATH_EDGE
+        : ORPHAN_DIM_EDGE;
+    }
     return res;
   });
   if (lod) camera.on("updated", () => renderer.refresh());

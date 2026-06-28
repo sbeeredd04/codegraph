@@ -70,6 +70,15 @@
     .tg.active { color: hsl(40 82% 72%); background: hsl(40 48% 14% / .5);
       border-color: hsl(40 60% 52% / .45); }
     .tg.active .n { color: hsl(40 82% 72%); }
+    /* Trace-path toggle: violet active state, matching the highlighted route. */
+    .tg.trace.active { color: var(--accent); background: hsl(250 60% 18% / .5);
+      border-color: hsl(250 70% 60% / .45); }
+    .trace-status { font: 600 11px var(--mono); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; max-width: 32ch; padding: 4px 9px; border-radius: 7px;
+      color: var(--accent); background: hsl(250 45% 16% / .5); border: 1px solid hsl(250 70% 60% / .35); }
+    .trace-status[hidden] { display: none; }
+    .trace-status.none { color: hsl(2 72% 76%); background: hsl(2 45% 16% / .45);
+      border-color: hsl(2 60% 52% / .38); }
 
     /* Drag-and-drop a snapshot anywhere on the page. */
     body.dragging::after { content: "Drop snapshot to load"; position: absolute; inset: 48px 12px 12px;
@@ -293,6 +302,14 @@
       title="Dim everything except dead-code candidates (nodes with no inbound references).">
       <i class="tgdot" aria-hidden="true"></i>Orphans<span class="n" id="orphan-count">0</span>
     </button>
+    <button id="trace-toggle" class="tg trace" type="button" aria-pressed="false"
+      title="Trace the shortest dependency path between two nodes — turn this on, then click a source node and a target node.">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="5" cy="19" r="2.4" /><circle cx="19" cy="5" r="2.4" /><path d="M7 17.5 17 6.5" />
+      </svg>Trace
+    </button>
+    <span class="trace-status" id="trace-status" role="status" aria-live="polite" hidden></span>
     <button id="diagrams-toggle" class="tg dg" type="button" aria-pressed="false"
       aria-controls="diagrams" aria-expanded="false"
       title="Agent-authored Mermaid diagrams — the workflows, architecture, and sequences your AI drew from the graph.">

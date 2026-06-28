@@ -15,6 +15,8 @@ import {
 } from "../src/adapters/surfaces/webview/render-model.js";
 import { projectGraph, type ProjectionKind } from "../src/core/graph/projection.js";
 import { parseGraphSnapshot, type GraphSnapshot } from "../src/core/graph/export.js";
+import { findPathInEdges, pathHighlight, type PathHighlight } from "../src/core/graph/path.js";
+import { shortName } from "../src/adapters/surfaces/webview/card.js";
 import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 import { DIAGRAM_SET_VERSION } from "../src/core/diagrams/diagram.js";
 import { buildDiagramPanel } from "../src/adapters/surfaces/webview/diagram-view.js";
@@ -54,7 +56,7 @@ const orphans = createOrphanToggle(orphanToggleEl, orphanCountEl, () => renderer
 // searches the FULL snapshot node set (not the current projection), and the jump
 // reuses focusNodeByAddress, which falls back to the full view when the target is
 // hidden by the active projection — so a search hit is always reachable.
-createCommandPalette(
+const palette = createCommandPalette(
   {
     overlay: document.getElementById("palette") as HTMLElement,
     dialog: document.getElementById("cp-dialog") as HTMLElement,
@@ -69,6 +71,70 @@ createCommandPalette(
     trigger: document.getElementById("search-toggle") as HTMLButtonElement,
   },
 );
+
+// Trace-path (PM-backlog #3, the human half of the find_path MCP tool): turn the
+// toggle on, click a source node then a target node, and the shortest dependency
+// path lights up while everything else recedes. Pure findPathInEdges runs locally
+// over the snapshot — no host round-trip. `hl` feeds the shared path lens.
+const traceToggleEl = document.getElementById("trace-toggle") as HTMLButtonElement;
+const traceStatusEl = document.getElementById("trace-status") as HTMLElement;
+const trace: { active: boolean; from?: string; hl?: PathHighlight } = { active: false };
+
+function setTraceStatus(text: string, tone?: "none"): void {
+  traceStatusEl.textContent = text;
+  traceStatusEl.hidden = text === "";
+  traceStatusEl.classList.toggle("none", tone === "none");
+}
+
+// Clear the in-progress source and highlight (keeps trace mode on/off as given).
+function resetTrace(): void {
+  trace.from = undefined;
+  trace.hl = undefined;
+  setTraceStatus(trace.active ? "Click a node to start the trace" : "");
+  renderer?.refresh();
+}
+
+function handleTraceClick(node: string): void {
+  if (!trace.active || !snapshot) return;
+  if (!trace.from) {
+    trace.from = node;
+    trace.hl = { nodes: new Set([node]), edges: new Set() }; // spotlight the source
+    setTraceStatus(`From ${shortName(node)} — click a target`);
+    renderer?.refresh();
+    return;
+  }
+  const result = findPathInEdges(snapshot.nodes, snapshot.edges, trace.from, node);
+  if (result?.found) {
+    trace.hl = pathHighlight(result);
+    const hops = result.length === 1 ? "1 hop" : `${result.length} hops`;
+    setTraceStatus(`${shortName(trace.from)} → ${shortName(node)} · ${hops}`);
+    fitToPath(result.nodes);
+  } else {
+    trace.hl = undefined;
+    setTraceStatus(`No path from ${shortName(trace.from)} to ${shortName(node)}`, "none");
+  }
+  trace.from = undefined; // ready for a fresh source; the highlight persists
+  renderer?.refresh();
+}
+
+// Pan the camera to the centroid of the traced path so the whole route is in view.
+function fitToPath(addresses: readonly string[]): void {
+  if (!renderer) return;
+  const pts = addresses
+    .map((a) => renderer!.getNodeDisplayData(a))
+    .filter((p): p is NonNullable<typeof p> => p != null);
+  if (pts.length === 0) return;
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  void renderer.getCamera().animate({ x: cx, y: cy, ratio: 0.75 }, { duration: 420 });
+}
+
+traceToggleEl.addEventListener("click", () => {
+  trace.active = !trace.active;
+  traceToggleEl.classList.toggle("active", trace.active);
+  traceToggleEl.setAttribute("aria-pressed", String(trace.active));
+  resetTrace();
+});
 
 function render(model: RenderModel): void {
   renderer?.kill();
@@ -118,9 +184,16 @@ function render(model: RenderModel): void {
     renderLabels: true,
   });
   renderer.on("enterNode", ({ node }: { node: string }) => showCard(g, node, card));
+  renderer.on("clickNode", ({ node }: { node: string }) => handleTraceClick(node));
   renderer.on("clickStage", () => card.classList.add("hidden"));
   orphans.sync(model.orphanCount);
-  installLensReducers({ renderer, graph: g, lod: g.order > 300, isOrphanMode: orphans.isActive });
+  installLensReducers({
+    renderer,
+    graph: g,
+    lod: g.order > 300,
+    isOrphanMode: orphans.isActive,
+    pathOn: () => trace.hl,
+  });
 }
 
 // Re-project the loaded snapshot locally and repaint. Orphan status is computed
@@ -142,6 +215,11 @@ function setProjection(kind: ProjectionKind): void {
   for (const b of Array.from(document.querySelectorAll(".seg button"))) b.classList.remove("active");
   document.querySelector(`.seg button[data-projection="${kind}"]`)?.classList.add("active");
   card.classList.add("hidden");
+  // A different projection is a different node set — drop any traced path (its
+  // nodes may not be present here); rebuild() repaints, so no refresh needed.
+  trace.from = undefined;
+  trace.hl = undefined;
+  setTraceStatus(trace.active ? "Click a node to start the trace" : "");
   rebuild();
 }
 
@@ -175,6 +253,13 @@ function loadText(text: string): void {
   metaEl.textContent = `${snapshot.nodeCount} nodes · ${snapshot.edgeCount} edges${when}`;
   document.body.classList.add("loaded");
   card.classList.add("hidden");
+  // A fresh snapshot resets trace mode entirely (old addresses don't apply).
+  trace.active = false;
+  trace.from = undefined;
+  trace.hl = undefined;
+  traceToggleEl.classList.remove("active");
+  traceToggleEl.setAttribute("aria-pressed", "false");
+  setTraceStatus("");
   // Diagrams are projection-independent, so reconcile the drawer once per load.
   diagrams.update(buildDiagramPanel({ version: DIAGRAM_SET_VERSION, diagrams: snapshot.diagrams ?? [] }));
   rebuild();
@@ -225,3 +310,11 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg 
     setProjection((btn.dataset.projection as ProjectionKind) ?? "full");
   });
 }
+
+// Esc clears an in-progress trace — but only when the command palette isn't open
+// (it owns Esc while focused), and only when there's a trace to clear.
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Escape" && !palette.isOpen() && trace.active && (trace.from || trace.hl)) {
+    resetTrace();
+  }
+});

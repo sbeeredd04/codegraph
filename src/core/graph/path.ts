@@ -1,5 +1,5 @@
 import type { CodeGraph } from "./graph.js";
-import type { EdgeType, NodeAddress } from "./types.js";
+import type { EdgeType, GraphEdge, GraphNode, NodeAddress } from "./types.js";
 import { DEPENDENCY_EDGES } from "./reachability.js";
 
 // Path-finding over the edge set (pure, AD-1): "how does A reach B?" — the
@@ -49,6 +49,9 @@ const NOT_FOUND = (from: NodeAddress, to: NodeAddress): PathResult => ({
  * fewest-hops one; cycle-safe via a visited set. Returns `undefined` when either
  * endpoint is not a node in the graph (an unknown address, distinct from "no
  * path"); a found result with `length: 0` when `from === to`.
+ *
+ * Takes a CodeGraph; `findPathInEdges` is the raw-array entry the webview surfaces
+ * use (they hold snapshot node/edge arrays, not a CodeGraph).
  */
 export function findPath(
   graph: CodeGraph,
@@ -56,13 +59,26 @@ export function findPath(
   to: NodeAddress,
   opts: FindPathOptions = {},
 ): PathResult | undefined {
-  if (!graph.getNode(from) || !graph.getNode(to)) return undefined;
+  return findPathInEdges(graph.allNodes(), graph.allEdges(), from, to, opts);
+}
+
+/** Array-based path-find (same contract as `findPath`) for callers that hold raw
+ * node/edge arrays rather than a CodeGraph — e.g. the standalone snapshot viewer. */
+export function findPathInEdges(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+  from: NodeAddress,
+  to: NodeAddress,
+  opts: FindPathOptions = {},
+): PathResult | undefined {
+  const addresses = new Set<NodeAddress>(nodes.map((n) => n.address));
+  if (!addresses.has(from) || !addresses.has(to)) return undefined;
 
   const allowed = opts.edgeTypes ?? DEPENDENCY_EDGES;
 
   // Typed forward adjacency: from -> the steps leaving it (keeping the edge type).
   const fwd = new Map<NodeAddress, PathStep[]>();
-  for (const e of graph.allEdges()) {
+  for (const e of edges) {
     if (!allowed.has(e.type)) continue;
     const step: PathStep = { from: e.from, to: e.to, type: e.type };
     const list = fwd.get(e.from);
@@ -96,6 +112,29 @@ export function findPath(
     cur = step.from;
   }
   steps.reverse();
-  const nodes = [from, ...steps.map((s) => s.to)];
-  return { from, to, found: true, steps, nodes, length: steps.length };
+  const pathNodes = [from, ...steps.map((s) => s.to)];
+  return { from, to, found: true, steps, nodes: pathNodes, length: steps.length };
+}
+
+/** Canonical key for an on-path directed edge, so the producer (pathHighlight)
+ * and the consumer (the render lens) agree on the format. */
+export function pathEdgeKey(from: NodeAddress, to: NodeAddress): string {
+  return `${from} ${to}`;
+}
+
+export interface PathHighlight {
+  /** Addresses of the nodes on the path (both ends inclusive). */
+  readonly nodes: ReadonlySet<NodeAddress>;
+  /** `pathEdgeKey` of each traversed edge, to emphasize the route's wiring. */
+  readonly edges: ReadonlySet<string>;
+}
+
+/** Derive the node/edge sets a surface uses to highlight a path: on-path elements
+ * lead, everything else recedes. Empty sets when the path was not found. */
+export function pathHighlight(result: PathResult | undefined): PathHighlight {
+  if (!result || !result.found) return { nodes: new Set(), edges: new Set() };
+  return {
+    nodes: new Set(result.nodes),
+    edges: new Set(result.steps.map((s) => pathEdgeKey(s.from, s.to))),
+  };
 }
