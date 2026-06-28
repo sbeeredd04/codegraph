@@ -58,6 +58,12 @@ interface ExplorerProps {
    * when this dataset/host serves no source (third-party graph, hosted plane — AD-16).
    */
   readonly sourceBase?: string | null;
+  /**
+   * Absolute repo root on the host, enabling "open in editor" deep links (FR-32)
+   * from the source viewer. Set only inside the VS Code webview; `null` on the
+   * web/cloud, where there's no local checkout to open (AD-14).
+   */
+  readonly editorRoot?: string | null;
   /** Optional dataset switcher — when present, renders a selector in the header. */
   readonly datasets?: readonly { readonly id: string; readonly label: string }[];
   readonly datasetId?: string;
@@ -72,6 +78,7 @@ export function Explorer({
   assistEnabled = false,
   title,
   sourceBase = null,
+  editorRoot = null,
   datasets,
   datasetId,
   onDataset,
@@ -489,8 +496,10 @@ export function Explorer({
           <NodeSourceViewer
             key={`${sourceBase ?? "none"}:${detail.node.location.file}:${detail.node.location.line}`}
             sourceBase={sourceBase}
+            editorRoot={editorRoot}
             file={detail.node.location.file}
             line={detail.node.location.line}
+            character={detail.node.location.character}
             title={displayLabel(detail.node.name, detail.node.kind)}
             signature={detail.node.signature}
             onClose={() => setSourceOpen(false)}

@@ -10,6 +10,13 @@ import type { GraphSnapshot } from "@core/graph/export";
 export interface SnapshotMessage {
   readonly type: "codegraph:snapshot";
   readonly snapshot: GraphSnapshot;
+  /**
+   * Absolute repo root on the host, for "open in editor" deep links (FR-32).
+   * Transport-only — it is NOT part of GraphSnapshot, so it never persists into
+   * the shareable artifact and never reaches the source-blind cloud plane
+   * (AD-14). Present only when the host has an open workspace.
+   */
+  readonly editorRoot?: string;
 }
 
 /** webview → host: "I'm mounted, send the graph." */
@@ -42,14 +49,26 @@ function isSnapshotMessage(data: unknown): data is SnapshotMessage {
   return m.type === "codegraph:snapshot" && typeof m.snapshot === "object" && m.snapshot !== null;
 }
 
+/** The live graph plus any host-only context that rides alongside it. */
+export interface LiveSnapshot {
+  readonly snapshot: GraphSnapshot;
+  /** Absolute repo root for editor deep links (FR-32); undefined off the host. */
+  readonly editorRoot?: string;
+}
+
 /**
  * Subscribe to live snapshots from the host and announce readiness (mirrors the
  * bespoke webview's ready/render handshake). Returns an unsubscribe fn. Safe to
- * call outside a webview — the handler simply never fires.
+ * call outside a webview — the handler simply never fires. The callback receives
+ * the snapshot together with the transport-only `editorRoot` (when the host
+ * sends one), kept out of GraphSnapshot so it never persists into the artifact.
  */
-export function subscribeToSnapshot(onSnapshot: (snap: GraphSnapshot) => void): () => void {
+export function subscribeToSnapshot(onSnapshot: (live: LiveSnapshot) => void): () => void {
   const onMessage = (e: MessageEvent): void => {
-    if (isSnapshotMessage(e.data)) onSnapshot(e.data.snapshot);
+    if (isSnapshotMessage(e.data)) {
+      const editorRoot = typeof e.data.editorRoot === "string" ? e.data.editorRoot : undefined;
+      onSnapshot({ snapshot: e.data.snapshot, editorRoot });
+    }
   };
   window.addEventListener("message", onMessage);
   vscode()?.postMessage({ type: "codegraph:ready" } satisfies ReadyMessage);

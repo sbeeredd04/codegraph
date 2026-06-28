@@ -68,7 +68,11 @@ export class ExplorerPanel {
 
   private static send(): void {
     if (!this.panel || !this.snapshot) return;
-    void this.panel.webview.postMessage(snapshotMessage(this.snapshot));
+    // The host owns the source (AD-16), so it — and only it — knows the absolute
+    // repo root the webview needs to deep-link a file into the editor (FR-32).
+    // Passed at the transport layer, never baked into the portable snapshot.
+    const editorRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    void this.panel.webview.postMessage(snapshotMessage(this.snapshot, editorRoot));
   }
 
   private static html(context: vscode.ExtensionContext, webview: vscode.Webview): string {

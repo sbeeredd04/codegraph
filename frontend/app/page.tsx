@@ -35,6 +35,9 @@ export default function Home() {
   // True once the graph arrived live from the VS Code webview host — then the
   // sample dataset switcher and the bundled source sidecar no longer apply.
   const [live, setLive] = useState(false);
+  // Absolute repo root the host sends alongside a live snapshot, for "open in
+  // editor" deep links (FR-32). Transport-only; never present on the web/cloud.
+  const [editorRoot, setEditorRoot] = useState<string | null>(null);
 
   const current = useMemo(
     () => DATASETS.find((d) => d.id === datasetId) ?? DATASETS[0],
@@ -47,8 +50,9 @@ export default function Home() {
     // / event handlers below — never synchronously here (the React-compiler rule
     // forbids it, and a synchronous reset would cascade a render anyway).
     if (isWebviewHost()) {
-      return subscribeToSnapshot((s) => {
-        setSnap(s);
+      return subscribeToSnapshot(({ snapshot, editorRoot: root }) => {
+        setSnap(snapshot);
+        setEditorRoot(root ?? null);
         setError(null);
         setLive(true);
       });
@@ -97,6 +101,9 @@ export default function Home() {
       // the work. Withheld on the source-blind cloud demo, where there's no
       // connected agent — flagged at build time via NEXT_PUBLIC_CODEGRAPH_CLOUD.
       assistEnabled={process.env.NEXT_PUBLIC_CODEGRAPH_CLOUD !== "1"}
+      // Editor deep-linking (FR-32) lights up only when the host posts its
+      // absolute root — i.e. inside the VS Code webview, never on the cloud demo.
+      editorRoot={editorRoot}
       title={`${snap.root ?? "snapshot"} · ${snap.nodeCount} nodes`}
       // Live (webview) graphs carry no bundled source sidecar and have no sample
       // datasets to switch between, so both affordances are withheld.

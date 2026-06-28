@@ -17,6 +17,15 @@ export const SNAPSHOT_TYPE = "codegraph:snapshot" as const;
 export interface SnapshotMessage {
   readonly type: typeof SNAPSHOT_TYPE;
   readonly snapshot: GraphSnapshot;
+  /**
+   * Absolute repo root on the host, for "open in editor" deep links (FR-32).
+   * Transport-only and deliberately NOT a field of GraphSnapshot: the snapshot
+   * is a portable, shareable artifact, so persisting a host filesystem path in
+   * it would leak the layout (AD-14). It rides the live webview message instead,
+   * where the host owns the source anyway (AD-16). Absent when no workspace root
+   * is known.
+   */
+  readonly editorRoot?: string;
 }
 
 /** True when an inbound webview message is the export's readiness ping. */
@@ -26,9 +35,11 @@ export function isReadyMessage(msg: unknown): boolean {
   );
 }
 
-/** The host → webview snapshot envelope the export's bridge expects. */
-export function snapshotMessage(snapshot: GraphSnapshot): SnapshotMessage {
-  return { type: SNAPSHOT_TYPE, snapshot };
+/** The host → webview snapshot envelope the export's bridge expects. The
+ *  absolute `editorRoot` is folded in only when the host knows one (an open
+ *  workspace), so a rootless build posts a minimal envelope. */
+export function snapshotMessage(snapshot: GraphSnapshot, editorRoot?: string): SnapshotMessage {
+  return { type: SNAPSHOT_TYPE, snapshot, ...(editorRoot ? { editorRoot } : {}) };
 }
 
 /**

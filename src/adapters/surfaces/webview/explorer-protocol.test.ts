@@ -41,6 +41,20 @@ describe("explorer-protocol — the host↔export message contract", () => {
     expect(msg.snapshot).not.toBeNull();
   });
 
+  it("folds an absolute editorRoot into the envelope only when the host has one (FR-32)", () => {
+    const withRoot = snapshotMessage(SNAPSHOT, "/Users/me/proj");
+    expect(withRoot.editorRoot).toBe("/Users/me/proj");
+    // SNAPSHOT_TYPE is unaffected — older bridges that ignore editorRoot still parse it.
+    expect(withRoot.type).toBe("codegraph:snapshot");
+
+    // The root is transport-only — it must never be written onto the snapshot
+    // itself (that artifact is shareable; a host path would leak the layout).
+    expect("editorRoot" in withRoot.snapshot).toBe(false);
+
+    // A rootless host posts a minimal envelope, not editorRoot: undefined.
+    expect("editorRoot" in snapshotMessage(SNAPSHOT)).toBe(false);
+  });
+
   it("guarantees a single trailing slash on the base href, idempotently", () => {
     expect(withTrailingSlash("vscode-webview://x/media/explorer")).toBe(
       "vscode-webview://x/media/explorer/",

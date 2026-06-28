@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildSourceView } from "@core/source/source-view";
+import { buildEditorLink, editorById, DEFAULT_EDITOR } from "@core/links/editor-link";
 import { tokenizeLines, type Token, type TokenType } from "@/lib/highlight";
 
 const TOKEN_CLASS: Record<TokenType, string> = {
@@ -31,10 +32,17 @@ type ViewState =
 interface NodeSourceViewerProps {
   /** Base URL of the source sidecar, or `null` when this host serves no source (AD-16). */
   readonly sourceBase: string | null;
+  /**
+   * Absolute repo root on the host, for an "open in editor" deep link (FR-32).
+   * Present only inside the VS Code webview; `null` on the web/cloud (AD-14).
+   */
+  readonly editorRoot?: string | null;
   /** Repo-relative file path (the node's `location.file`). */
   readonly file: string;
   /** 0-based defining line (the node's `location.line`). */
   readonly line: number;
+  /** 0-based defining column (the node's `location.character`), for the deep link. */
+  readonly character?: number;
   /** Human label for the node (already shortened via displayLabel). */
   readonly title: string;
   /** The node's signature, shown as a fallback when source is unavailable. */
@@ -44,8 +52,10 @@ interface NodeSourceViewerProps {
 
 export function NodeSourceViewer({
   sourceBase,
+  editorRoot = null,
   file,
   line,
+  character,
   title,
   signature,
   onClose,
@@ -98,6 +108,15 @@ export function NodeSourceViewer({
     [state],
   );
 
+  // "Open in editor" deep link (FR-32). buildEditorLink returns null unless the
+  // host gave us an absolute root, so this is naturally withheld on the
+  // source-blind web/cloud and present inside the VS Code webview.
+  const editorLink = useMemo(
+    () => buildEditorLink({ root: editorRoot, file, line, column: character }),
+    [editorRoot, file, line, character],
+  );
+  const editorLabel = editorById(DEFAULT_EDITOR).label;
+
   return (
     <aside
       role="region"
@@ -115,6 +134,16 @@ export function NodeSourceViewer({
           <div className="mt-0.5 truncate font-mono text-xs text-zinc-500" title={file}>
             {file}:{line + 1}
           </div>
+          {editorLink && (
+            <a
+              href={editorLink}
+              data-testid="open-in-editor"
+              className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              <ArrowUpRight />
+              Open in {editorLabel}
+            </a>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -131,7 +160,7 @@ export function NodeSourceViewer({
         )}
 
         {state.status === "unavailable" && (
-          <UnavailableCard signature={signature} />
+          <UnavailableCard signature={signature} editorLink={editorLink} editorLabel={editorLabel} />
         )}
 
         {state.status === "error" && (
@@ -182,7 +211,15 @@ export function NodeSourceViewer({
   );
 }
 
-function UnavailableCard({ signature }: { signature?: string }): React.JSX.Element {
+function UnavailableCard({
+  signature,
+  editorLink,
+  editorLabel,
+}: {
+  signature?: string;
+  editorLink: string | null;
+  editorLabel: string;
+}): React.JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
       <div className="text-sm font-medium text-zinc-300">Source not available here</div>
@@ -191,11 +228,42 @@ function UnavailableCard({ signature }: { signature?: string }): React.JSX.Eleme
         <span className="font-mono"> codegraph serve</span>. The hosted demo stays
         source-blind, so it shows the signature instead.
       </p>
+      {/* When the host gave us its repo root (FR-32), the source isn't in this
+          page but we can still hand the file off to the real editor. */}
+      {editorLink && (
+        <a
+          href={editorLink}
+          data-testid="open-in-editor"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-200 transition-colors hover:bg-violet-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+        >
+          <ArrowUpRight />
+          Open in {editorLabel}
+        </a>
+      )}
       {signature && (
         <pre className="mt-1 max-w-full overflow-x-auto rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-zinc-300">
           {signature}
         </pre>
       )}
     </div>
+  );
+}
+
+/** A small external-open glyph for the "open in editor" affordance. */
+function ArrowUpRight(): React.JSX.Element {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 17 17 7M9 7h8v8" />
+    </svg>
   );
 }
