@@ -23,6 +23,32 @@ const KIND_SIZE: Record<NodeKind, number> = {
   workflow: 9,
 };
 
+// Module nodes carry the file path as their name (e.g. `packages/client/src/getFetch.ts`),
+// which renders as an unreadable path on the graph (FR-16). Symbols (function/class/method)
+// already have clean human names. `displayLabel` shortens a module path to its basename —
+// keeping a meaningful parent segment for ambiguous barrel files (`index`, `__init__`) so
+// the dozens of `index.ts` don't all collapse to the same word. The full path stays
+// available on hover and in the detail panel; this is a display-only transform.
+const BARREL = new Set(["index", "__init__", "mod"]);
+const GENERIC_DIR = new Set(["src", "lib", "dist", "source", "app"]);
+
+export function displayLabel(name: string, kind: NodeKind): string {
+  if (kind !== "module") return name;
+  const segs = name.split("/").filter(Boolean);
+  if (segs.length <= 1) return name; // already short, or not a path
+  const base = segs[segs.length - 1];
+  const stem = base.replace(/\.[^.]+$/, "");
+  if (BARREL.has(stem)) {
+    // Prefix the nearest meaningful ancestor dir, skipping generic ones (src/lib/…),
+    // so `packages/client/src/index.ts` reads as `client/index.ts`, not `src/index.ts`.
+    for (let i = segs.length - 2; i >= 0; i--) {
+      if (!GENERIC_DIR.has(segs[i])) return `${segs[i]}/${base}`;
+    }
+    return `${segs[segs.length - 2]}/${base}`;
+  }
+  return base;
+}
+
 // Change-diff overlay (FR-7): recolor changed nodes by change type.
 export type ChangeKind = "added" | "changed" | "moved";
 export const CHANGE_COLORS: Record<ChangeKind, string> = {
@@ -150,7 +176,7 @@ export function buildRenderModel(
     const orphan = orphans?.has(node.address);
     return {
       id: node.address,
-      label: node.name,
+      label: displayLabel(node.name, node.kind),
       kind: node.kind,
       // Changed nodes recolor by change kind and grow slightly (the diff overlay).
       color: change ? CHANGE_COLORS[change] : KIND_COLORS[node.kind],

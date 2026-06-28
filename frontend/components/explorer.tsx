@@ -11,6 +11,7 @@ import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
+import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
@@ -58,6 +59,13 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
     const callers = edges.filter((e) => e.to === selected);
     return { node, callees, callers };
   }, [selected, byAddress, edges]);
+
+  // A legible label for an address — module paths shorten to a basename (FR-16);
+  // the full path stays visible in the detail panel.
+  const labelFor = (address: string): string => {
+    const n = byAddress.get(address);
+    return n ? displayLabel(n.name, n.kind) : address;
+  };
 
   return (
     <main className="relative flex h-screen flex-col bg-[#0e0f13] font-sans text-zinc-200">
@@ -139,7 +147,7 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
             </span>
           )}
           {hovered && !traceArmed && (
-            <span className="font-mono text-zinc-500">{hovered.split("::").pop()}</span>
+            <span className="font-mono text-zinc-500">{labelFor(hovered)}</span>
           )}
         </div>
       </header>
@@ -173,7 +181,9 @@ export function Explorer({ nodes, edges, title }: ExplorerProps): React.JSX.Elem
           <aside className="absolute right-3 top-3 max-h-[calc(100%-1.5rem)] w-72 overflow-auto rounded-xl border border-zinc-800 bg-zinc-900/95 p-4 text-sm shadow-2xl backdrop-blur">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate font-semibold text-zinc-50">{detail.node.name}</div>
+                <div className="truncate font-semibold text-zinc-50" title={detail.node.name}>
+                  {displayLabel(detail.node.name, detail.node.kind)}
+                </div>
                 <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
                   <span
                     className="inline-block size-2 rounded-full"
@@ -240,7 +250,7 @@ function NeighborList({
                 title={addr}
               >
                 <span className="text-zinc-600">{e.type} </span>
-                {n?.name ?? addr.split("::").pop()}
+                {n ? displayLabel(n.name, n.kind) : addr.split("::").pop()}
               </button>
             </li>
           );

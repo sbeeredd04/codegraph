@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRenderModel, findOrphanAddresses, KIND_COLORS } from "./render-model.js";
+import { buildRenderModel, displayLabel, findOrphanAddresses, KIND_COLORS } from "./render-model.js";
 import type { GraphNode, GraphEdge } from "../../../core/graph/types.js";
 
 const node = (address: string, kind: GraphNode["kind"]): GraphNode => ({
@@ -89,6 +89,43 @@ describe("buildRenderModel", () => {
     const orphans = new Set(["ts:a.ts", "ts:a.ts#A.m"]);
     const model = buildRenderModel(nodes, edges, undefined, undefined, undefined, undefined, orphans);
     expect(model.orphanCount).toBe(2);
+  });
+});
+
+describe("displayLabel (FR-16 legible node labels)", () => {
+  it("leaves symbol names (function/class/method) untouched", () => {
+    expect(displayLabel("createTRPCClient", "function")).toBe("createTRPCClient");
+    expect(displayLabel("TRPCClientError", "class")).toBe("TRPCClientError");
+    expect(displayLabel("constructor", "method")).toBe("constructor");
+  });
+
+  it("shortens a module file path to its basename", () => {
+    expect(displayLabel("packages/client/src/getFetch.ts", "module")).toBe("getFetch.ts");
+    expect(displayLabel("packages/client/src/internals/dataLoader.ts", "module")).toBe("dataLoader.ts");
+  });
+
+  it("keeps a meaningful parent for barrel files, skipping generic dirs", () => {
+    // src/ is generic, so the label climbs to the package name — not `src/index.ts`.
+    expect(displayLabel("packages/client/src/index.ts", "module")).toBe("client/index.ts");
+    expect(displayLabel("packages/server/src/internals/index.ts", "module")).toBe("internals/index.ts");
+    expect(displayLabel("pkg/__init__.py", "module")).toBe("pkg/__init__.py");
+  });
+
+  it("returns a non-path or single-segment module name unchanged", () => {
+    expect(displayLabel("a.ts", "module")).toBe("a.ts");
+    expect(displayLabel("ts:a.ts", "module")).toBe("ts:a.ts");
+  });
+});
+
+describe("buildRenderModel label legibility", () => {
+  it("renders a module's path-name as a short label while keeping symbol names", () => {
+    const ns: GraphNode[] = [
+      { address: "m1", kind: "module", name: "packages/client/src/getFetch.ts", location: { file: "packages/client/src/getFetch.ts", line: 0, character: 0 } },
+      { address: "f1", kind: "function", name: "getFetch", location: { file: "packages/client/src/getFetch.ts", line: 3, character: 0 } },
+    ];
+    const model = buildRenderModel(ns, []);
+    expect(model.nodes.find((n) => n.id === "m1")?.label).toBe("getFetch.ts");
+    expect(model.nodes.find((n) => n.id === "f1")?.label).toBe("getFetch");
   });
 });
 
