@@ -51,6 +51,13 @@ codegraph answers that with three ideas:
 - A restrained dark design system: nodes colored by semantic kind, stable
   force-directed layout that does not jump on live updates.
 
+### Reading large graphs
+- **Neighbour focus** (FR-25): click a node to lift it and its first-degree
+  neighbours and dim the rest — the lens repaints without relaying out the graph.
+- **Folder clustering** (FR-26): gather same-folder nodes into spatial pockets with
+  convex-hull **territory outlines** and folder labels, sorted by path or size — a 2D
+  affordance toggled from the topbar.
+
 ### Change awareness
 - A **live watch loop** that coalesces save bursts and re-scans in the background,
   repainting only on a real change.
@@ -65,6 +72,44 @@ codegraph answers that with three ideas:
   everything else so you can review them all at once. The wording stays honest — a
   candidate, since an orphan can also be a legitimate entry point.
 
+### Knowledge on the board
+- **Diagrams** (FR-28): the Mermaid diagrams your agent authors (architecture,
+  workflow, sequence, dataflow) render in a drawer grouped by category, with "related
+  node" chips that jump back into the graph. Rendered with `securityLevel: "strict"` —
+  agent-authored content is untrusted.
+- **Docs** (FR-29): the Markdown docs your agent writes render alongside, sanitized
+  against a strict allowlist; `codegraph://node/<address>` links cross-highlight the
+  graph instead of navigating away.
+
+### Ask your own agent (FR-30)
+- The **Ask** panel turns your question plus the selected node's context into a
+  ready-to-run prompt for *your* connected agent — grounded in the real graph via the
+  MCP query tools, and told to capture findings as a diagram or doc. codegraph builds
+  the prompt; it holds no LLM key and makes no model call. That is the moat.
+
+### Agent co-pilot — driving the board (Epic 19)
+- **Overlays** (FR-37): the notes, marks (bug / breakpoint / issue / todo / hotspot),
+  and groups your agent pins onto nodes and edges appear on the board — its durable
+  memory *about* the code, never the code itself.
+- **Live driving** (FR-39): with the board open, the agent can highlight nodes and
+  paths, fly the camera, switch projection, open panels, and toggle overlays — and a
+  **preempt banner** always lets you take the wheel back.
+- **Guided tours and trace replay** (FR-40 / FR-41): walk an ordered node sequence
+  over time — hand-picked, or extracted from a stack trace.
+- **Onboarding playbook** (FR-42): a done/todo **Setup** checklist (shared with the
+  `codegraph_onboard` MCP tool) that walks a fresh repo from indexing to a first set
+  of diagrams, docs, and notes.
+
+### Jump to the source (FR-31 / FR-32)
+- Open a node's file at the right line in your editor — a native reveal inside the
+  extension, and a `vscode://file` deep link from the standalone web view. Paths stay
+  relative and host-local; no source bytes or absolute host paths ever leave the host.
+
+### The dashboard (FR-34)
+- Collapsible, resizable docks and floating inset panels for the source viewer and the
+  knowledge drawers, with the layout persisted per browser — never written to the
+  snapshot.
+
 ### Connect your AI agent (MCP)
 - A standalone MCP server exposes the graph to your agent over stdio. Beyond the
   read-only query tools (below), the agent can write back durable knowledge —
@@ -76,7 +121,8 @@ codegraph answers that with three ideas:
 
 ### Export and the standalone viewer
 - **Export** a portable, versioned JSON snapshot of the graph (nodes, edges, and the
-  agent's annotations) — a shareable, diffable artifact.
+  agent's knowledge — annotations, diagrams, docs, and overlays) — a shareable,
+  diffable artifact.
 - A **standalone web viewer** (`dist/web/viewer.html`) opens a snapshot with no
   editor and no server (it runs from `file://`): graph, projections, the capability
   card, the orphan overlay, and drag-and-drop loading.
