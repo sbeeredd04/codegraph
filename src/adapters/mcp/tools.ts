@@ -17,6 +17,8 @@ import {
   graphStats,
   neighborhood,
 } from "../../core/graph/query.js";
+import { findPath } from "../../core/graph/path.js";
+import type { EdgeType } from "../../core/graph/types.js";
 
 // MCP tool surface (Epic 3 / FR-13): the read-only questions the user's AI
 // agent asks of the live graph — the same map the human reads. Each tool is a
@@ -60,6 +62,7 @@ export type RecentChangesProvider = (ref: string) => Promise<RecentChanges>;
 
 const KIND = z.enum(["module", "class", "function", "method", "workflow"]);
 const ADDRESS = z.string().min(1).describe("A node address, e.g. ts:src/auth.ts#login");
+const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to"]);
 
 const ok = (data: unknown): McpToolResult => ({
   content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
@@ -137,6 +140,36 @@ export function graphTools(
         "following dependency edges only.",
       inputSchema: { address: ADDRESS },
       handler: (args) => ok(dependencies(getGraph(), String(args.address))),
+    },
+    {
+      name: "find_path",
+      title: "Find path",
+      description:
+        "Trace how one node reaches another: the shortest directed chain of dependency edges " +
+        "(calls, depends-on, hands-off-to) from `from` to `to`. Use it to follow a request or " +
+        "data flow end to end — e.g. from an entry point to a database write — then turn the chain " +
+        "into a sequence or flow diagram. Returns the ordered steps (each with its edge type) and " +
+        "the node path, or found:false when no such route exists. Pass edgeTypes to trace other " +
+        "relations (e.g. include 'contains' to walk structure).",
+      inputSchema: {
+        from: z.string().min(1).describe("Start node address, e.g. ts:src/api.ts#handleRequest"),
+        to: z.string().min(1).describe("Target node address to reach, e.g. ts:src/db.ts#write"),
+        edgeTypes: z
+          .array(EDGE_TYPE)
+          .optional()
+          .describe("Edge types to traverse (default: calls, depends-on, hands-off-to)."),
+      },
+      handler: (args) => {
+        const graph = getGraph();
+        const from = String(args.from);
+        const to = String(args.to);
+        if (!graph.getNode(from)) return fail(`codegraph: no node at address "${from}".`);
+        if (!graph.getNode(to)) return fail(`codegraph: no node at address "${to}".`);
+        const edgeTypes = Array.isArray(args.edgeTypes)
+          ? new Set<EdgeType>(args.edgeTypes as EdgeType[])
+          : undefined;
+        return ok(findPath(graph, from, to, { edgeTypes }));
+      },
     },
     {
       name: "neighborhood",

@@ -43,10 +43,39 @@ describe("MCP graph tools", () => {
       "dependencies",
       "describe_node",
       "find_nodes",
+      "find_path",
       "graph_stats",
       "list_orphans",
       "neighborhood",
     ]);
+  });
+
+  it("find_path traces the directed dependency chain between two nodes", () => {
+    const r = toolMap(fixture()).get("find_path")!.handler({ from: "ts:m.ts#foo", to: "ts:m.ts#util" });
+    const path = parse(r.content[0].text);
+    expect(path.found).toBe(true);
+    expect(path.nodes).toEqual(["ts:m.ts#foo", "ts:m.ts#util"]);
+    expect(path.steps[0].type).toBe("calls");
+  });
+
+  it("find_path reports found:false when no dependency route exists (contains excluded)", () => {
+    // m.ts contains foo, foo calls util — but containment isn't a flow, so m.ts has no default route.
+    const r = toolMap(fixture()).get("find_path")!.handler({ from: "ts:m.ts", to: "ts:m.ts#util" });
+    expect(parse(r.content[0].text).found).toBe(false);
+  });
+
+  it("find_path can include contains via edgeTypes to walk structure", () => {
+    const r = toolMap(fixture())
+      .get("find_path")!
+      .handler({ from: "ts:m.ts", to: "ts:m.ts#util", edgeTypes: ["contains", "calls"] });
+    const path = parse(r.content[0].text);
+    expect(path.found).toBe(true);
+    expect(path.nodes).toEqual(["ts:m.ts", "ts:m.ts#foo", "ts:m.ts#util"]);
+  });
+
+  it("find_path errors cleanly on an unknown endpoint", () => {
+    const r = toolMap(fixture()).get("find_path")!.handler({ from: "ts:m.ts#foo", to: "ts:nope#ghost" });
+    expect(r.isError).toBe(true);
   });
 
   it("find_nodes returns matching nodes as JSON", () => {

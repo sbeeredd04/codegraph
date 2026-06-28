@@ -102,6 +102,7 @@ it writes graph metadata only — it never edits files.
 | `find_nodes` | Search nodes by name and kind. |
 | `describe_node` | A node's detail plus any stored annotation. |
 | `dependencies` | What a node depends on (forward edges). |
+| `find_path` | How one node reaches another — the shortest dependency chain, to trace a request or data flow. |
 | `blast_radius` | What depends on a node (reverse reachability) — the impact of changing it. |
 | `neighborhood` | A local BFS map around a node, to a given radius. |
 | `list_orphans` | Dead-code candidates — nodes with no inbound references. |
