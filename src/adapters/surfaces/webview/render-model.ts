@@ -2,6 +2,7 @@ import type { GraphNode, GraphEdge, NodeKind, EdgeType, GraphDelta } from "../..
 import type { RankedChange } from "../../../core/graph/change-feed.js";
 import type { NodeEnrichment } from "../../../core/semantic/enrichment.js";
 import type { DiagramPanelModel } from "./diagram-view.js";
+import type { SearchableNode } from "../../../core/search/node-search.js";
 
 // Design language (PRD §8.5): dark IDE aesthetic, nodes colored by semantic kind.
 // A restrained, legible palette — modules anchor, leaves recede.
@@ -110,6 +111,10 @@ export interface RenderMessage {
   readonly version: 1;
   readonly payload: RenderModel;
   readonly diagrams?: DiagramPanelModel;
+  /** The full node set (every projection), as lightweight {address,name,kind} rows
+   * for the ⌘K command palette's fuzzy search. Projection-independent like diagrams,
+   * so it rides alongside the payload; older webviews simply ignore it. */
+  readonly allNodes?: readonly SearchableNode[];
 }
 
 /**

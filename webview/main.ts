@@ -12,6 +12,8 @@ import {
   animateNodeEntrance,
 } from "./graph-view.js";
 import { createDiagramDrawer } from "./diagram-drawer.js";
+import { createCommandPalette } from "./command-palette.js";
+import type { SearchableNode } from "../src/core/search/node-search.js";
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
@@ -43,6 +45,9 @@ const CHANGE_COLORS: Record<RankedChange["change"], string> = {
 const orphans = createOrphanToggle(orphanToggleEl, orphanCountEl, () => renderer?.refresh());
 let renderer: Sigma | undefined;
 let graph: Graph | undefined;
+// The full node set for the ⌘K palette — sent by the host alongside each render
+// (projection-independent), so the search reaches nodes the active view hides.
+let allNodes: readonly SearchableNode[] = [];
 // Force a fresh force-directed layout on the next paint. True for the first paint
 // and whenever the user switches projection (the node set changes wholesale); a
 // host-driven live delta leaves it false so surviving nodes keep their place.
@@ -75,6 +80,26 @@ function gotoRelatedNode(address: string): void {
   pendingFocus = address;
   setProjection("full");
 }
+
+// Command palette (PM-backlog #2): ⌘K fuzzy jump to any node — the same shared
+// component the standalone viewer uses. It searches the full host-sent node set
+// (not the current projection) and reuses gotoRelatedNode, which falls back to the
+// full view when the target is hidden, so a search hit is always reachable.
+createCommandPalette(
+  {
+    overlay: document.getElementById("palette") as HTMLElement,
+    dialog: document.getElementById("cp-dialog") as HTMLElement,
+    input: document.getElementById("cp-input") as HTMLInputElement,
+    list: document.getElementById("cp-list") as HTMLElement,
+    empty: document.getElementById("cp-empty") as HTMLElement,
+    hint: document.getElementById("cp-hint") as HTMLElement,
+  },
+  {
+    getNodes: () => allNodes,
+    onSelect: (address) => gotoRelatedNode(address),
+    trigger: document.getElementById("search-toggle") as HTMLButtonElement,
+  },
+);
 
 // Switch the projection from code (mirrors a toolbar click): reflect the active
 // segment and ask the host to re-render. No-op if already on that projection's view.
@@ -214,6 +239,7 @@ function render(model: RenderModel): void {
 window.addEventListener("message", (event: MessageEvent) => {
   const msg = event.data as RenderMessage | undefined;
   if (msg?.type === "render") {
+    if (msg.allNodes) allNodes = msg.allNodes;
     render(msg.payload);
     if (msg.diagrams) diagrams.update(msg.diagrams);
     // A related-node click switched projection to reach a hidden node — focus it
