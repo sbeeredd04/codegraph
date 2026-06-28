@@ -84,6 +84,9 @@ export function Explorer({
     [selectNode],
   );
 
+  // Stable closer so the palette's effects don't re-run each render.
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+
   // Global ⌘K / Ctrl+K toggles the palette. The listener owns the toggle so the
   // palette can mount only while open (fresh state, no reset effect). setState in
   // the callback is fine — it's the synchronous-setState-in-effect-body that the
@@ -307,7 +310,7 @@ export function Explorer({
 
         {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
         {paletteOpen && (
-          <CommandPalette nodes={nodes} onClose={() => setPaletteOpen(false)} onSelect={jumpTo} />
+          <CommandPalette nodes={nodes} onClose={closePalette} onSelect={jumpTo} />
         )}
 
         {/* Read-only source dock (FR-15) — replaces the detail panel while open */}

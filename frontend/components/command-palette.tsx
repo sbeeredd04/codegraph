@@ -33,15 +33,25 @@ export function CommandPalette({ nodes, onClose, onSelect }: CommandPaletteProps
   const listId = useId();
   const optionId = (i: number): string => `${listId}-opt-${i}`;
 
-  // Focus the field on mount; restore focus to the opener on unmount.
+  // Focus the field on mount; restore focus to the opener on unmount. A
+  // document-level Escape handler closes the palette even before autofocus has
+  // landed on the input (the input's own Escape covers the focused case).
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     const raf = requestAnimationFrame(() => inputRef.current?.focus());
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
     return () => {
       cancelAnimationFrame(raf);
+      document.removeEventListener("keydown", onKey);
       prev?.focus();
     };
-  }, []);
+  }, [onClose]);
 
   const results = useMemo(() => searchNodes(nodes, query, { limit: LIMIT }), [nodes, query]);
 

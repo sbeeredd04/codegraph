@@ -32,5 +32,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "public/benchmark/**"]
+  "exclude": ["node_modules", "public/benchmark/**", "e2e/**", "playwright.config.ts"]
 }
