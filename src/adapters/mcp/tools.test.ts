@@ -490,6 +490,7 @@ describe("MCP driving tools (FR-39 live presentation commands)", () => {
         "open_panel",
         "toggle_affordance",
         "guided_tour",
+        "replay_trace",
       ]),
     );
   });
@@ -572,6 +573,40 @@ describe("MCP driving tools (FR-39 live presentation commands)", () => {
       addresses: ["ts:m.ts#foo"],
       style: "neon",
     });
+    expect(r.isError).toBe(true);
+    expect(emitted).toHaveLength(0);
+  });
+
+  // A graph with distinct node start lines so the trace mapper has somewhere to land.
+  const linedGraph = (): CodeGraph => {
+    const g = new CodeGraph();
+    const at = (address: string, line: number, kind: GraphNode["kind"] = "function"): GraphNode => ({
+      address,
+      kind,
+      name: address.split(/[#.]/).pop() as string,
+      location: { file: "m.ts", line, character: 0 },
+    });
+    [at("ts:m.ts", 0, "module"), at("ts:m.ts#foo", 10), at("ts:m.ts#util", 20)].forEach((n) => g.addNode(n));
+    return g;
+  };
+
+  it("replay_trace maps a stack trace to an ordered replay tour (FR-41)", async () => {
+    const { sink, emitted } = memSink();
+    const trace = ["Error: boom", "    at util (/x/m.ts:22:1)", "    at foo (/x/m.ts:12:1)"].join("\n");
+    const r = await driveTools(linedGraph(), sink).get("replay_trace")!.handler({ trace, dwellMs: 500 });
+    expect(parse(r.content[0].text).presented).toEqual({
+      kind: "replay",
+      addresses: ["ts:m.ts#util", "ts:m.ts#foo"],
+      dwellMs: 500,
+    });
+    expect(emitted).toEqual([{ kind: "replay", addresses: ["ts:m.ts#util", "ts:m.ts#foo"], dwellMs: 500 }]);
+  });
+
+  it("replay_trace fails without emitting when no frame maps to a node (graceful)", async () => {
+    const { sink, emitted } = memSink();
+    const r = await driveTools(linedGraph(), sink)
+      .get("replay_trace")!
+      .handler({ trace: "    at x (/vendor/dep/lib.js:3:1)" });
     expect(r.isError).toBe(true);
     expect(emitted).toHaveLength(0);
   });

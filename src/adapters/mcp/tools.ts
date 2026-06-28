@@ -26,6 +26,7 @@ import {
   PROJECTION_KINDS,
   type PresentationCommandSink,
 } from "../../core/presentation/command.js";
+import { traceToAddresses } from "../../core/presentation/log-trace.js";
 import {
   findNodes,
   describeNode,
@@ -688,6 +689,30 @@ export function graphTools(
             .describe("Pause per stop in ms (clamped 200–10000; default 1200)."),
         },
         handler: (args) => drive({ kind: "replay", addresses: args.addresses, dwellMs: args.dwellMs }),
+      },
+      {
+        name: "replay_trace",
+        title: "Replay a stack trace",
+        description:
+          "Turn a runtime stack trace or error log into a guided tour on the LIVE board — paste the raw " +
+          "trace text and the board walks the human through the nodes it touched, in the order the trace " +
+          "lists them (innermost-first for Node/V8, outermost-first for Python). Frames that don't map to a " +
+          "known node are skipped; if none map, nothing happens. Use it to walk a crash or a profiled path. " +
+          "Drives the view only; never touches source files. Requires the human to have the explorer open.",
+        inputSchema: {
+          trace: z.string().min(1).describe("The raw stack trace / error log text."),
+          dwellMs: z
+            .number()
+            .optional()
+            .describe("Pause per stop in ms (clamped 200–10000; default 1200)."),
+        },
+        handler: (args) => {
+          const addresses = traceToAddresses(args.trace, getGraph().allNodes());
+          if (addresses.length === 0) {
+            return fail("codegraph: no frames in that trace mapped to a known node.");
+          }
+          return drive({ kind: "replay", addresses, dwellMs: args.dwellMs });
+        },
       },
     );
   }
