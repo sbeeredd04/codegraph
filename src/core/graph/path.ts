@@ -1,6 +1,14 @@
 import type { CodeGraph } from "./graph.js";
-import type { EdgeType, GraphEdge, GraphNode, NodeAddress } from "./types.js";
+import type { EdgeType, GraphEdge, NodeAddress } from "./types.js";
 import { DEPENDENCY_EDGES } from "./reachability.js";
+
+/** The minimal node shape path-finding needs: just an address. Both a full
+ * `GraphNode` and the webview's lightweight `{address,name,kind}` row satisfy it,
+ * so the canvas surfaces can trace over their projection-independent node set
+ * without holding (or shipping) the whole graph. */
+export interface PathNodeRef {
+  readonly address: NodeAddress;
+}
 
 // Path-finding over the edge set (pure, AD-1): "how does A reach B?" — the
 // shortest directed chain of edges from one node to another. The MCP `find_path`
@@ -65,7 +73,7 @@ export function findPath(
 /** Array-based path-find (same contract as `findPath`) for callers that hold raw
  * node/edge arrays rather than a CodeGraph — e.g. the standalone snapshot viewer. */
 export function findPathInEdges(
-  nodes: readonly GraphNode[],
+  nodes: readonly PathNodeRef[],
   edges: readonly GraphEdge[],
   from: NodeAddress,
   to: NodeAddress,

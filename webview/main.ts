@@ -9,11 +9,13 @@ import {
   showCard,
   installLensReducers,
   createOrphanToggle,
+  createTraceController,
   animateNodeEntrance,
 } from "./graph-view.js";
 import { createDiagramDrawer } from "./diagram-drawer.js";
 import { createCommandPalette } from "./command-palette.js";
 import type { SearchableNode } from "../src/core/search/node-search.js";
+import type { GraphEdge } from "../src/core/graph/types.js";
 
 const vscode = acquireVsCodeApi();
 const container = document.getElementById("app") as HTMLElement;
@@ -48,6 +50,9 @@ let graph: Graph | undefined;
 // The full node set for the ⌘K palette — sent by the host alongside each render
 // (projection-independent), so the search reaches nodes the active view hides.
 let allNodes: readonly SearchableNode[] = [];
+// The full edge set, sent the same way — the trace-path lens computes a route over
+// the whole graph regardless of the active projection (PM-backlog #3).
+let allEdges: readonly GraphEdge[] = [];
 // Force a fresh force-directed layout on the next paint. True for the first paint
 // and whenever the user switches projection (the node set changes wholesale); a
 // host-driven live delta leaves it false so surviving nodes keep their place.
@@ -85,7 +90,7 @@ function gotoRelatedNode(address: string): void {
 // component the standalone viewer uses. It searches the full host-sent node set
 // (not the current projection) and reuses gotoRelatedNode, which falls back to the
 // full view when the target is hidden, so a search hit is always reachable.
-createCommandPalette(
+const palette = createCommandPalette(
   {
     overlay: document.getElementById("palette") as HTMLElement,
     dialog: document.getElementById("cp-dialog") as HTMLElement,
@@ -101,6 +106,17 @@ createCommandPalette(
   },
 );
 
+// Trace-path (PM-backlog #3, the human half of the find_path MCP tool): the same
+// shared controller the standalone viewer uses. It computes the route locally over
+// the host-sent full node/edge set, so no extra host round-trip is needed.
+const trace = createTraceController({
+  toggleEl: document.getElementById("trace-toggle") as HTMLButtonElement,
+  statusEl: document.getElementById("trace-status") as HTMLElement,
+  getRenderer: () => renderer,
+  getNodes: () => allNodes,
+  getEdges: () => allEdges,
+});
+
 // Switch the projection from code (mirrors a toolbar click): reflect the active
 // segment and ask the host to re-render. No-op if already on that projection's view.
 function setProjection(kind: string): void {
@@ -108,6 +124,9 @@ function setProjection(kind: string): void {
     b.classList.toggle("active", (b as HTMLElement).dataset.projection === kind);
   }
   relayout = true; // a new projection is a new node set — lay it out fresh
+  // Drop any traced path: its nodes may not be present in the new view. The host
+  // re-renders in response, so no refresh is needed here.
+  trace.reset({ repaint: false });
   vscode.postMessage({ type: "setProjection", kind });
 }
 
@@ -222,11 +241,18 @@ function render(model: RenderModel): void {
   });
 
   renderer.on("enterNode", ({ node }: { node: string }) => showCard(g, node, card));
+  renderer.on("clickNode", ({ node }: { node: string }) => trace.clickNode(node));
   renderer.on("clickStage", () => card.classList.add("hidden"));
 
   renderFeed(model.feed);
   orphans.sync(model.orphanCount);
-  installLensReducers({ renderer, graph: g, lod: g.order > 300, isOrphanMode: orphans.isActive });
+  installLensReducers({
+    renderer,
+    graph: g,
+    lod: g.order > 300,
+    isOrphanMode: orphans.isActive,
+    pathOn: trace.highlight,
+  });
 
   // Motion polish: on a live delta (not a fresh layout), pop the newly-added
   // nodes in so the change is felt rather than silently appearing.
@@ -240,6 +266,7 @@ window.addEventListener("message", (event: MessageEvent) => {
   const msg = event.data as RenderMessage | undefined;
   if (msg?.type === "render") {
     if (msg.allNodes) allNodes = msg.allNodes;
+    if (msg.allEdges) allEdges = msg.allEdges;
     render(msg.payload);
     if (msg.diagrams) diagrams.update(msg.diagrams);
     // A related-node click switched projection to reach a hidden node — focus it
@@ -255,6 +282,14 @@ window.addEventListener("message", (event: MessageEvent) => {
 for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>(".seg button"))) {
   btn.addEventListener("click", () => setProjection(btn.dataset.projection ?? "full"));
 }
+
+// Esc clears an in-progress trace — but only when the command palette isn't open
+// (it owns Esc while focused), and only when there's a trace to clear.
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Escape" && !palette.isOpen() && trace.isTracing()) {
+    trace.reset();
+  }
+});
 
 // Tell the host we're mounted; it replies with the render model.
 vscode.postMessage({ type: "ready" });

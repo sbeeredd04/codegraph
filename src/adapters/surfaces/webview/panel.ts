@@ -92,6 +92,9 @@ export class GraphPanel {
       // The full node set for the ⌘K palette — projection-independent, so the
       // search can reach a node even while the active projection hides it.
       allNodes: this.nodes.map((n) => ({ address: n.address, name: n.name, kind: n.kind })),
+      // The full edge set, so the trace-path lens can route over the whole graph
+      // regardless of the active projection (PM-backlog #3).
+      allEdges: this.edges,
     };
     void this.panel.webview.postMessage(message);
   }
@@ -252,6 +255,17 @@ export class GraphPanel {
       border-color: hsl(250 70% 60% / .45); }
     .tg.dg.active .n { color: var(--accent); }
 
+    /* Trace-path toggle: violet active state, matching the highlighted route; the
+       status pill (a live region) reports the picked source / found route. */
+    .tg.trace.active { color: var(--accent); background: hsl(250 60% 18% / .5);
+      border-color: hsl(250 70% 60% / .45); }
+    .trace-status { font: 600 11px var(--mono); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; max-width: 32ch; padding: 4px 9px; border-radius: 7px;
+      color: var(--accent); background: hsl(250 45% 16% / .5); border: 1px solid hsl(250 70% 60% / .35); }
+    .trace-status[hidden] { display: none; }
+    .trace-status.none { color: hsl(2 72% 76%); background: hsl(2 45% 16% / .45);
+      border-color: hsl(2 60% 52% / .38); }
+
     .drawer { position: absolute; top: 48px; right: 0; bottom: 0; width: min(560px, 86vw);
       z-index: 50; display: flex; flex-direction: column;
       background: linear-gradient(var(--surface-2), var(--surface));
@@ -395,6 +409,14 @@ export class GraphPanel {
       title="Dim everything except dead-code candidates (nodes with no inbound references).">
       <i class="tgdot" aria-hidden="true"></i>Orphans<span class="n" id="orphan-count">0</span>
     </button>
+    <button id="trace-toggle" class="tg trace" type="button" aria-pressed="false"
+      title="Trace the shortest dependency path between two nodes — turn this on, then click a source node and a target node.">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="5" cy="19" r="2.4" /><circle cx="19" cy="5" r="2.4" /><path d="M7 17.5 17 6.5" />
+      </svg>Trace
+    </button>
+    <span class="trace-status" id="trace-status" role="status" aria-live="polite" hidden></span>
     <button id="diagrams-toggle" class="tg dg" type="button" aria-pressed="false"
       aria-controls="diagrams" aria-expanded="false"
       title="Agent-authored Mermaid diagrams — the workflows, architecture, and sequences your AI drew from the graph.">

@@ -138,6 +138,15 @@ describe("findPathInEdges (raw-array entry)", () => {
   it("returns undefined for an unknown endpoint", () => {
     expect(findPathInEdges(nodes, edges, "a", "z")).toBeUndefined();
   });
+
+  it("accepts lightweight {address}-only node rows (the webview's node set)", () => {
+    // The panel/viewer hold {address,name,kind} rows, not full GraphNodes; path
+    // finding only needs the address, so those rows must type- and run-check.
+    const light = [{ address: "a" }, { address: "b" }, { address: "c" }];
+    const r = findPathInEdges(light, edges, "a", "c");
+    expect(r!.found).toBe(true);
+    expect(r!.nodes).toEqual(["a", "b", "c"]);
+  });
 });
 
 describe("pathHighlight", () => {

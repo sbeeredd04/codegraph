@@ -115,6 +115,10 @@ export interface RenderMessage {
    * for the ⌘K command palette's fuzzy search. Projection-independent like diagrams,
    * so it rides alongside the payload; older webviews simply ignore it. */
   readonly allNodes?: readonly SearchableNode[];
+  /** The full edge set (every projection), so the trace-path lens can compute a
+   * route over the whole graph regardless of the active view (PM-backlog #3).
+   * Projection-independent like allNodes; older webviews simply ignore it. */
+  readonly allEdges?: readonly GraphEdge[];
 }
 
 /**

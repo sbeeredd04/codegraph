@@ -11,9 +11,15 @@
 import type Sigma from "sigma";
 import type Graph from "graphology";
 import { nodeHiddenAtRatio } from "../src/adapters/surfaces/webview/lod.js";
-import { capabilityCardHtml } from "../src/adapters/surfaces/webview/card.js";
-import { pathEdgeKey, type PathHighlight } from "../src/core/graph/path.js";
-import type { NodeKind } from "../src/core/graph/types.js";
+import { capabilityCardHtml, shortName } from "../src/adapters/surfaces/webview/card.js";
+import {
+  findPathInEdges,
+  pathEdgeKey,
+  pathHighlight,
+  type PathHighlight,
+  type PathNodeRef,
+} from "../src/core/graph/path.js";
+import type { GraphEdge, NodeKind } from "../src/core/graph/types.js";
 import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 
 // Orphan overlay (FR-12): when on, the reducers dim every non-orphan so the
@@ -178,6 +184,120 @@ export function createOrphanToggle(
       if (count === 0 && active) active = false;
       reflect();
     },
+  };
+}
+
+export interface TraceConfig {
+  /** The Trace-mode button — this controller owns its on/off + aria-pressed. */
+  readonly toggleEl: HTMLButtonElement;
+  /** The status pill (a live region: announces the picked source / found route). */
+  readonly statusEl: HTMLElement;
+  /** The live renderer, read fresh each use — it is recreated on every repaint. */
+  readonly getRenderer: () => Sigma | undefined;
+  /** The full node set the path is computed over (projection-independent). */
+  readonly getNodes: () => readonly PathNodeRef[];
+  /** The full edge set the path is computed over (default: dependency edges). */
+  readonly getEdges: () => readonly GraphEdge[];
+}
+
+export interface TraceController {
+  /** The active path highlight (or undefined) — pass as `pathOn` to the lens. */
+  readonly highlight: () => PathHighlight | undefined;
+  /** Sigma clickNode handler: 1st click picks the source, 2nd traces to the target. */
+  readonly clickNode: (node: string) => void;
+  /** Clear an in-progress source + highlight, keeping trace mode armed (e.g. Esc).
+   *  Pass `{ repaint: false }` when a full repaint already follows (projection switch). */
+  readonly reset: (opts?: { repaint?: boolean }) => void;
+  /** Turn trace mode fully off (e.g. a fresh snapshot load). */
+  readonly disarm: () => void;
+  /** True while a source is picked or a path is showing — guards the Esc handler. */
+  readonly isTracing: () => boolean;
+}
+
+/**
+ * Trace-path interaction (PM-backlog #3, the human half of the `find_path` MCP
+ * tool), shared by both Sigma surfaces. Turn the toggle on, click a source node
+ * then a target, and the shortest dependency route lights up via the path lens
+ * (`highlight()` feeds `installLensReducers`' `pathOn`) while everything else
+ * recedes; the camera pans to the route. The path is computed locally with the
+ * pure `findPathInEdges`, so neither surface needs a host round-trip — they just
+ * supply their node/edge set (the standalone snapshot, or the host-sent full set).
+ */
+export function createTraceController(config: TraceConfig): TraceController {
+  const { toggleEl, statusEl, getRenderer, getNodes, getEdges } = config;
+  const state: { active: boolean; from?: string; hl?: PathHighlight } = { active: false };
+
+  const setStatus = (text: string, tone?: "none"): void => {
+    statusEl.textContent = text;
+    statusEl.hidden = text === "";
+    statusEl.classList.toggle("none", tone === "none");
+  };
+  const idleText = (): string => (state.active ? "Click a node to start the trace" : "");
+
+  const reflect = (): void => {
+    toggleEl.classList.toggle("active", state.active);
+    toggleEl.setAttribute("aria-pressed", String(state.active));
+  };
+
+  // Pan the camera to the centroid of the traced route so the whole path is in view.
+  const fitToPath = (addresses: readonly string[]): void => {
+    const renderer = getRenderer();
+    if (!renderer) return;
+    const pts = addresses
+      .map((a) => renderer.getNodeDisplayData(a))
+      .filter((p): p is NonNullable<typeof p> => p != null);
+    if (pts.length === 0) return;
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    void renderer.getCamera().animate({ x: cx, y: cy, ratio: 0.75 }, { duration: 420 });
+  };
+
+  const reset = (opts?: { repaint?: boolean }): void => {
+    state.from = undefined;
+    state.hl = undefined;
+    setStatus(idleText());
+    if (opts?.repaint !== false) getRenderer()?.refresh();
+  };
+
+  const clickNode = (node: string): void => {
+    if (!state.active || getNodes().length === 0) return;
+    if (!state.from) {
+      state.from = node;
+      state.hl = { nodes: new Set([node]), edges: new Set() }; // spotlight the source
+      setStatus(`From ${shortName(node)} — click a target`);
+      getRenderer()?.refresh();
+      return;
+    }
+    const result = findPathInEdges(getNodes(), getEdges(), state.from, node);
+    if (result?.found) {
+      state.hl = pathHighlight(result);
+      const hops = result.length === 1 ? "1 hop" : `${result.length} hops`;
+      setStatus(`${shortName(state.from)} → ${shortName(node)} · ${hops}`);
+      fitToPath(result.nodes);
+    } else {
+      state.hl = undefined;
+      setStatus(`No path from ${shortName(state.from)} to ${shortName(node)}`, "none");
+    }
+    state.from = undefined; // ready for a fresh source; the highlight persists
+    getRenderer()?.refresh();
+  };
+
+  toggleEl.addEventListener("click", () => {
+    state.active = !state.active;
+    reflect();
+    reset();
+  });
+
+  return {
+    highlight: () => state.hl,
+    clickNode,
+    reset,
+    disarm: () => {
+      state.active = false;
+      reflect();
+      reset({ repaint: false });
+    },
+    isTracing: () => state.active && (state.from != null || state.hl != null),
   };
 }
 
