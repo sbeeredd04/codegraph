@@ -49,6 +49,8 @@ export interface DiagramDrawerOptions {
 export interface DiagramDrawer {
   /** Reconcile the drawer with a fresh diagram panel model (host repaint). */
   update(model: DiagramPanelModel): void;
+  /** Open the drawer, optionally selecting a diagram by id (knowledge-index deep link). */
+  openTo(id?: string): void;
 }
 
 // The esbuild ESM-global build exposes the API at `.mermaid.default`; fall back to
@@ -177,6 +179,10 @@ export function createDiagramDrawer(
   });
 
   return {
+    openTo(id?: string): void {
+      setOpen(true);
+      if (id && byId.has(id)) select(id);
+    },
     update(model: DiagramPanelModel): void {
       byId.clear();
       for (const group of model.groups) for (const d of group.diagrams) byId.set(d.id, d);

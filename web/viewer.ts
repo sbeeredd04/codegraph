@@ -18,6 +18,7 @@ import { parseGraphSnapshot, type GraphSnapshot } from "../src/core/graph/export
 import type { NodeEnrichment } from "../src/core/semantic/enrichment.js";
 import { DIAGRAM_SET_VERSION } from "../src/core/diagrams/diagram.js";
 import { buildDiagramPanel } from "../src/adapters/surfaces/webview/diagram-view.js";
+import { buildKnowledgeIndex } from "../src/adapters/surfaces/webview/knowledge-view.js";
 import {
   showCard,
   installLensReducers,
@@ -25,6 +26,7 @@ import {
   createTraceController,
 } from "../webview/graph-view.js";
 import { createDiagramDrawer } from "../webview/diagram-drawer.js";
+import { createKnowledgeIndex } from "../webview/knowledge-drawer.js";
 import { createCommandPalette } from "../webview/command-palette.js";
 
 const container = document.getElementById("app") as HTMLElement;
@@ -86,6 +88,25 @@ const trace = createTraceController({
   getNodes: () => snapshot?.nodes ?? [],
   getEdges: () => snapshot?.edges ?? [],
 });
+
+// Knowledge index (PM-backlog #4): the repo's table of contents — the agent's
+// annotations grouped by role + diagrams grouped by category. A node entry focuses
+// its graph node (reuses the projection-fallback focus); a diagram entry deep-links
+// the diagrams drawer to that diagram.
+const knowledge = createKnowledgeIndex(
+  {
+    toggle: document.getElementById("index-toggle") as HTMLButtonElement,
+    toggleCount: document.getElementById("index-count") as HTMLElement,
+    drawer: document.getElementById("index-panel") as HTMLElement,
+    drawerCount: document.getElementById("ki-count") as HTMLElement,
+    close: document.getElementById("ki-close") as HTMLButtonElement,
+    index: document.getElementById("ki-list") as HTMLElement,
+  },
+  {
+    onSelectNode: (address) => focusNodeByAddress(address),
+    onOpenDiagram: (id) => diagrams.openTo(id),
+  },
+);
 
 function render(model: RenderModel): void {
   renderer?.kill();
@@ -204,8 +225,18 @@ function loadText(text: string): void {
   card.classList.add("hidden");
   // A fresh snapshot resets trace mode entirely (old addresses don't apply).
   trace.disarm();
-  // Diagrams are projection-independent, so reconcile the drawer once per load.
+  // Diagrams and the knowledge index are projection-independent (they cover the
+  // whole snapshot), so reconcile both once per load rather than per repaint.
   diagrams.update(buildDiagramPanel({ version: DIAGRAM_SET_VERSION, diagrams: snapshot.diagrams ?? [] }));
+  const enrichMap = snapshot.enrichments
+    ? new Map<string, NodeEnrichment>(Object.entries(snapshot.enrichments))
+    : new Map<string, NodeEnrichment>();
+  knowledge.update(
+    buildKnowledgeIndex(snapshot.nodes, enrichMap, {
+      version: DIAGRAM_SET_VERSION,
+      diagrams: snapshot.diagrams ?? [],
+    }),
+  );
   rebuild();
 }
 

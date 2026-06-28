@@ -229,6 +229,44 @@
       background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
       font: 11px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
 
+    /* Knowledge index drawer (PM-backlog #4): the repo's table of contents — the
+       agent's annotations (grouped by role) + diagrams (grouped by category) in one
+       navigable rail. Reuses the shared .drawer slide-over. A distinct teal active
+       state so it never reads as the diagrams (violet) or orphans (ochre) mode. */
+    .tg.idx.active { color: hsl(185 62% 58%); background: hsl(185 50% 14% / .5);
+      border-color: hsl(185 58% 50% / .45); }
+    .tg.idx.active .n { color: hsl(185 62% 58%); }
+
+    .ki-list { flex: 1; min-height: 0; overflow: auto; padding: 4px 8px 14px; }
+    .ki-section { margin: 14px 8px 2px; color: var(--text-2); font: 600 10px var(--sans);
+      text-transform: uppercase; letter-spacing: .08em; }
+    .ki-list > .ki-section:first-child { margin-top: 8px; }
+    .ki-group { margin-bottom: 6px; }
+    .ki-head { display: flex; align-items: center; gap: 8px; margin: 9px 8px 3px;
+      color: var(--text); font: 600 11px var(--sans); letter-spacing: -.005em; }
+    .ki-head .ki-n { color: var(--text-3); font: 600 10px var(--mono); }
+    .ki-item, .ki-dg { display: block; width: 100%; text-align: left; appearance: none;
+      background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+      color: var(--text); transition: background .12s ease; }
+    @media (hover: hover) { .ki-item:hover, .ki-dg:hover { background: var(--surface-3); } }
+    .ki-item:focus-visible, .ki-dg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .ki-row { display: flex; align-items: baseline; gap: 8px; }
+    .ki-name { font: 500 12px var(--mono); color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ki-kind { font: 600 9px var(--sans); text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-3); flex: none; }
+    .ki-kind.k-module { color: var(--k-module); } .ki-kind.k-class { color: var(--k-class); }
+    .ki-kind.k-function { color: var(--k-function); } .ki-kind.k-method { color: var(--k-method); }
+    .ki-kind.k-workflow { color: var(--k-workflow); }
+    .ki-sum { display: block; margin-top: 2px; color: var(--text-3); font: 11px/1.45 var(--sans);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ki-dg .ki-name { font: 500 12px var(--sans); }
+    .ki-empty { color: var(--text-3); font: 12px/1.6 var(--sans); padding: 10px 8px; }
+    .ki-empty-title { margin: 2px 0 7px; color: var(--text-2); font: 600 13px var(--sans); }
+    .ki-empty-body { margin: 0; max-width: 42ch; }
+    .ki-empty code { font: 11px var(--mono); color: var(--accent);
+      background: hsl(250 45% 16% / .42); padding: 1px 5px; border-radius: 5px; }
+
     /* Command palette (PM-backlog #2): a ⌘K spotlight to fuzzy-jump to any node.
        WAI-ARIA combobox — the input keeps focus, the active row is tracked with
        aria-activedescendant, so there is no focus trap. */
@@ -315,6 +353,15 @@
       title="Agent-authored Mermaid diagrams — the workflows, architecture, and sequences your AI drew from the graph.">
       <i class="tgdot" aria-hidden="true"></i>Diagrams<span class="n" id="diagrams-count">0</span>
     </button>
+    <button id="index-toggle" class="tg idx" type="button" aria-pressed="false"
+      aria-controls="index-panel" aria-expanded="false"
+      title="Knowledge index — every node your AI annotated and every diagram it saved, as the repo's table of contents.">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 6h10M4 12h10M4 18h10" /><circle cx="19.5" cy="6" r="1.1" fill="currentColor" stroke="none" />
+        <circle cx="19.5" cy="12" r="1.1" fill="currentColor" stroke="none" /><circle cx="19.5" cy="18" r="1.1" fill="currentColor" stroke="none" />
+      </svg>Index<span class="n" id="index-count">0</span>
+    </button>
     <span class="meta" id="meta"></span>
     <button class="load" id="load" type="button">Load snapshot…</button>
     <span class="legend" aria-hidden="true">
@@ -346,6 +393,13 @@
       <div class="dg-related" id="dg-related" hidden></div>
       <div class="dg-render" id="dg-render"></div>
     </div>
+  </aside>
+  <aside id="index-panel" class="drawer gone" role="region" aria-label="Knowledge index">
+    <header>
+      <h3>Knowledge</h3><span class="count" id="ki-count">0 annotated</span>
+      <button class="close" id="ki-close" type="button" aria-label="Close knowledge index" title="Close (Esc)">&times;</button>
+    </header>
+    <div class="ki-list" id="ki-list"></div>
   </aside>
   <div id="palette" class="cp-overlay gone" role="presentation">
     <div id="cp-dialog" class="cp-dialog" role="dialog" aria-modal="true" aria-label="Search nodes">
