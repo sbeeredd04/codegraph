@@ -13,6 +13,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildSourceView } from "@core/source/source-view";
 import { buildEditorLink, editorById, DEFAULT_EDITOR } from "@core/links/editor-link";
 import { tokenizeLines, type Token, type TokenType } from "@/lib/highlight";
+import { useDockState } from "@/lib/use-dock-state";
+import { DockResizeHandle } from "./resizable-dock";
 
 const TOKEN_CLASS: Record<TokenType, string> = {
   plain: "text-zinc-300",
@@ -69,6 +71,15 @@ export function NodeSourceViewer({
   );
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
+  // The code pane is the panel that benefits most from a wider drag — a resize
+  // handle on its inner edge, with the width persisted per-browser (FR-34). No
+  // collapse: the viewer already has an explicit Close, and it remounts per node.
+  const { width, resizing, handleProps } = useDockState(
+    "codegraph:dock:source",
+    { defaultWidth: 640, minWidth: 400, maxWidth: 1100 },
+    "right",
+  );
+
   // Fetch (and degrade gracefully). Host-local source only: no sidecar → unavailable.
   useEffect(() => {
     if (!sourceBase) return; // initial state is already "unavailable"
@@ -121,8 +132,13 @@ export function NodeSourceViewer({
     <aside
       role="region"
       aria-label={`Source for ${title}`}
-      className="absolute inset-y-3 right-3 z-20 flex w-[min(44rem,60vw)] flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur"
+      style={{ width }}
+      className={`absolute inset-y-0 right-0 z-20 flex border-l border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur ${
+        resizing ? "" : "transition-[width] duration-150 motion-reduce:transition-none"
+      }`}
     >
+      <DockResizeHandle handleProps={handleProps} resizing={resizing} />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -206,6 +222,7 @@ export function NodeSourceViewer({
             </code>
           </pre>
         )}
+      </div>
       </div>
     </aside>
   );

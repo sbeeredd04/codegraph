@@ -7,7 +7,37 @@
 // source viewer and knowledge drawers adopt it in later slices.
 
 import type { ReactNode } from "react";
-import { useDockState, type DockBounds } from "@/lib/use-dock-state";
+import { useDockState, type DockBounds, type DockHandleProps } from "@/lib/use-dock-state";
+
+/**
+ * The draggable / keyboard-focusable resize strip. Shared so any dock — the
+ * ResizableDock frame below, or a panel that wires useDockState directly (the
+ * source viewer) — renders an identical handle.
+ */
+export function DockResizeHandle({
+  handleProps,
+  resizing,
+}: {
+  handleProps: DockHandleProps;
+  resizing: boolean;
+}): React.JSX.Element {
+  return (
+    <div
+      {...handleProps}
+      title="Drag to resize · ← → to adjust"
+      className={`group flex w-2.5 shrink-0 cursor-col-resize items-center justify-center focus:outline-none ${
+        resizing ? "bg-violet-500/40" : "hover:bg-violet-500/25 focus-visible:bg-violet-500/30"
+      } transition-colors`}
+    >
+      <span
+        aria-hidden
+        className={`h-10 w-0.5 rounded-full ${
+          resizing ? "bg-violet-400" : "bg-zinc-700 group-hover:bg-violet-400/70"
+        }`}
+      />
+    </div>
+  );
+}
 
 interface ResizableDockProps {
   /** Unique, per-plane-namespaced localStorage key for this dock's layout. */
@@ -66,20 +96,7 @@ export function ResizableDock({
 
   const handle = (
     <div className="relative flex w-2.5 shrink-0 items-stretch">
-      <div
-        {...handleProps}
-        title="Drag to resize · ← → to adjust"
-        className={`group flex w-full cursor-col-resize items-center justify-center focus:outline-none ${
-          resizing ? "bg-violet-500/40" : "hover:bg-violet-500/25 focus-visible:bg-violet-500/30"
-        } transition-colors`}
-      >
-        <span
-          aria-hidden
-          className={`h-10 w-0.5 rounded-full ${
-            resizing ? "bg-violet-400" : "bg-zinc-700 group-hover:bg-violet-400/70"
-          }`}
-        />
-      </div>
+      <DockResizeHandle handleProps={handleProps} resizing={resizing} />
       <button
         onClick={() => setCollapsed(true)}
         aria-label={`Collapse ${label}`}

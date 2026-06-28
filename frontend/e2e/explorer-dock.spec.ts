@@ -86,6 +86,43 @@ test("FR-34: the detail dock resizes by keyboard and persists collapse across re
   await expect(page.getByTestId("detail-body")).toBeVisible();
 });
 
+test("FR-34: the source viewer resizes by keyboard and persists width across reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+  await selectTopNode(page);
+
+  // Open the read-only code dock from the detail panel.
+  await page.getByRole("button", { name: "View source" }).click();
+  const viewer = page.getByRole("region", { name: /Source for/ });
+  await expect(viewer).toBeVisible();
+
+  // Resize via its own keyboard-accessible separator (scoped to the viewer, since
+  // both docks expose a "Resize panel" handle — though never simultaneously).
+  const handle = viewer.getByRole("separator", { name: "Resize panel" });
+  const before = Number(await handle.getAttribute("aria-valuenow"));
+  await handle.focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+  const widened = Number(await handle.getAttribute("aria-valuenow"));
+  expect(widened).toBeGreaterThan(before);
+  await page.screenshot({ path: `${SHOT}/source-dock-resized.png` });
+
+  // The width survives a reload — re-selecting the node and re-opening the dock
+  // re-mounts the viewer, which reads the persisted width.
+  await page.reload();
+  await waitForGraph(page);
+  await selectTopNode(page);
+  await page.getByRole("button", { name: "View source" }).click();
+  const restored = Number(
+    await page
+      .getByRole("region", { name: /Source for/ })
+      .getByRole("separator", { name: "Resize panel" })
+      .getAttribute("aria-valuenow"),
+  );
+  expect(restored).toBe(widened);
+});
+
 test("FR-34: a resized width persists across reload", async ({ page }) => {
   await page.goto("/");
   await waitForGraph(page);
