@@ -9,6 +9,7 @@ import { prepareExportHtml } from "./export-html.js";
 import {
   commandMessage,
   isReadyMessage,
+  parseOpenFileMessage,
   snapshotMessage,
   withTrailingSlash,
 } from "./explorer-protocol.js";
@@ -75,7 +76,12 @@ export class ExplorerPanel {
       // The Next app announces readiness (webview-bridge.ts), then we hand it the
       // live graph — mirroring the bespoke panel's ready/render handshake.
       this.panel.webview.onDidReceiveMessage((msg: unknown) => {
-        if (isReadyMessage(msg)) this.send();
+        if (isReadyMessage(msg)) {
+          this.send();
+          return;
+        }
+        const open = parseOpenFileMessage(msg);
+        if (open) this.revealInEditor(open.file, open.line, open.column);
       });
     } else {
       this.panel.reveal(column);
@@ -136,6 +142,36 @@ export class ExplorerPanel {
     // Passed at the transport layer, never baked into the portable snapshot.
     const editorRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     void this.panel.webview.postMessage(snapshotMessage(this.snapshot, editorRoot));
+  }
+
+  /**
+   * Reveal a repo-relative file in the editor at the webview's request (FR-31).
+   * The host owns the source + the absolute root (AD-16), so it resolves the
+   * relative path here — the webview only ever posts the relative file, so the
+   * host path never enters the webview DOM. `parseOpenFileMessage` already string-
+   * guarded the path (no absolute, no `..`); this re-checks that the RESOLVED path
+   * stays inside the workspace root as defense in depth before opening it.
+   *
+   * The reveal itself runs only inside the Extension Development Host (a live
+   * webview posting the request), so it is staged + verified there, not headlessly;
+   * the path safeguard it relies on IS unit-tested (explorer-protocol.test.ts).
+   * Read-only — it opens the file, never writes (FR-9). Best-effort: a failed open
+   * is swallowed so a stale path can't break the panel.
+   */
+  private static revealInEditor(file: string, line?: number, column?: number): void {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) return;
+    const abs = path.resolve(root, file);
+    const rel = path.relative(root, abs);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return; // escaped the root
+    const position = new vscode.Position(line ?? 0, column ?? 0);
+    void Promise.resolve(
+      vscode.window.showTextDocument(vscode.Uri.file(abs), {
+        viewColumn: vscode.ViewColumn.One,
+        preview: false,
+        selection: new vscode.Range(position, position),
+      }),
+    ).then(undefined, () => undefined);
   }
 
   private static html(context: vscode.ExtensionContext, webview: vscode.Webview): string {

@@ -9,10 +9,11 @@
 // affordance of any kind (FR-9). Tokens render as escaped React spans, so
 // untrusted source can never inject markup.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildSourceView } from "@core/source/source-view";
 import { buildEditorLink, editorById, DEFAULT_EDITOR } from "@core/links/editor-link";
 import { tokenizeLines, type Token, type TokenType } from "@/lib/highlight";
+import { isWebviewHost, revealInEditor } from "@/lib/webview-bridge";
 import { useDockState } from "@/lib/use-dock-state";
 import { DockResizeHandle } from "./resizable-dock";
 
@@ -128,6 +129,21 @@ export function NodeSourceViewer({
   );
   const editorLabel = editorById(DEFAULT_EDITOR).label;
 
+  // Inside the VS Code webview, reveal natively (FR-31): post the repo-relative
+  // path to the host, which runs showTextDocument — smoother than the URI handler
+  // and it keeps the absolute root host-side. The `vscode://file` href stays as a
+  // no-JS / middle-click fallback (FR-32). Checked at click time (not render) so
+  // there is no SSR/hydration mismatch on the static export. No-op on the web.
+  const onEditorOpen = useCallback(
+    (e: React.MouseEvent) => {
+      if (isWebviewHost()) {
+        e.preventDefault();
+        revealInEditor(file, line, character);
+      }
+    },
+    [file, line, character],
+  );
+
   return (
     <aside
       role="region"
@@ -153,6 +169,7 @@ export function NodeSourceViewer({
           {editorLink && (
             <a
               href={editorLink}
+              onClick={onEditorOpen}
               data-testid="open-in-editor"
               className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
             >
@@ -176,7 +193,12 @@ export function NodeSourceViewer({
         )}
 
         {state.status === "unavailable" && (
-          <UnavailableCard signature={signature} editorLink={editorLink} editorLabel={editorLabel} />
+          <UnavailableCard
+            signature={signature}
+            editorLink={editorLink}
+            editorLabel={editorLabel}
+            onEditorOpen={onEditorOpen}
+          />
         )}
 
         {state.status === "error" && (
@@ -232,10 +254,12 @@ function UnavailableCard({
   signature,
   editorLink,
   editorLabel,
+  onEditorOpen,
 }: {
   signature?: string;
   editorLink: string | null;
   editorLabel: string;
+  onEditorOpen: (e: React.MouseEvent) => void;
 }): React.JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
@@ -250,6 +274,7 @@ function UnavailableCard({
       {editorLink && (
         <a
           href={editorLink}
+          onClick={onEditorOpen}
           data-testid="open-in-editor"
           className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-200 transition-colors hover:bg-violet-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
         >

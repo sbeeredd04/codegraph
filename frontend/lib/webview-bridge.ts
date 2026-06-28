@@ -47,6 +47,17 @@ export function isWebviewHost(): boolean {
   return vscode() !== null;
 }
 
+/**
+ * Ask the host to reveal a file in the editor (FR-31). Posts only the repo-
+ * RELATIVE path + 0-based position; the host resolves it against the absolute
+ * root it owns (AD-16), so the host filesystem path never enters the webview DOM
+ * (unlike the FR-32 `vscode://file/<absroot>/…` fallback href). No-op off the
+ * webview host — the standalone web plane has no editor to drive (AD-14).
+ */
+export function revealInEditor(file: string, line?: number, column?: number): void {
+  vscode()?.postMessage({ type: "codegraph:openFile", file, line, column });
+}
+
 function isSnapshotMessage(data: unknown): data is SnapshotMessage {
   if (typeof data !== "object" || data === null) return false;
   const m = data as { type?: unknown; snapshot?: unknown };

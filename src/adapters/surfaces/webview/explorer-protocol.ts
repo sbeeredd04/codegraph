@@ -12,6 +12,10 @@ import type { PresentationCommand } from "../../../core/presentation/command.js"
 
 /** webview → host: "mounted, send me the graph." */
 export const READY_TYPE = "codegraph:ready" as const;
+/** webview → host: "reveal this file in the editor" (FR-31). Carries only the
+ * repo-RELATIVE path + 0-based position; the host resolves it against the
+ * absolute editorRoot it owns (AD-16), so the host path never enters the webview. */
+export const OPEN_FILE_TYPE = "codegraph:openFile" as const;
 /** host → webview: the live graph to render (source stays host-local, AD-16). */
 export const SNAPSHOT_TYPE = "codegraph:snapshot" as const;
 /** host → webview: a live presentation directive from the agent (FR-39). Ephemeral
@@ -37,6 +41,49 @@ export function isReadyMessage(msg: unknown): boolean {
   return (
     typeof msg === "object" && msg !== null && (msg as { type?: unknown }).type === READY_TYPE
   );
+}
+
+/** webview → host: a reveal-in-editor request (FR-31). The file is repo-relative
+ *  and the position is 0-based (a vscode.Position is 0-based, so no off-by-one). */
+export interface OpenFileMessage {
+  readonly type: typeof OPEN_FILE_TYPE;
+  readonly file: string;
+  readonly line?: number;
+  readonly column?: number;
+}
+
+const MAX_FILE_LEN = 4096;
+
+function clampIndex(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : undefined;
+}
+
+/**
+ * Parse + SAFEGUARD an inbound webview openFile request (FR-31). The webview is
+ * UNTRUSTED and the host joins `file` onto its absolute root, so this rejects
+ * anything that isn't a clean repo-relative path: a non-string/empty/over-long
+ * file, an absolute path (POSIX `/…`, UNC/backslash, or a Windows `C:` drive),
+ * and any `..` segment (traversal). Returns the normalized request, or null when
+ * the message isn't a well-formed, safe openFile. Deliberately string-only (no
+ * node:path) so it stays pure and frontend-allowlist-safe; the host adds a
+ * resolve-within-root check as defense in depth.
+ */
+export function parseOpenFileMessage(
+  msg: unknown,
+): { file: string; line?: number; column?: number } | null {
+  if (typeof msg !== "object" || msg === null) return null;
+  const m = msg as { type?: unknown; file?: unknown; line?: unknown; column?: unknown };
+  if (m.type !== OPEN_FILE_TYPE) return null;
+  if (typeof m.file !== "string" || m.file.length === 0 || m.file.length > MAX_FILE_LEN) return null;
+  if (/^([/\\]|[A-Za-z]:)/.test(m.file)) return null; // absolute (POSIX / UNC / drive)
+  if (m.file.split(/[/\\]/).some((seg) => seg === "..")) return null; // parent-dir escape
+  const line = clampIndex(m.line);
+  const column = clampIndex(m.column);
+  return {
+    file: m.file,
+    ...(line !== undefined ? { line } : {}),
+    ...(column !== undefined ? { column } : {}),
+  };
 }
 
 /** host → webview: the presentation-command envelope the export's bridge expects.

@@ -93,6 +93,53 @@ test("FR-32: the webview source viewer deep-links the file into the editor", asy
   await page.screenshot({ path: `${SHOT}/open-in-editor.png` });
 });
 
+test("FR-31: clicking reveal posts a relative-path openFile request to the host (native reveal)", async ({ page }) => {
+  // A recording webview host: capture every message the page posts back so we can
+  // assert the native reveal request (FR-31) instead of relying on the URI handler.
+  await page.addInitScript(() => {
+    const posted: unknown[] = [];
+    (window as unknown as { __posted: unknown[] }).__posted = posted;
+    (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+      postMessage: (m: unknown) => posted.push(m),
+      getState: () => undefined,
+      setState: () => undefined,
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.getByText(/Loading dataset/i)).toBeVisible();
+  await page.evaluate(
+    ({ snap, root }) => {
+      window.postMessage({ type: "codegraph:snapshot", snapshot: snap, editorRoot: root }, "*");
+    },
+    { snap: LIVE_SNAPSHOT, root: EDITOR_ROOT },
+  );
+  await waitForGraph(page);
+
+  // Select node "b" (src/beta.ts, 0-based line 1, char 2) and open the source dock.
+  await page.evaluate(() => {
+    const el = document.querySelector("div.absolute.inset-0") as HTMLElement & {
+      __sigma: { emit(ev: string, payload: { node: string }): void };
+    };
+    el.__sigma.emit("clickNode", { node: "b" });
+  });
+  await page.getByRole("button", { name: "View source" }).click();
+
+  // Click the header "Open in editor" — in the webview this fires the native path
+  // (postMessage), NOT a vscode:// navigation. The host gets only the RELATIVE
+  // path + 0-based position; the absolute root never leaves the host.
+  await page.getByTestId("open-in-editor").first().click();
+  const posted = await page.evaluate(() => (window as unknown as { __posted: unknown[] }).__posted);
+  expect(posted).toContainEqual({
+    type: "codegraph:openFile",
+    file: "src/beta.ts",
+    line: 1,
+    column: 2,
+  });
+  // The host path is never embedded in what the webview posts (AD-16).
+  expect(JSON.stringify(posted)).not.toContain(EDITOR_ROOT);
+});
+
 test("FR-32: no deep link on the standalone web (no host root — source-blind)", async ({ page }) => {
   // No acquireVsCodeApi: the standalone web path, which has no absolute root.
   await page.goto("/");
