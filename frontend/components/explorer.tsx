@@ -12,9 +12,13 @@ import dynamic from "next/dynamic";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
+import { DIAGRAM_SET_VERSION } from "@core/diagrams/diagram";
 import type { Doc } from "@core/docs/doc";
+import { DOC_SET_VERSION } from "@core/docs/doc";
 import type { Overlay } from "@core/overlays/overlay";
 import { nodeOverlays, overlayHighlights, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
+import type { NodeKind } from "@core/graph/types";
+import { buildOnboardPlaybook } from "@core/onboard/playbook";
 import { MARK_CANVAS_COLOR } from "@/lib/overlay-style";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
@@ -30,6 +34,7 @@ import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
+import { OnboardingPanel } from "./onboarding-panel";
 import { AskPanel } from "./ask-panel";
 import type { AskFocus } from "@core/assist/ask";
 
@@ -120,6 +125,7 @@ export function Explorer({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [onboardOpen, setOnboardOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   // Bumped by "Reset layout" — used as a remount key so every dock re-reads its
   // (now-cleared) localStorage and returns to defaults.
@@ -312,6 +318,24 @@ export function Explorer({
     for (const [address, mark] of overlayHl.marks) m.set(address, MARK_CANVAS_COLOR[mark.mark]);
     return m;
   }, [overlayHl]);
+
+  // FR-42: the agent's on-install bootstrap checklist, mirrored for the human.
+  // Built from the SAME inputs the codegraph_onboard MCP tool reads — the live
+  // snapshot's graph shape + its agent-authored diagrams/docs/overlays — through
+  // the SAME pure-core builder, so the Setup panel shows exactly what the agent
+  // sees: which starter knowledge already exists and what's still a gap.
+  const playbook = useMemo(() => {
+    const byKind = Object.fromEntries(
+      (Object.keys(KIND_COLORS) as NodeKind[]).map((k) => [k, 0]),
+    ) as Record<NodeKind, number>;
+    for (const n of nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1;
+    return buildOnboardPlaybook({
+      stats: { nodeCount: nodes.length, edgeCount: edges.length, byKind },
+      diagrams: { version: DIAGRAM_SET_VERSION, diagrams: diagrams ? [...diagrams] : [] },
+      docs: { version: DOC_SET_VERSION, docs: docs ? [...docs] : [] },
+      overlays: overlaySet,
+    });
+  }, [nodes, edges, diagrams, docs, overlaySet]);
 
   // Context handed to the AI-assist panel (FR-30): the selected node and its
   // first-degree neighbours, so the generated prompt anchors the agent's search.
@@ -524,6 +548,28 @@ export function Explorer({
           Docs <span className="font-mono">{docList.length}</span>
         </button>
 
+        {/* Onboarding progress (FR-42) — mirrors the agent's codegraph_onboard
+            checklist so the human sees how far the knowledge layer is bootstrapped.
+            Emerald when the starter layer is complete, neutral while gaps remain. */}
+        <button
+          aria-pressed={onboardOpen}
+          aria-expanded={onboardOpen}
+          title="Agent onboarding progress — the starter knowledge checklist"
+          onClick={() => setOnboardOpen((v) => !v)}
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+            onboardOpen
+              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+              : playbook.complete
+                ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-300/80 hover:text-emerald-200"
+                : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Setup{" "}
+          <span className="font-mono">
+            {playbook.done}/{playbook.total}
+          </span>
+        </button>
+
         <div className="ml-auto flex items-center gap-3 text-xs">
           {/* AI-assist "Ask" (FR-30) — local-plane only (withheld on cloud) */}
           {assistEnabled && (
@@ -599,6 +645,12 @@ export function Explorer({
 
         {/* FR-39: user-sovereignty preempt banner — shown while the agent drives. */}
         {presenting !== null && <PresentingBanner action={presenting} onDismiss={takeControl} />}
+
+        {/* FR-42: agent onboarding progress — chrome, not a graph lens, so it shows
+            identically over the 2D and 3D surfaces. Dismissible + non-blocking. */}
+        {onboardOpen && (
+          <OnboardingPanel playbook={playbook} onDismiss={() => setOnboardOpen(false)} />
+        )}
 
         {/* Kind legend */}
         <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur">
