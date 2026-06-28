@@ -18,9 +18,13 @@ interface Dataset {
   readonly sourceBase: string | null;
 }
 
+// Mount-agnostic URLs (no leading slash) resolve against document.baseURI, so
+// the SAME export boots from a web root (baseURI === "/") and from the VS Code
+// webview's per-session origin (the panel sets <base href> via asWebviewUri) —
+// matching the relative `./_next/` assetPrefix in next.config.ts.
 const DATASETS: readonly Dataset[] = [
-  { id: "trpc", label: "tRPC · scale", url: "/benchmark/trpc.json", sourceBase: null },
-  { id: "codegraph", label: "codegraph · source", url: "/benchmark/codegraph.json", sourceBase: "/benchmark/codegraph.src" },
+  { id: "trpc", label: "tRPC · scale", url: "benchmark/trpc.json", sourceBase: null },
+  { id: "codegraph", label: "codegraph · source", url: "benchmark/codegraph.json", sourceBase: "benchmark/codegraph.src" },
 ];
 
 export default function Home() {

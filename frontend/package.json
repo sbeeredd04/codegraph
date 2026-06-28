@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:export": "npm run build && playwright test --config=playwright.export.config.ts"
   },
   "dependencies": {
     "graphology": "^0.26.0",

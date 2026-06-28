@@ -16,9 +16,12 @@ const eslintConfig = defineConfig([
     // first-party .ts assets served statically — not part of the app's lint set).
     "vendor/**",
     "public/benchmark/**",
-    // Playwright E2E harness + its outputs (Story 8.5) — not part of the app lint set.
+    // Playwright E2E harness + its outputs (Story 8.5, Epic 7.4 export smoke) and
+    // the static-export server — tooling, not part of the app lint set.
     "e2e/**",
     "playwright.config.ts",
+    "playwright.export.config.ts",
+    "scripts/**",
     "playwright-report/**",
     "test-results/**",
   ]),

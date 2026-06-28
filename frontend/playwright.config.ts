@@ -11,6 +11,9 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  // The production-export smoke runs under its own config (playwright.export.config.ts)
+  // against a non-root static mount, not the dev server.
+  testIgnore: "**/export-smoke.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
