@@ -11,6 +11,7 @@ import type { GraphNode, GraphEdge, NodeAddress } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
 import { validateDiagram, type Diagram, type DiagramInput } from "../diagrams/diagram.js";
 import { validateDoc, type Doc, type DocInput } from "../docs/doc.js";
+import { validateOverlay, type Overlay } from "../overlays/overlay.js";
 
 /** Bump when the snapshot shape changes so consumers can refuse what they can't read. */
 export const GRAPH_SNAPSHOT_VERSION = 1 as const;
@@ -35,12 +36,18 @@ export interface GraphSnapshot {
    * about the repo. Present only when non-empty; the prose companion to the
    * graph (structure) and diagrams (narrative shapes). */
   readonly docs?: readonly Doc[];
+  /** Agent-authored knowledge overlays (Epic 19 / FR-37) — notes, marks, and
+   * groups pinned to graph identities. The agent's durable memory ABOUT the code
+   * (never source bytes), carried so a snapshot replays its annotations offline.
+   * Present only when non-empty. */
+  readonly overlays?: readonly Overlay[];
 }
 
 export interface ExportOptions {
   readonly enrichments?: ReadonlyMap<NodeAddress, NodeEnrichment>;
   readonly diagrams?: readonly Diagram[];
   readonly docs?: readonly Doc[];
+  readonly overlays?: readonly Overlay[];
   readonly generatedAt?: string;
   readonly root?: string;
 }
@@ -57,6 +64,7 @@ export function exportGraphSnapshot(
   const enrichments = enrichmentsRecord(opts.enrichments);
   const diagrams = opts.diagrams && opts.diagrams.length ? [...opts.diagrams] : undefined;
   const docs = opts.docs && opts.docs.length ? [...opts.docs] : undefined;
+  const overlays = opts.overlays && opts.overlays.length ? [...opts.overlays] : undefined;
   return {
     version: GRAPH_SNAPSHOT_VERSION,
     ...(opts.generatedAt ? { generatedAt: opts.generatedAt } : {}),
@@ -68,6 +76,7 @@ export function exportGraphSnapshot(
     ...(enrichments ? { enrichments } : {}),
     ...(diagrams ? { diagrams } : {}),
     ...(docs ? { docs } : {}),
+    ...(overlays ? { overlays } : {}),
   };
 }
 
@@ -116,13 +125,20 @@ export function parseGraphSnapshot(text: string): ParseSnapshotResult {
   // user-supplied. Re-validate each through the same guard the write path uses,
   // dropping any malformed one rather than failing the whole snapshot.
   const snapshot = { ...(obj as unknown as GraphSnapshot) };
-  const mutable = snapshot as { diagrams?: readonly Diagram[]; docs?: readonly Doc[] };
+  const mutable = snapshot as {
+    diagrams?: readonly Diagram[];
+    docs?: readonly Doc[];
+    overlays?: readonly Overlay[];
+  };
   const diagrams = validateSnapshotDiagrams(obj.diagrams);
   if (diagrams) mutable.diagrams = diagrams;
   else delete mutable.diagrams;
   const docs = validateSnapshotDocs(obj.docs);
   if (docs) mutable.docs = docs;
   else delete mutable.docs;
+  const overlays = validateSnapshotOverlays(obj.overlays);
+  if (overlays) mutable.overlays = overlays;
+  else delete mutable.overlays;
   return { ok: true, snapshot };
 }
 
@@ -149,4 +165,17 @@ function validateSnapshotDocs(raw: unknown): readonly Doc[] | undefined {
     if (r.ok) docs.push(r.doc);
   }
   return docs.length ? docs : undefined;
+}
+
+/** Re-validate the (untrusted) overlays array from a parsed snapshot — same
+ * tolerance as the diagrams/docs path: drop the malformed, keep the valid,
+ * undefined when absent. validateOverlay dispatches on each entry's `kind`. */
+function validateSnapshotOverlays(raw: unknown): readonly Overlay[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const overlays: Overlay[] = [];
+  for (const entry of raw) {
+    const r = validateOverlay(entry);
+    if (r.ok) overlays.push(r.overlay);
+  }
+  return overlays.length ? overlays : undefined;
 }

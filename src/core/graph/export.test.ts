@@ -4,6 +4,7 @@ import type { GraphNode, GraphEdge } from "./types.js";
 import type { NodeEnrichment } from "../semantic/enrichment.js";
 import type { Diagram } from "../diagrams/diagram.js";
 import type { Doc } from "../docs/doc.js";
+import { validateNote, validateGroup, type Overlay } from "../overlays/overlay.js";
 
 const node = (address: string, kind: GraphNode["kind"]): GraphNode => ({
   address,
@@ -78,6 +79,20 @@ describe("exportGraphSnapshot", () => {
   it("omits the docs key entirely when there are none", () => {
     expect(exportGraphSnapshot(nodes, edges).docs).toBeUndefined();
     expect(exportGraphSnapshot(nodes, edges, { docs: [] }).docs).toBeUndefined();
+  });
+
+  it("folds the agent's overlays into the snapshot so the artifact carries its annotations", () => {
+    const overlays: Overlay[] = [
+      { id: "note/abc", kind: "note", anchor: { on: "node", address: "ts:a.ts#A" }, body: "the A class." },
+      { id: "mark/bug/abc", kind: "mark", address: "ts:a.ts#A", mark: "bug" },
+    ];
+    const snap = exportGraphSnapshot(nodes, edges, { overlays });
+    expect(snap.overlays).toEqual(overlays);
+  });
+
+  it("omits the overlays key entirely when there are none", () => {
+    expect(exportGraphSnapshot(nodes, edges).overlays).toBeUndefined();
+    expect(exportGraphSnapshot(nodes, edges, { overlays: [] }).overlays).toBeUndefined();
   });
 });
 
@@ -187,5 +202,41 @@ describe("parseGraphSnapshot", () => {
   it("leaves docs undefined when a snapshot carries none", () => {
     const result = parseGraphSnapshot(JSON.stringify(exportGraphSnapshot(nodes, edges)));
     expect(result.ok && result.snapshot.docs).toBeUndefined();
+  });
+
+  it("round-trips the overlays carried by a snapshot (ids re-derived from identity)", () => {
+    const noteR = validateNote({ anchor: { on: "node", address: "ts:a.ts#A" }, body: "the A class." });
+    const groupR = validateGroup({ label: "Core", members: ["ts:a.ts", "ts:a.ts#A"] });
+    if (!noteR.ok || !groupR.ok) throw new Error("fixtures should validate");
+    const overlays: Overlay[] = [noteR.overlay, groupR.overlay];
+    const text = JSON.stringify(exportGraphSnapshot(nodes, edges, { overlays }));
+    const result = parseGraphSnapshot(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.snapshot.overlays).toEqual(overlays);
+  });
+
+  it("re-validates overlays (untrusted file): drops the malformed, keeps the valid, never fails the snapshot", () => {
+    const raw = {
+      version: GRAPH_SNAPSHOT_VERSION,
+      nodes: [],
+      edges: [],
+      overlays: [
+        { kind: "mark", address: "ts:a.ts#A", mark: "bug" },
+        { kind: "mark", address: "ts:a.ts#A", mark: "smell" }, // invalid: unknown mark kind
+        { kind: "note", body: "no anchor" }, // invalid: missing anchor
+        "not even an object",
+      ],
+    };
+    const result = parseGraphSnapshot(JSON.stringify(raw));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.overlays).toHaveLength(1);
+      expect(result.snapshot.overlays?.[0]?.kind).toBe("mark");
+    }
+  });
+
+  it("leaves overlays undefined when a snapshot carries none", () => {
+    const result = parseGraphSnapshot(JSON.stringify(exportGraphSnapshot(nodes, edges)));
+    expect(result.ok && result.snapshot.overlays).toBeUndefined();
   });
 });
