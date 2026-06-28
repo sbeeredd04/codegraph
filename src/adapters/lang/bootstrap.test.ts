@@ -1,10 +1,17 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { bootstrapRepo } from "./bootstrap.js";
+
+// These are heavy polyglot integration tests: each bootstrapRepo spins up Pyright
+// over LSP (a cold start on the first) plus ts-morph. Under full-suite parallelism
+// the cold start can exceed vitest's 5s default and flake the gate, though every
+// test passes comfortably in isolation. Give the whole file generous headroom so
+// CPU contention can't fail a green run.
+vi.setConfig({ testTimeout: 30_000 });
 
 const require = createRequire(import.meta.url);
 const wasmDir = path.dirname(require.resolve("@vscode/tree-sitter-wasm"));
