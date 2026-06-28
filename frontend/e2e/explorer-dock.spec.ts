@@ -233,3 +233,95 @@ test("FR-34: the docs drawer resizes and persists width (distinct from diagrams)
   );
   expect(restored).toBe(widened);
 });
+
+// FR-34 slice 3 — the detail panel can pop OUT of its docked edge into a
+// free-floating, draggable card whose x/y placement persists per-browser. And a
+// single "Reset layout" control clears every dock/panel preference back to
+// defaults (layout-only, no source mutation — FR-9).
+
+function readFloatPos(page: Page) {
+  return page.getByTestId("detail-floating").evaluate((el) => ({
+    left: parseFloat((el as HTMLElement).style.left),
+    top: parseFloat((el as HTMLElement).style.top),
+  }));
+}
+
+test("FR-34: the detail panel floats, drags to a new spot, and persists it", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+  await selectTopNode(page);
+
+  // Pop the docked detail panel out into a floating card.
+  await page.getByRole("button", { name: "Float panel" }).click();
+  await expect(page.getByTestId("detail-floating")).toBeVisible();
+  const start = await readFloatPos(page);
+
+  // Drag the header grip to a new position (real pointer drag).
+  const handle = page.getByRole("button", { name: "Move panel (arrow keys to nudge)" });
+  const box = await handle.boundingBox();
+  if (!box) throw new Error("drag handle has no bounding box");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 140, box.y + box.height / 2 + 90, { steps: 8 });
+  await page.mouse.up();
+
+  const moved = await readFloatPos(page);
+  expect(moved.left).toBeGreaterThan(start.left);
+  expect(moved.top).toBeGreaterThan(start.top);
+  await page.screenshot({ path: `${SHOT}/detail-floating-dragged.png` });
+
+  // The placement survives a reload — re-selecting re-mounts the panel, which
+  // reads the persisted offset and comes back floating in the same spot.
+  await page.reload();
+  await waitForGraph(page);
+  await selectTopNode(page);
+  await expect(page.getByTestId("detail-floating")).toBeVisible();
+  const after = await readFloatPos(page);
+  expect(after.left).toBeCloseTo(moved.left, 0);
+  expect(after.top).toBeCloseTo(moved.top, 0);
+});
+
+test("FR-34: Reset layout returns every dock and panel to its defaults", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+  await selectTopNode(page);
+
+  // Make the detail dock non-default: widen it well past its 320px default…
+  const handle = page.getByRole("separator", { name: "Resize panel" });
+  await handle.focus();
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowLeft");
+  const widened = Number(await handle.getAttribute("aria-valuenow"));
+  expect(widened).toBeGreaterThan(320);
+  // …then pop it out to a floating card (a second non-default preference).
+  await page.getByRole("button", { name: "Float panel" }).click();
+  await expect(page.getByTestId("detail-floating")).toBeVisible();
+
+  // One control resets it all: the panel re-docks at its default width.
+  await page.getByRole("button", { name: "Reset layout" }).click();
+  await expect(page.getByTestId("detail-floating")).toHaveCount(0);
+  const dock = page.getByRole("complementary", { name: "Details" });
+  await expect(dock).toBeVisible();
+  const reset = Number(
+    await dock.getByRole("separator", { name: "Resize panel" }).getAttribute("aria-valuenow"),
+  );
+  expect(reset).toBe(320);
+  await page.screenshot({ path: `${SHOT}/layout-reset.png` });
+
+  // The reset is durable (keys were cleared, not just remounted) — it survives a
+  // reload rather than re-reading the old width.
+  await page.reload();
+  await waitForGraph(page);
+  await selectTopNode(page);
+  await expect(page.getByTestId("detail-floating")).toHaveCount(0);
+  const persisted = Number(
+    await page
+      .getByRole("complementary", { name: "Details" })
+      .getByRole("separator", { name: "Resize panel" })
+      .getAttribute("aria-valuenow"),
+  );
+  expect(persisted).toBe(320);
+});

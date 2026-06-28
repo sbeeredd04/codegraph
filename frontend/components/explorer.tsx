@@ -17,7 +17,7 @@ import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import { NodeSourceViewer } from "./node-source-viewer";
-import { ResizableDock } from "./resizable-dock";
+import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
@@ -35,6 +35,15 @@ const GraphCanvas3D = dynamic(() => import("./graph-canvas-3d").then((m) => m.Gr
   ssr: false,
   loading: () => <div className="absolute inset-0 grid place-items-center text-xs text-zinc-600">Rendering graph…</div>,
 });
+
+// Every per-browser layout key the workspace owns — cleared by "Reset layout".
+const LAYOUT_KEYS = [
+  "codegraph:dock:detail",
+  "codegraph:dock:source",
+  "codegraph:dock:diagrams",
+  "codegraph:dock:docs",
+  "codegraph:panel:detail",
+];
 
 const PROJECTIONS: { id: ProjectionKind; label: string; hint: string }[] = [
   { id: "full", label: "Full", hint: "Every node and edge" },
@@ -98,6 +107,9 @@ export function Explorer({
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  // Bumped by "Reset layout" — used as a remount key so every dock re-reads its
+  // (now-cleared) localStorage and returns to defaults.
+  const [layoutVersion, setLayoutVersion] = useState(0);
   const focusRef = useRef<((address: string) => void) | null>(null);
   const diagramList = diagrams ?? [];
   const docList = docs ?? [];
@@ -128,6 +140,23 @@ export function Explorer({
 
   // Stable closer so the palette's effects don't re-run each render.
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  // Reset every dock/panel to its default size, position, and expanded state in
+  // one action (FR-34). Layout is purely a localStorage preference, so we clear
+  // the keys and remount the docks (via layoutVersion) to re-read the defaults —
+  // no source is touched (FR-9), so no confirmation is needed.
+  const resetLayout = useCallback(() => {
+    if (typeof window !== "undefined") {
+      for (const k of LAYOUT_KEYS) {
+        try {
+          window.localStorage.removeItem(k);
+        } catch {
+          // Private mode / quota — ignore; the remount below still resets state.
+        }
+      }
+    }
+    setLayoutVersion((v) => v + 1);
+  }, []);
 
   // Global ⌘K / Ctrl+K toggles the palette. The listener owns the toggle so the
   // palette can mount only while open (fresh state, no reset effect). setState in
@@ -359,6 +388,16 @@ export function Explorer({
             <span aria-hidden>Search</span>
             <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1 font-mono text-[10px] text-zinc-400">⌘K</kbd>
           </button>
+          {/* Reset layout (FR-34) — clears every dock/panel size + position back to
+              defaults. Layout-only (FR-9: no source touched), so no confirmation. */}
+          <button
+            onClick={resetLayout}
+            aria-label="Reset layout"
+            title="Reset all panels to their default size and position"
+            className="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-1.5 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <ResetIcon />
+          </button>
           {traceArmed && (
             <span
               aria-live="polite"
@@ -409,67 +448,19 @@ export function Explorer({
           ))}
         </div>
 
-        {/* Node detail dock (FR-15 content, FR-34 workspace frame) — collapsible +
-            resizable; hidden while the source viewer is docked */}
+        {/* Node detail inspector (FR-15 content, FR-34 workspace frame) — docks
+            right (collapsible + resizable) or floats as a draggable card; hidden
+            while the source viewer is docked. Keyed on layoutVersion so Reset
+            Layout remounts it to defaults. */}
         {detail && !sourceOpen && (
-          <ResizableDock
-            storageKey="codegraph:dock:detail"
-            side="right"
-            bounds={{ defaultWidth: 320, minWidth: 264, maxWidth: 560 }}
-            label="Details"
-            railAccent={
-              <span
-                aria-hidden
-                className="size-2 rounded-full"
-                style={{ backgroundColor: KIND_COLORS[detail.node.kind] ?? "#8b93a7" }}
-              />
-            }
-          >
-            <div className="p-4 text-sm" data-testid="detail-body">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate font-semibold text-zinc-50" title={detail.node.name}>
-                    {displayLabel(detail.node.name, detail.node.kind)}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
-                    <span
-                      className="inline-block size-2 rounded-full"
-                      style={{ backgroundColor: KIND_COLORS[detail.node.kind] ?? "#8b93a7" }}
-                    />
-                    {detail.node.kind}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelected(null)}
-                  aria-label="Close detail"
-                  className="-mr-1 -mt-1 rounded p-1 text-zinc-500 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="mt-3 break-all font-mono text-xs text-zinc-400">
-                {detail.node.location.file}:{detail.node.location.line}
-              </div>
-
-              {/* View source (FR-15) — opens the read-only code dock */}
-              <button
-                onClick={() => setSourceOpen(true)}
-                className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/60 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-violet-500/50 hover:bg-violet-500/10 hover:text-violet-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-              >
-                <span aria-hidden>{"</>"}</span> View source
-              </button>
-
-              {detail.node.signature && (
-                <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-950/60 p-2 font-mono text-[11px] leading-relaxed text-zinc-300">
-                  {detail.node.signature}
-                </pre>
-              )}
-
-              <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
-              <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={(a) => focusRef.current?.(a)} byAddress={byAddress} />
-            </div>
-          </ResizableDock>
+          <DetailPanel
+            key={layoutVersion}
+            detail={detail}
+            byAddress={byAddress}
+            onClose={() => setSelected(null)}
+            onViewSource={() => setSourceOpen(true)}
+            onJump={(a) => focusRef.current?.(a)}
+          />
         )}
 
         {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
@@ -480,6 +471,7 @@ export function Explorer({
         {/* Knowledge diagrams drawer (FR-28) — Related chips jump into the graph */}
         {diagramsOpen && (
           <DiagramsDrawer
+            key={layoutVersion}
             diagrams={diagramList}
             byAddress={byAddress}
             onJump={jumpTo}
@@ -490,6 +482,7 @@ export function Explorer({
         {/* Knowledge docs drawer (FR-29) — sanitized Markdown + node deep-links */}
         {docsOpen && (
           <DocsDrawer
+            key={layoutVersion}
             docs={docList}
             byAddress={byAddress}
             onJump={jumpTo}
@@ -510,7 +503,7 @@ export function Explorer({
         {/* Read-only source dock (FR-15) — replaces the detail panel while open */}
         {detail && sourceOpen && (
           <NodeSourceViewer
-            key={`${sourceBase ?? "none"}:${detail.node.location.file}:${detail.node.location.line}`}
+            key={`${layoutVersion}:${sourceBase ?? "none"}:${detail.node.location.file}:${detail.node.location.line}`}
             sourceBase={sourceBase}
             editorRoot={editorRoot}
             file={detail.node.location.file}
@@ -526,46 +519,12 @@ export function Explorer({
   );
 }
 
-function NeighborList({
-  label,
-  edges,
-  dir,
-  onJump,
-  byAddress,
-}: {
-  label: string;
-  edges: readonly GraphEdge[];
-  dir: "to" | "from";
-  onJump: (address: string) => void;
-  byAddress: Map<string, GraphNode>;
-}): React.JSX.Element | null {
-  if (edges.length === 0) return null;
+// A counter-clockwise reset arrow — the "restore defaults" affordance for layout.
+function ResetIcon(): React.JSX.Element {
   return (
-    <div className="mt-3">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-        {label} <span className="font-mono">{edges.length}</span>
-      </div>
-      <ul className="flex flex-col gap-0.5">
-        {edges.slice(0, 12).map((e) => {
-          const addr = dir === "to" ? e.to : e.from;
-          const n = byAddress.get(addr);
-          return (
-            <li key={`${e.from}->${e.to}:${e.type}`}>
-              <button
-                onClick={() => onJump(addr)}
-                className="w-full truncate rounded px-1.5 py-1 text-left font-mono text-xs text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-50"
-                title={addr}
-              >
-                <span className="text-zinc-600">{e.type} </span>
-                {n ? displayLabel(n.name, n.kind) : addr.split("::").pop()}
-              </button>
-            </li>
-          );
-        })}
-        {edges.length > 12 && (
-          <li className="px-1.5 pt-1 text-xs text-zinc-600">+{edges.length - 12} more</li>
-        )}
-      </ul>
-    </div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
   );
 }
