@@ -12,7 +12,7 @@ const MOUNT_URL = `http://localhost:${PORT}/out/`;
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "**/export-smoke.spec.ts",
+  testMatch: "**/*-smoke.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
