@@ -15,7 +15,9 @@ import { graphTools, type RecentChangesProvider } from "./tools.js";
 // for the save_doc / list_docs / delete_doc knowledge-doc tools, `overlays`
 // for the pin_note / annotate_edge / mark_node / group_nodes overlay tools, and
 // `commands` for the live driving tools (highlight_nodes / highlight_path /
-// focus_camera / set_projection / open_panel / toggle_affordance — FR-39).
+// focus_camera / set_projection / open_panel / toggle_affordance — FR-39). When
+// the diagram, doc, and overlay stores are all present, the `codegraph_onboard`
+// tool is also exposed — the agent's idempotent on-install bootstrap playbook (FR-42).
 export function createGraphMcpServer(
   getGraph: () => CodeGraph,
   recentChanges?: RecentChangesProvider,

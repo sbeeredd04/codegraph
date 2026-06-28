@@ -467,6 +467,84 @@ describe("MCP overlay tools (agent-authored knowledge overlays)", () => {
   });
 });
 
+describe("MCP codegraph_onboard tool (FR-42 agent onboarding playbook)", () => {
+  const dgStore = (): DiagramStore => {
+    let set = emptyDiagramSet();
+    return {
+      all: () => Promise.resolve(set),
+      save: (d) => {
+        set = upsertDiagram(set, d);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        const had = set.diagrams.some((x) => x.id === id);
+        set = removeDiagram(set, id);
+        return Promise.resolve(had);
+      },
+    };
+  };
+  const dcStore = (): DocStore => {
+    let set = emptyDocSet();
+    return {
+      all: () => Promise.resolve(set),
+      save: (d) => {
+        set = upsertDoc(set, d);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        const had = set.docs.some((x) => x.id === id);
+        set = removeDoc(set, id);
+        return Promise.resolve(had);
+      },
+    };
+  };
+  const ovStore = (): OverlayStore => {
+    let set = emptyOverlaySet();
+    return {
+      all: () => Promise.resolve(set),
+      save: (o) => {
+        set = upsertOverlay(set, o);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        const had = set.overlays.some((x) => x.id === id);
+        set = removeOverlay(set, id);
+        return Promise.resolve(had);
+      },
+    };
+  };
+  // The onboard tool needs all three knowledge stores (graphTools args 4/5/6).
+  const onboardTools = (g: CodeGraph, dg: DiagramStore, dc: DocStore, ov: OverlayStore) =>
+    new Map(graphTools(() => g, undefined, undefined, dg, dc, ov).map((t) => [t.name, t]));
+
+  it("appears only when the diagram, doc, AND overlay stores are all injected", () => {
+    // Just one store: the onboard tool stays hidden.
+    expect([...new Map(graphTools(() => fixture(), undefined, undefined, dgStore()).map((t) => [t.name, t])).keys()])
+      .not.toContain("codegraph_onboard");
+    expect([...onboardTools(fixture(), dgStore(), dcStore(), ovStore()).keys()]).toContain("codegraph_onboard");
+  });
+
+  it("returns a fresh-repo plan: index done, the authoring steps todo", async () => {
+    const r = await onboardTools(fixture(), dgStore(), dcStore(), ovStore()).get("codegraph_onboard")!.handler({});
+    const plan = parse(r.content[0].text);
+    expect(plan.indexed).toBe(true);
+    expect(plan.total).toBe(6);
+    expect(plan.done).toBe(1);
+    expect(plan.complete).toBe(false);
+    expect(plan.summary).toContain("3 nodes");
+  });
+
+  it("is idempotent: an already-saved diagram flips its step to done on the next call", async () => {
+    const dg = dgStore();
+    const tools = onboardTools(fixture(), dg, dcStore(), ovStore());
+    await tools.get("save_diagram")!.handler({ title: "Arch", category: "architecture", mermaid: "graph LR\nA-->B" });
+    const plan = parse((await tools.get("codegraph_onboard")!.handler({})).content[0].text);
+    const arch = plan.steps.find((s: { id: string }) => s.id === "architecture-diagram");
+    expect(arch.status).toBe("done");
+    expect(plan.done).toBe(2); // index + architecture
+  });
+});
+
 describe("MCP driving tools (FR-39 live presentation commands)", () => {
   const memSink = (): { sink: PresentationCommandSink; emitted: PresentationCommand[] } => {
     const emitted: PresentationCommand[] = [];

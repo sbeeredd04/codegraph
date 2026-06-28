@@ -27,6 +27,7 @@ import {
   type PresentationCommandSink,
 } from "../../core/presentation/command.js";
 import { traceToAddresses } from "../../core/presentation/log-trace.js";
+import { buildOnboardPlaybook } from "../../core/onboard/playbook.js";
 import {
   findNodes,
   describeNode,
@@ -570,6 +571,39 @@ export function graphTools(
         },
       },
     );
+  }
+
+  if (diagrams && docs && overlays) {
+    // The agent's on-install playbook (FR-42): assemble the ordered bootstrap plan
+    // from the live graph + what's already authored across the three knowledge
+    // stores, so a re-run skips finished work (idempotent). Pure core builds the
+    // plan; this adapter just does the reads and serves it.
+    tools.push({
+      name: "codegraph_onboard",
+      title: "Onboard this repo",
+      description:
+        "Run this FIRST when you attach to a repo. Returns an ordered, idempotent bootstrap checklist: " +
+        "index the graph (already done on start), author a starter knowledge layer (a few diagrams via " +
+        "save_diagram, an overview via save_doc, hotspot marks via mark_node), then hand off to the human. " +
+        "Each step is marked done/todo from what's already saved, so re-running skips finished work and " +
+        "shows only the gaps. Read-only; it recommends writes, it doesn't make them.",
+      inputSchema: {},
+      handler: async () => {
+        const [diagramSet, docSet, overlaySet] = await Promise.all([
+          diagrams.all(),
+          docs.all(),
+          overlays.all(),
+        ]);
+        return ok(
+          buildOnboardPlaybook({
+            stats: graphStats(getGraph()),
+            diagrams: diagramSet,
+            docs: docSet,
+            overlays: overlaySet,
+          }),
+        );
+      },
+    });
   }
 
   if (commands) {
