@@ -10,3 +10,6 @@ media/
 .claude/
 _bmad/
 _bmad-output/
+
+# playwright verification artifacts
+.playwright-mcp/
