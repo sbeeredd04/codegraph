@@ -56,6 +56,11 @@ interface ResizableDockProps {
   readonly railAccent?: ReactNode;
   /** Body surface classes (bg + shadow). Defaults to the standard dock surface. */
   readonly surfaceClassName?: string;
+  /** Float the dock as an INSET panel — a gap from the viewport edges, rounded
+   *  corners + full border + shadow — so the graph stays visible around it and it
+   *  reads as a section ON the board rather than a full-bleed page (FR-35 follow-up).
+   *  Default false keeps the flush full-height dock. */
+  readonly inset?: boolean;
   /** When false, children own their scrolling (multi-pane drawers keep a fixed
    *  header + independently-scrolling panes). Default true wraps them in a single
    *  scroll region. */
@@ -76,6 +81,7 @@ export function ResizableDock({
   railAccent,
   surfaceClassName = DEFAULT_SURFACE,
   scrollBody = true,
+  inset = false,
   children,
 }: ResizableDockProps): React.JSX.Element {
   const { width, collapsed, setCollapsed, resizing, handleProps } = useDockState(
@@ -85,19 +91,26 @@ export function ResizableDock({
   );
   const edge = side === "right" ? "right-0" : "left-0";
   const name = ariaLabel ?? label;
+  // Inset floats the panel off the edges as a card; flush pins it full-height to
+  // the docked edge. The border closes to all sides (rounded card) when inset.
+  const position = inset
+    ? `${side === "right" ? "right-3" : "left-3"} top-3 bottom-3`
+    : `${edge} top-0 bottom-0`;
+  const sideBorder = side === "right" ? "border-l" : "border-r";
+  const frame = inset ? "rounded-2xl border border-zinc-800" : `${sideBorder} border-zinc-800`;
 
   if (collapsed) {
     return (
-      <aside className={`absolute ${edge} top-0 bottom-0 z-20`} role={role} aria-label={name}>
+      <aside className={`absolute ${position} z-20`} role={role} aria-label={name}>
         <button
           onClick={() => setCollapsed(false)}
           aria-label={`Expand ${label}`}
           aria-expanded={false}
           title={`Expand ${label}`}
           style={{ width: RAIL_W }}
-          className={`flex h-full flex-col items-center gap-3 ${
-            side === "right" ? "border-l" : "border-r"
-          } border-zinc-800 bg-zinc-900/95 py-3 text-zinc-400 backdrop-blur transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500`}
+          className={`flex h-full flex-col items-center gap-3 ${frame} bg-zinc-900/95 py-3 text-zinc-400 backdrop-blur transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
+            inset ? "shadow-2xl" : ""
+          }`}
         >
           <Chevron dir={side === "right" ? "left" : "right"} />
           <span
@@ -130,9 +143,7 @@ export function ResizableDock({
   const body = (
     <div
       style={{ width }}
-      className={`flex min-w-0 flex-col overflow-hidden ${
-        side === "right" ? "border-l" : "border-r"
-      } border-zinc-800 ${surfaceClassName} ${
+      className={`flex min-w-0 flex-col overflow-hidden ${frame} ${surfaceClassName} ${
         resizing ? "" : "transition-[width] duration-150 motion-reduce:transition-none"
       }`}
     >
@@ -141,7 +152,7 @@ export function ResizableDock({
   );
 
   return (
-    <aside className={`absolute ${edge} top-0 bottom-0 z-20 flex`} role={role} aria-label={name}>
+    <aside className={`absolute ${position} z-20 flex`} role={role} aria-label={name}>
       {side === "right" ? (
         <>
           {handle}

@@ -65,3 +65,25 @@ test("FR-29: the docs and diagrams drawers are mutually exclusive", async ({ pag
   await expect(page.getByRole("dialog", { name: "Knowledge docs" })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Knowledge diagrams" })).toBeHidden();
 });
+
+test("FR-35 follow-up: the docs drawer floats as an inset panel (graph stays visible beside it)", async ({ page }) => {
+  await page.goto("/");
+  await waitForGraph(page);
+  await page.getByLabel("Dataset").selectOption("codegraph");
+  await page.getByRole("button", { name: /Docs/ }).click();
+  const drawer = page.getByRole("dialog", { name: "Knowledge docs" });
+  await expect(drawer).toBeVisible();
+
+  // Inset, not flush: the panel sits off the top-left corner (a gap from both
+  // edges) so it reads as a section ON the board rather than a full-bleed page.
+  const box = await drawer.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+  expect(box.x).toBeGreaterThan(0);
+  expect(box.y).toBeGreaterThan(0);
+
+  // The graph canvas remains visible to the right of the floating panel.
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  if (viewport) expect(box.x + box.width).toBeLessThan(viewport.width - 40);
+});

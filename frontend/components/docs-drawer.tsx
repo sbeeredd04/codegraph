@@ -81,6 +81,7 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
       ariaLabel="Knowledge docs"
       surfaceClassName="bg-[#0c0d11]/97 shadow-2xl backdrop-blur"
       scrollBody={false}
+      inset
       railAccent={<span aria-hidden className="text-sm text-zinc-500">¶</span>}
     >
       <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
