@@ -3,7 +3,7 @@ import { createSkeletonAdapter, type LanguageConfig } from "../skeleton.js";
 
 // Story 1.7 (skeleton): Python module/class/function/method + contains edges,
 // via the shared tree-sitter walker. Accurate Python edges (Pyright over LSP)
-// are the next, riskier step (the panel-flagged spike).
+// land separately in pyright-edges.ts (resolvePythonEdges), wired in bootstrap.
 const PY_CONFIG: LanguageConfig = {
   language: "python",
   prefix: "py",

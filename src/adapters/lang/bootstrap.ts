@@ -123,8 +123,8 @@ export async function bootstrapRepo(
     }
   }
 
-  // Accurate edges (ts-morph) over the TS/JS files only; Python accurate edges
-  // (Pyright over LSP) are the next step.
+  // Accurate edges (ts-morph) over the TS/JS files: module `depends-on` plus
+  // function/method `calls`. Python accurate edges (Pyright over LSP) follow below.
   try {
     const tsFiles = files.filter((f) => !f.endsWith(".py"));
     const project = new Project();

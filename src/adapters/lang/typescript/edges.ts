@@ -4,8 +4,9 @@ import type { Project } from "ts-morph";
 import type { GraphEdge } from "../../../core/graph/types.js";
 
 // Accurate edge layer (AD-9): ts-morph resolves cross-file references the
-// tree-sitter skeleton can't. v1 covers module-level `depends-on` (imports);
-// `calls` edges (function->function) are the next refinement.
+// tree-sitter skeleton can't — module-level `depends-on` (imports) via
+// resolveImportEdges, and `calls` (function/method -> function/method) via
+// resolveCallEdges over the type checker. Both ship here and are wired in bootstrap.
 
 function toRel(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join("/");
