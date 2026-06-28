@@ -144,7 +144,9 @@ export function Explorer({
             aria-hidden
             className="inline-block size-3 rounded-[3px] bg-gradient-to-br from-violet-400 to-cyan-400"
           />
-          <span className="text-sm font-bold tracking-tight text-zinc-50">codegraph</span>
+          <span className="font-display text-sm font-semibold tracking-tight text-zinc-50">
+            codegraph
+          </span>
           <span className="hidden text-xs text-zinc-500 sm:inline">{title}</span>
         </div>
 

@@ -1,26 +1,25 @@
 @import "tailwindcss";
 
+/* Dark-first: the explorer is a dark instrument, so the shell defaults dark and
+   never flashes white before the app paints its own near-black canvas. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Map the next/font roles onto Tailwind's font utilities (FR-33). `font-sans`,
+     `font-mono` and the new `font-display` resolve to these, each with a robust
+     system fallback for the pre-swap frame. */
+  --font-sans: var(--font-sans-ui), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono-ui), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-display: var(--font-display), var(--font-sans-ui), ui-sans-serif, sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
