@@ -30,6 +30,11 @@ const config = (phase: string): NextConfig => {
     assetPrefix: isDev ? undefined : ".",
     // output:export ships no Next image-optimization server.
     images: { unoptimized: true },
+    // The dev-only on-screen route indicator defaults to bottom-left — right on
+    // top of the graph's kind legend (FR-53). It never ships in the static export,
+    // but it occludes the legend while the owner watches the live dev server, so
+    // hide it; Next still surfaces compile/runtime errors without it.
+    devIndicators: false,
   };
 
   return nextConfig;

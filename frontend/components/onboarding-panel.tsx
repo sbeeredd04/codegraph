@@ -9,6 +9,7 @@
 // agnostic — it lives in the dashboard chrome, not a graph lens, so it shows the
 // same over the 2D Sigma canvas and the 3D surface.
 
+import { useDraggable } from "@/lib/use-draggable";
 import type { OnboardPlaybook } from "@core/onboard/playbook";
 
 interface OnboardingPanelProps {
@@ -20,15 +21,29 @@ export function OnboardingPanel({ playbook, onDismiss }: OnboardingPanelProps): 
   const { steps, done, total, complete } = playbook;
   const next = steps.find((s) => s.status === "todo");
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  // FR-53: a movable, organizable card — not a fixed overlay. Default top-left;
+  // the user drags the header (or nudges by keyboard) to place it anywhere, so it
+  // never has to clip the legend or the graph. Position persists per-browser
+  // (localStorage, NEVER the snapshot) and is cleared by Reset layout.
+  const drag = useDraggable("codegraph:panel:onboard");
 
   return (
     <section
       role="region"
       aria-label="Onboarding progress"
       data-testid="onboarding-panel"
-      className="absolute left-3 top-3 z-20 w-[21rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-zinc-800 bg-[#0c0d11]/97 shadow-2xl backdrop-blur"
+      style={drag.offset ? { left: drag.offset.x, top: drag.offset.y } : undefined}
+      className={`absolute z-20 flex max-h-[calc(100%-1.5rem)] w-[21rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#0c0d11]/97 shadow-2xl backdrop-blur ${
+        drag.offset ? "" : "left-3 top-3"
+      }`}
     >
-      <header className="flex items-center gap-2.5 border-b border-zinc-800/80 px-4 py-3">
+      <header
+        {...drag.dragHandleProps}
+        title="Drag to move · arrow keys to nudge"
+        className={`flex items-center gap-2.5 border-b border-zinc-800/80 px-4 py-3 select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
+          drag.dragging ? "cursor-grabbing" : "cursor-grab"
+        }`}
+      >
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-md bg-emerald-500/15 text-emerald-300">
           <CompassIcon />
         </span>
@@ -44,6 +59,9 @@ export function OnboardingPanel({ playbook, onDismiss }: OnboardingPanelProps): 
         </span>
         <button
           onClick={onDismiss}
+          // Don't let a click on the close control start a header drag (the header
+          // captures the pointer) — keep the button's own click intact.
+          onPointerDown={(e) => e.stopPropagation()}
           aria-label="Dismiss onboarding"
           className="ml-0.5 grid size-6 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
         >
@@ -51,55 +69,58 @@ export function OnboardingPanel({ playbook, onDismiss }: OnboardingPanelProps): 
         </button>
       </header>
 
-      <div className="px-4 pt-3">
-        <div
-          role="progressbar"
-          aria-valuenow={done}
-          aria-valuemin={0}
-          aria-valuemax={total}
-          aria-label="Steps complete"
-          className="h-1.5 overflow-hidden rounded-full bg-zinc-800"
-        >
+      {/* Scrollable body so the card stays bounded wherever it's dragged. */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="px-4 pt-3">
           <div
-            className="h-full rounded-full bg-emerald-500/80 transition-[width] duration-500 motion-reduce:transition-none"
-            style={{ width: `${pct}%` }}
-          />
+            role="progressbar"
+            aria-valuenow={done}
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-label="Steps complete"
+            className="h-1.5 overflow-hidden rounded-full bg-zinc-800"
+          >
+            <div
+              className="h-full rounded-full bg-emerald-500/80 transition-[width] duration-500 motion-reduce:transition-none"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
         </div>
-      </div>
 
-      <ul role="list" className="flex flex-col gap-0.5 px-2 py-2">
-        {steps.map((s) => {
-          const isDone = s.status === "done";
-          const isNext = !complete && s.id === next?.id;
-          return (
-            <li
-              key={s.id}
-              data-step={s.id}
-              data-status={s.status}
-              className={`flex items-start gap-2.5 rounded-lg px-2 py-1.5 ${isNext ? "bg-violet-500/10" : ""}`}
-            >
-              <span aria-hidden className="mt-px shrink-0">
-                {isDone ? <CheckCircle /> : <EmptyCircle />}
-              </span>
-              <div className="min-w-0">
-                <p
-                  className={`text-xs font-medium leading-snug ${
-                    isDone
-                      ? "text-zinc-500 line-through decoration-zinc-700"
-                      : isNext
-                        ? "text-violet-200"
-                        : "text-zinc-200"
-                  }`}
-                >
-                  {s.title}
-                  <span className="sr-only">{isDone ? " — done" : " — to do"}</span>
-                </p>
-                {isNext && <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">{s.detail}</p>}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+        <ul role="list" className="flex flex-col gap-0.5 px-2 py-2">
+          {steps.map((s) => {
+            const isDone = s.status === "done";
+            const isNext = !complete && s.id === next?.id;
+            return (
+              <li
+                key={s.id}
+                data-step={s.id}
+                data-status={s.status}
+                className={`flex items-start gap-2.5 rounded-lg px-2 py-1.5 ${isNext ? "bg-violet-500/10" : ""}`}
+              >
+                <span aria-hidden className="mt-px shrink-0">
+                  {isDone ? <CheckCircle /> : <EmptyCircle />}
+                </span>
+                <div className="min-w-0">
+                  <p
+                    className={`text-xs font-medium leading-snug ${
+                      isDone
+                        ? "text-zinc-500 line-through decoration-zinc-700"
+                        : isNext
+                          ? "text-violet-200"
+                          : "text-zinc-200"
+                    }`}
+                  >
+                    {s.title}
+                    <span className="sr-only">{isDone ? " — done" : " — to do"}</span>
+                  </p>
+                  {isNext && <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">{s.detail}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
 
       <footer className="border-t border-zinc-800/80 px-4 py-2.5">
         {complete ? (

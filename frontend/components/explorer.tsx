@@ -72,6 +72,7 @@ const LAYOUT_KEYS = [
   "codegraph:dock:diagrams",
   "codegraph:dock:docs",
   "codegraph:panel:detail",
+  "codegraph:panel:onboard",
 ];
 
 const PROJECTIONS: { id: ProjectionKind; label: string; hint: string }[] = [
@@ -677,8 +678,13 @@ export function Explorer({
           <OnboardingPanel playbook={playbook} onDismiss={() => setOnboardOpen(false)} />
         )}
 
-        {/* Kind legend */}
-        <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur">
+        {/* Kind legend — bottom-left chrome over both surfaces (FR-53: the dev-only
+            Next route badge that used to sit here is hidden via next.config). */}
+        <div
+          role="img"
+          aria-label="Legend: node colours by kind"
+          className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur"
+        >
           {Object.entries(KIND_COLORS).map(([kind, color]) => (
             <div key={kind} className="flex items-center gap-2 text-zinc-400">
               <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: color }} />

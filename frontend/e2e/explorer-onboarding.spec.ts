@@ -75,6 +75,53 @@ test("FR-42: the Setup panel reflects an incomplete checklist on the graph-only 
   await expect(setup).toHaveAttribute("aria-pressed", "false");
 });
 
+test("FR-53: the onboarding panel clears the legend and is a movable card that persists its spot", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  await page.getByRole("button", { name: /Setup/ }).click();
+  const panel = page.getByTestId("onboarding-panel");
+  await expect(panel).toBeVisible();
+
+  // The panel (default top-left) does NOT overlap the kind legend (bottom-left).
+  const legend = page.getByRole("img", { name: /Legend/ });
+  await expect(legend).toBeVisible();
+  const pb = await panel.boundingBox();
+  const lb = await legend.boundingBox();
+  if (!pb || !lb) throw new Error("panel/legend missing a box");
+  const disjoint =
+    pb.x + pb.width <= lb.x || lb.x + lb.width <= pb.x || pb.y + pb.height <= lb.y || lb.y + lb.height <= pb.y;
+  expect(disjoint).toBe(true);
+
+  // Drag the header handle to move the card (real pointer drag) — organizable,
+  // not a fixed avatar.
+  const handle = panel.getByRole("button", { name: "Move panel (arrow keys to nudge)" });
+  const hb = await handle.boundingBox();
+  if (!hb) throw new Error("drag handle has no bounding box");
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 + 240, hb.y + hb.height / 2 + 170, { steps: 8 });
+  await page.mouse.up();
+
+  const movedLeft = await panel.evaluate((el) => parseFloat((el as HTMLElement).style.left));
+  expect(movedLeft).toBeGreaterThan(pb.x + 120);
+
+  // The placement persists per-browser: reload, reopen, the card returns to where
+  // it was dragged — not the default corner.
+  await page.reload();
+  await waitForGraph(page);
+  await page.getByRole("button", { name: /Setup/ }).click();
+  await expect(panel).toBeVisible();
+  const afterLeft = await panel.evaluate((el) => parseFloat((el as HTMLElement).style.left));
+  expect(afterLeft).toBeCloseTo(movedLeft, 0);
+
+  // Still dismissable.
+  await panel.getByRole("button", { name: "Dismiss onboarding" }).click();
+  await expect(panel).toHaveCount(0);
+});
+
 test("FR-42: the Setup panel shows a complete checklist on the seeded self-portrait", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Dataset").selectOption("codegraph");
