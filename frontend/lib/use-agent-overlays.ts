@@ -6,6 +6,7 @@ import type { Doc } from "@core/docs/doc";
 import { DOC_SET_VERSION } from "@core/docs/doc";
 import type { Overlay } from "@core/overlays/overlay";
 import { nodeOverlays, overlayHighlights, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
+import { groundingCoverage } from "@core/overlays/grounding";
 import { buildOnboardPlaybook } from "@core/onboard/playbook";
 import { MARK_CANVAS_COLOR } from "@/lib/overlay-style";
 import { KIND_COLORS } from "@/lib/graph-data";
@@ -71,5 +72,14 @@ export function useAgentOverlays({ nodes, edges, diagrams, docs, overlays, detai
     });
   }, [nodes, edges, diagrams, docs, overlaySet]);
 
-  return { selectedOverlays, markedNodes, grouped: overlayHl.grouped, playbook };
+  // FR-62 grounding coverage: how many nodes carry an agent-authored note, the
+  // payoff the bulk `ground_nodes` MCP tool drives toward. Same pure-core helper
+  // the tool reports with, so the Setup panel's "N of M grounded" matches what the
+  // agent sees. Anchored by node address (never source bytes) — cloud-safe (AD-14).
+  const coverage = useMemo(
+    () => groundingCoverage(overlaySet, new Set(nodes.map((n) => n.address))),
+    [nodes, overlaySet],
+  );
+
+  return { selectedOverlays, markedNodes, grouped: overlayHl.grouped, playbook, coverage };
 }

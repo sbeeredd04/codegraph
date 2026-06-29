@@ -11,16 +11,24 @@
 
 import { useDraggable } from "@/lib/use-draggable";
 import type { OnboardPlaybook } from "@core/onboard/playbook";
+import type { GroundingCoverage } from "@core/overlays/grounding";
+import { Sparkles } from "./icons";
 
 interface OnboardingPanelProps {
   readonly playbook: OnboardPlaybook;
+  /** FR-62 — how many nodes carry an agent-authored grounding note. */
+  readonly coverage: GroundingCoverage;
   readonly onDismiss: () => void;
 }
 
-export function OnboardingPanel({ playbook, onDismiss }: OnboardingPanelProps): React.JSX.Element {
+export function OnboardingPanel({ playbook, coverage, onDismiss }: OnboardingPanelProps): React.JSX.Element {
   const { steps, done, total, complete } = playbook;
   const next = steps.find((s) => s.status === "todo");
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  // FR-62 grounding coverage (violet — the agent-authoring accent, distinct from
+  // the emerald bootstrap steps). The remaining count is the agent's call to action.
+  const gpct = coverage.total > 0 ? Math.round((coverage.grounded / coverage.total) * 100) : 0;
+  const ungrounded = coverage.total - coverage.grounded;
   // FR-53: a movable, organizable card — not a fixed overlay. Default top-left;
   // the user drags the header (or nudges by keyboard) to place it anywhere, so it
   // never has to clip the legend or the graph. Position persists per-browser
@@ -120,6 +128,48 @@ export function OnboardingPanel({ playbook, onDismiss }: OnboardingPanelProps): 
             );
           })}
         </ul>
+
+        {/* FR-62 — node grounding coverage. The bulk `ground_nodes` MCP tool fills
+            this; the bar shows how much of the graph the agent has explained. */}
+        {coverage.total > 0 && (
+          <div
+            data-testid="grounding-coverage"
+            className="border-t border-zinc-800/60 px-4 py-3"
+          >
+            <div className="flex items-center gap-1.5">
+              <span aria-hidden className="text-violet-300">
+                <Sparkles size={13} />
+              </span>
+              <span className="flex-1 text-[11px] font-medium text-zinc-300">Node grounding</span>
+              <span
+                data-testid="grounding-count"
+                className="font-mono text-[11px] tabular-nums text-zinc-400"
+              >
+                {coverage.grounded}/{coverage.total}
+              </span>
+            </div>
+            <div
+              role="progressbar"
+              aria-valuenow={coverage.grounded}
+              aria-valuemin={0}
+              aria-valuemax={coverage.total}
+              aria-label="Nodes grounded by the agent"
+              className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800"
+            >
+              <div
+                className="h-full rounded-full bg-violet-500/80 transition-[width] duration-500 motion-reduce:transition-none"
+                style={{ width: `${gpct}%` }}
+              />
+            </div>
+            <p className="mt-2 text-[11px] leading-snug text-zinc-500">
+              {ungrounded === 0
+                ? "Every node carries an agent explanation."
+                : ungrounded === 1
+                  ? "1 node still needs grounding — your agent fills it with ground_nodes."
+                  : `${ungrounded} nodes still need grounding — your agent fills them with ground_nodes.`}
+            </p>
+          </div>
+        )}
       </div>
 
       <footer className="border-t border-zinc-800/80 px-4 py-2.5">

@@ -350,7 +350,7 @@ export function Explorer({
   // FR-37/FR-42: the agent's overlays (the selected node's note/markers/groups +
   // the per-node canvas tints + the grouped-address set) and the onboarding
   // playbook — all derived from the live snapshot through the pure core helpers.
-  const { selectedOverlays, markedNodes, grouped, playbook } = useAgentOverlays({
+  const { selectedOverlays, markedNodes, grouped, playbook, coverage } = useAgentOverlays({
     nodes,
     edges,
     diagrams,
@@ -545,7 +545,7 @@ export function Explorer({
         {/* FR-42: agent onboarding progress — chrome, not a graph lens, so it shows
             identically over the 2D and 3D surfaces. Dismissible + non-blocking. */}
         {onboardOpen && (
-          <OnboardingPanel playbook={playbook} onDismiss={() => setOnboardOpen(false)} />
+          <OnboardingPanel playbook={playbook} coverage={coverage} onDismiss={() => setOnboardOpen(false)} />
         )}
 
         {/* FR-61: manual execution trace — lists the ordered route the user is

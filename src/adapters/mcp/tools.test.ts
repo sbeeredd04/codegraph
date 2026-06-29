@@ -381,6 +381,7 @@ describe("MCP overlay tools (agent-authored knowledge overlays)", () => {
     expect(names).toEqual(
       expect.arrayContaining([
         "pin_note",
+        "ground_nodes",
         "annotate_edge",
         "mark_node",
         "group_nodes",
@@ -403,6 +404,26 @@ describe("MCP overlay tools (agent-authored knowledge overlays)", () => {
     const set = await store.all();
     expect(set.overlays).toHaveLength(1);
     expect(set.overlays[0]).toMatchObject({ kind: "note", body: "the entry point; throws on a null arg." });
+  });
+
+  it("ground_nodes bulk-grounds known nodes, reports unknowns, and tracks coverage", async () => {
+    const store = memStore();
+    const tools = overlayTools(fixture(), store);
+    const r = await tools.get("ground_nodes")!.handler({
+      groundings: [
+        { address: "ts:m.ts#foo", body: "the entry point; throws on a null arg." },
+        { address: "ts:m.ts#util", body: "string helper used across the module." },
+        { address: "ts:ghost.ts#x", body: "not in the graph" },
+      ],
+    });
+    const out = parse(r.content[0].text);
+    expect(out.applied).toEqual(["ts:m.ts#foo", "ts:m.ts#util"]);
+    expect(out.skipped).toEqual([{ address: "ts:ghost.ts#x", reason: "unknown-address" }]);
+    expect(out.coverage).toEqual({ grounded: 2, total: 3, ungrounded: ["ts:m.ts"] });
+    // Both notes landed in the same store pin_note writes to.
+    const set = await store.all();
+    expect(set.overlays).toHaveLength(2);
+    expect(set.overlays.every((o) => o.kind === "note")).toBe(true);
   });
 
   it("annotate_edge pins a note on a directed edge", async () => {

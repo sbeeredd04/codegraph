@@ -10,14 +10,9 @@ import {
   type DiagramStore,
 } from "../../core/diagrams/diagram.js";
 import { validateDoc, KNOWN_DOC_CATEGORIES, type DocStore } from "../../core/docs/doc.js";
-import {
-  validateNote,
-  validateMark,
-  validateGroup,
-  MARK_KINDS,
-  MARK_SEVERITIES,
-  type OverlayStore,
-} from "../../core/overlays/overlay.js";
+import { type OverlayStore } from "../../core/overlays/overlay.js";
+import { overlayWriteTools } from "./overlay-tools.js";
+import { ok, fail, ADDRESS, type GraphTool, type McpToolResult } from "./mcp-tool.js";
 import {
   validatePresentationCommand,
   HIGHLIGHT_STYLES,
@@ -44,21 +39,9 @@ import type { EdgeType } from "../../core/graph/types.js";
 // thin wrapper over the pure query layer, kept here (not in server.ts) so the
 // handlers are testable without standing up the SDK transport.
 
-export interface McpToolResult {
-  readonly content: { readonly type: "text"; readonly text: string }[];
-  readonly isError?: boolean;
-  // The SDK's CallToolResult carries an open index signature; mirror it so a
-  // handler result is assignable to registerTool's callback return type.
-  readonly [key: string]: unknown;
-}
-
-export interface GraphTool {
-  readonly name: string;
-  readonly title: string;
-  readonly description: string;
-  readonly inputSchema: Record<string, z.ZodTypeAny>;
-  readonly handler: (args: Record<string, unknown>) => McpToolResult | Promise<McpToolResult>;
-}
+// The tool-result shape + descriptor live in ./mcp-tool (shared with overlay-tools);
+// re-exported here so existing importers of these types from ./tools keep working.
+export type { McpToolResult, GraphTool } from "./mcp-tool.js";
 
 /** A ranked "what just changed" feed: the diff of the working tree against a git ref. */
 export interface RecentChanges {
@@ -98,13 +81,7 @@ export interface GraphToolDeps {
 }
 
 const KIND = z.enum(["module", "class", "function", "method", "workflow"]);
-const ADDRESS = z.string().min(1).describe("A node address, e.g. ts:src/auth.ts#login");
 const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to"]);
-// Mirrors the core MARK_KINDS / MARK_SEVERITIES enums (validateMark is the source
-// of truth; these only sharpen the MCP input schema). Cast because z.enum wants a
-// non-empty tuple and the core arrays are readonly.
-const MARK_KIND = z.enum(MARK_KINDS as unknown as [string, ...string[]]);
-const MARK_SEVERITY = z.enum(MARK_SEVERITIES as unknown as [string, ...string[]]);
 // Presentation-command vocabularies (FR-39). The core codec is the source of
 // truth (validatePresentationCommand re-checks every emit); these only sharpen
 // the MCP input schema. Cast for the same readonly-tuple reason as MARK_KIND.
@@ -112,14 +89,6 @@ const HIGHLIGHT_STYLE = z.enum(HIGHLIGHT_STYLES as unknown as [string, ...string
 const PANEL = z.enum(PANEL_KINDS as unknown as [string, ...string[]]);
 const AFFORDANCE = z.enum(AFFORDANCE_KINDS as unknown as [string, ...string[]]);
 const PROJECTION = z.enum(PROJECTION_KINDS as unknown as [string, ...string[]]);
-
-const ok = (data: unknown): McpToolResult => ({
-  content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-});
-const fail = (message: string): McpToolResult => ({
-  content: [{ type: "text", text: message }],
-  isError: true,
-});
 
 /**
  * Build the graph tools bound to a graph accessor (re-read each call so live
@@ -448,141 +417,7 @@ export function graphTools(getGraph: () => CodeGraph, deps: GraphToolDeps = {}):
   }
 
   if (overlays) {
-    tools.push(
-      {
-        name: "pin_note",
-        title: "Pin note",
-        description:
-          "Pin a free-form Markdown note onto a node — what it does, what happened here, a gotcha, " +
-          "a decision. This is your durable memory on the graph: the human board surfaces it on the " +
-          "node, and it rides the exported snapshot. Anchored by the node's identity, so one note per " +
-          "node — re-pinning replaces it (put several thoughts in one body). Writes graph metadata " +
-          "only; it never touches source files.",
-        inputSchema: {
-          address: ADDRESS,
-          body: z.string().min(1).describe("Markdown note about this node."),
-        },
-        handler: async (args) => {
-          const result = validateNote({
-            anchor: { on: "node", address: String(args.address ?? "") },
-            body: args.body,
-            updatedAt: new Date().toISOString(),
-          });
-          if (!result.ok) return fail(`codegraph: ${result.error}`);
-          await overlays.save(result.overlay);
-          return ok({ saved: result.overlay.id, kind: "note", on: "node", address: args.address });
-        },
-      },
-      {
-        name: "annotate_edge",
-        title: "Annotate edge",
-        description:
-          "Pin a free-form Markdown note onto an EDGE — explain a relationship: why this call is the hot " +
-          "path, what this dependency is for, how data hands off across this boundary. Identified by the " +
-          "directed edge (from, to, type), so one note per edge — re-annotating replaces it. Writes graph " +
-          "metadata only; it never touches source files.",
-        inputSchema: {
-          from: z.string().min(1).describe("Source node address of the edge."),
-          to: z.string().min(1).describe("Target node address of the edge."),
-          type: EDGE_TYPE.describe("The edge relation: calls, depends-on, contains, or hands-off-to."),
-          body: z.string().min(1).describe("Markdown note about this relationship."),
-        },
-        handler: async (args) => {
-          const result = validateNote({
-            anchor: {
-              on: "edge",
-              from: String(args.from ?? ""),
-              to: String(args.to ?? ""),
-              type: args.type,
-            },
-            body: args.body,
-            updatedAt: new Date().toISOString(),
-          });
-          if (!result.ok) return fail(`codegraph: ${result.error}`);
-          await overlays.save(result.overlay);
-          return ok({ saved: result.overlay.id, kind: "note", on: "edge" });
-        },
-      },
-      {
-        name: "mark_node",
-        title: "Mark node",
-        description:
-          "Set a typed marker on a node so it stands out on the board: a bug, a breakpoint, an issue, a " +
-          `todo, or a hotspot (${MARK_KINDS.join(", ")}). Optionally add a severity ` +
-          `(${MARK_SEVERITIES.join(", ")}) and a one-line label. One marker of each kind per node — ` +
-          "re-marking updates it. Use this to flag where to look. Writes graph metadata only; it never " +
-          "touches source files.",
-        inputSchema: {
-          address: ADDRESS,
-          mark: MARK_KIND.describe(`The marker kind: ${MARK_KINDS.join(", ")}.`),
-          severity: MARK_SEVERITY.optional().describe(`Optional severity: ${MARK_SEVERITIES.join(", ")}.`),
-          label: z.string().optional().describe("Optional one-line label for the marker."),
-        },
-        handler: async (args) => {
-          const result = validateMark({
-            address: args.address,
-            mark: args.mark,
-            severity: args.severity,
-            label: args.label,
-            updatedAt: new Date().toISOString(),
-          });
-          if (!result.ok) return fail(`codegraph: ${result.error}`);
-          await overlays.save(result.overlay);
-          return ok({ saved: result.overlay.id, kind: "mark", mark: args.mark });
-        },
-      },
-      {
-        name: "group_nodes",
-        title: "Group nodes",
-        description:
-          "Gather a set of node addresses into a labelled group — a feature, a subsystem, a request path " +
-          "you identified across the graph. The board can highlight the group together. Identified by its " +
-          "label, so re-saving the same label updates its members. Writes graph metadata only; it never " +
-          "touches source files.",
-        inputSchema: {
-          label: z.string().min(1).describe("The group's display label, e.g. 'Auth flow'."),
-          members: z
-            .array(z.string())
-            .min(1)
-            .describe("The node addresses in this group."),
-        },
-        handler: async (args) => {
-          const result = validateGroup({
-            label: args.label,
-            members: args.members,
-            updatedAt: new Date().toISOString(),
-          });
-          if (!result.ok) return fail(`codegraph: ${result.error}`);
-          await overlays.save(result.overlay);
-          return ok({ saved: result.overlay.id, kind: "group", label: result.overlay.label });
-        },
-      },
-      {
-        name: "list_overlays",
-        title: "List overlays",
-        description:
-          "List the overlays already pinned to this repo's graph — notes, markers, and groups (each with " +
-          "its id and anchor). Review these before adding more so you refine and fill gaps rather than " +
-          "duplicate.",
-        inputSchema: {},
-        handler: async () => ok(await overlays.all()),
-      },
-      {
-        name: "remove_overlay",
-        title: "Remove overlay",
-        description:
-          "Remove an overlay by its id (as returned by pin_note, mark_node, group_nodes, annotate_edge, " +
-          "or list_overlays).",
-        inputSchema: {
-          id: z.string().min(1).describe("The overlay id, e.g. 'note/65268690' or 'mark/bug/abc123'."),
-        },
-        handler: async (args) => {
-          const id = String(args.id);
-          const removed = await overlays.remove(id);
-          return removed ? ok({ deleted: id }) : fail(`codegraph: no overlay with id "${id}".`);
-        },
-      },
-    );
+    tools.push(...overlayWriteTools(getGraph, overlays));
   }
 
   if (diagrams && docs && overlays) {
