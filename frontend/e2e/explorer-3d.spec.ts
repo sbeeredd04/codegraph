@@ -2,9 +2,9 @@ import { test, expect } from "@playwright/test";
 
 // FR-17 — the 2D⇄3D render-mode toggle. The same graph renders through a
 // swappable surface: the 2D Sigma canvas or the dependency-free 3D canvas. This
-// proves the toggle mounts each surface and that the 2D-only lenses (orphans,
-// trace) are correctly withheld in 3D. The 3D layout/projection math itself is
-// unit-tested in src/adapters/surfaces/webview/layout3d.test.ts.
+// proves the toggle mounts each surface and that the 2D-only Orphans lens is
+// correctly withheld in 3D (Trace, FR-61, now works on both surfaces). The 3D
+// layout/projection math itself is unit-tested in layout3d.test.ts.
 
 test("toggles between the 2D and 3D render surfaces", async ({ page }) => {
   await page.goto("/");
@@ -21,9 +21,9 @@ test("toggles between the 2D and 3D render surfaces", async ({ page }) => {
   await expect(to3d).toHaveAttribute("aria-pressed", "true");
   await expect(to2d).toHaveAttribute("aria-pressed", "false");
 
-  // The 2D-only lenses are disabled in 3D so they can't be armed with no effect.
-  await expect(page.getByRole("button", { name: "Trace" })).toBeDisabled();
+  // Orphans stays 2D-only (disabled in 3D); Trace (FR-61) works on both surfaces.
   await expect(page.getByRole("button", { name: /Orphans/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Trace" })).toBeEnabled();
 
   // Switch back — the 3D surface unmounts, the 2D canvas returns.
   await to2d.click();

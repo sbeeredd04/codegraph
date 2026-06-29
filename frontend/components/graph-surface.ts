@@ -25,18 +25,26 @@ export interface GraphSurfaceProps {
   readonly folderSort: FolderSort;
   /** Dim everything except dead-code candidates (FR-12). 2D surface only for now. */
   readonly orphanMode: boolean;
-  /** When true, a click picks the path source then traces to the target. 2D only. */
+  /** When true, a click extends the manual execution trace (FR-61) instead of
+   * selecting — forwarding to `onTraceClick`. Honoured by both 2D and 3D. */
   readonly traceArmed: boolean;
+  /** The current manual trace (FR-61): the ordered node sequence the Explorer
+   * owns. The surface paints it as a trail — every step node leads and the
+   * directed edges between consecutive hops light up. Declarative, so it survives
+   * a projection/surface rebuild. Honoured by both 2D and 3D. */
+  readonly traceSteps: readonly string[];
   /** Hover: the node the pointer is over (its address), or null on leave. */
   readonly onHoverNode: (address: string | null) => void;
   /** A node was clicked (while not tracing) — select it for the detail panel. */
   readonly onSelectNode: (address: string) => void;
+  /** A node was clicked while the trace tool is armed (FR-61) — extend the manual
+   * trace to it. The Explorer owns the pure trace model and repaints the trail via
+   * `traceSteps`; the surface only reports the click. Both surfaces. */
+  readonly onTraceClick?: (address: string) => void;
   /** Empty-canvas click — clear the current selection (and its focus lens). */
   readonly onClearSelection: () => void;
   /** Orphan count for the current projection, reported up for the toggle UI. */
   readonly onOrphanCount: (count: number) => void;
-  /** Trace progress: status text for the live region, or "" to clear it. 2D only. */
-  readonly onTraceStatus: (text: string, tone?: "ok" | "none") => void;
   /** Imperative controller handle (FR-43) — the parent installs a ref here and
    * the mounted surface populates it with focus/frame/highlight/replay, so the
    * host (and the FR-39 command bus to come) can DRIVE the surface, not just read

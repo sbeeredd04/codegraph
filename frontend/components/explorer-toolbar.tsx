@@ -293,12 +293,13 @@ export function ExplorerToolbar({
         <Ghost size={14} /> Orphans <span className="font-mono">{orphanCount}</span>
       </button>
 
-      {/* Trace path (PM-backlog #3) — 2D only for now */}
+      {/* Manual execution trace (FR-61) — click nodes to build an ordered route;
+          works on both the 2D and 3D surfaces. */}
       <button
         aria-pressed={traceArmed}
-        disabled={renderMode === "3d"}
+        title="Trace: click nodes to build an ordered route through the graph"
         onClick={onToggleTrace}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
           traceArmed
             ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
             : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"

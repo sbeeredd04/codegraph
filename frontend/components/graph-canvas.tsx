@@ -15,12 +15,8 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import { projectGraph } from "@core/graph/projection";
-import {
-  findPathInEdges,
-  pathHighlight,
-  pathEdgeKey,
-  type PathHighlight,
-} from "@core/graph/path";
+import { pathEdgeKey, type PathHighlight } from "@core/graph/path";
+import { traceHighlight } from "@core/graph/trace";
 import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import { planReplay } from "@core/presentation/replay";
 import type { NodeKind } from "@core/graph/types";
@@ -59,12 +55,6 @@ const FOCUS_LABEL_CAP = 16;
 // The 2D surface implements the shared render-surface contract (AD-15).
 export type GraphCanvasProps = GraphSurfaceProps;
 
-/** Short, human label for an address (last `::`/`/`-delimited segment). */
-function shortName(addr: string): string {
-  const tail = addr.split("::").pop() ?? addr;
-  return tail.split("/").pop() ?? tail;
-}
-
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** A closed SVG polygon path through the given screen-space points. */
@@ -97,6 +87,15 @@ function topRegions(regions: readonly FolderRegion[]): FolderRegion[] {
     .slice(0, MAX_REGIONS);
 }
 
+/** The manual trace (FR-61) as a path-highlight the reducers already understand,
+ * filtered to nodes the current projection actually renders — a step the active
+ * projection hides drops out (and its incident trail edge simply matches nothing),
+ * never breaking the trail. Empty/single-node traces yield no highlight. */
+function tracePathFor(steps: readonly string[], g: Graph): PathHighlight | undefined {
+  const present = steps.filter((a) => g.hasNode(a));
+  return present.length ? traceHighlight({ steps: present }) : undefined;
+}
+
 export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<Sigma | null>(null);
@@ -120,8 +119,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // keeps them current on every subsequent render without re-running the heavy
   // effect — writing refs during render is disallowed by react-hooks/refs.)
   const orphanRef = useRef(props.orphanMode);
+  // FR-61: the manual trace trail (nodes + connecting edges), painted by the path
+  // lens. Driven declaratively from the Explorer's trace model via `props.traceSteps`
+  // (a light effect + the heavy-rebuild seed below), so it survives a relayout.
   const pathRef = useRef<PathHighlight | undefined>(undefined);
-  const traceFromRef = useRef<string | undefined>(undefined);
   const traceArmedRef = useRef(props.traceArmed);
   const focusRefHl = useRef<FocusHighlight | null>(null);
   // The agent's overlay highlights (FR-37), read live by the nodeReducer so a
@@ -193,6 +194,9 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       });
     }
     graphRef.current = g;
+    // FR-61: re-seed the manual trace trail from the live trace model, so changing
+    // projection (a heavy rebuild) never wipes a trace the user is assembling.
+    pathRef.current = tracePathFor(cbRef.current.traceSteps, g);
 
     // Snapshot the force layout, then derive the folder-clustered layout from it
     // once (FR-26). Toggling Folders later just swaps between these two maps — no
@@ -363,42 +367,15 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       cbRef.current.onClearSelection();
     });
     renderer.on("clickNode", ({ node }) => {
-      if (!traceArmedRef.current) {
-        cbRef.current.onSelectNode(node);
+      // FR-61: while the trace tool is armed, a click extends the manual trace
+      // (the Explorer owns the pure model + repaints the trail via props.traceSteps)
+      // rather than selecting. Unifies the old two-click "Trace" toggle.
+      if (traceArmedRef.current) {
+        cbRef.current.onTraceClick?.(node);
         return;
       }
-      handleTraceClick(node);
+      cbRef.current.onSelectNode(node);
     });
-
-    // Trace interaction (pure findPathInEdges over the FULL node/edge set, so a
-    // projection that hides a node never breaks the route computation).
-    function handleTraceClick(node: string): void {
-      if (!traceFromRef.current) {
-        traceFromRef.current = node;
-        pathRef.current = { nodes: new Set([node]), edges: new Set() };
-        cbRef.current.onTraceStatus(`From ${shortName(node)} — click a target`);
-        renderer.refresh();
-        return;
-      }
-      const from = traceFromRef.current;
-      const result = findPathInEdges(
-        cbRef.current.nodes.map((n) => ({ address: n.address })),
-        cbRef.current.edges,
-        from,
-        node,
-      );
-      if (result?.found) {
-        pathRef.current = pathHighlight(result);
-        const hops = result.length === 1 ? "1 hop" : `${result.length} hops`;
-        cbRef.current.onTraceStatus(`${shortName(from)} → ${shortName(node)} · ${hops}`, "ok");
-        fitToPath(result.nodes);
-      } else {
-        pathRef.current = undefined;
-        cbRef.current.onTraceStatus(`No path from ${shortName(from)} to ${shortName(node)}`, "none");
-      }
-      traceFromRef.current = undefined;
-      renderer.refresh();
-    }
 
     function fitToPath(addresses: readonly string[], ratio = 0.75): void {
       const pts = addresses
@@ -553,7 +530,6 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       rendererRef.current = null;
       graphRef.current = null;
       pathRef.current = undefined;
-      traceFromRef.current = undefined;
       highlightRef.current = null;
       if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = null;
     };
@@ -621,15 +597,14 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     r.getCamera().animatedReset({ duration: 400 });
   }, [props.folderSort]);
 
-  // Disarming trace clears any in-progress source + highlight.
+  // Light effect: the manual trace (FR-61) changed — repaint the trail from the
+  // ordered steps, no relayout (the path lens reads pathRef live). The Explorer
+  // clears the trace to [] on disarm, so this also handles tearing the trail down.
   useEffect(() => {
-    if (!props.traceArmed) {
-      traceFromRef.current = undefined;
-      pathRef.current = undefined;
-      cbRef.current.onTraceStatus("");
-      rendererRef.current?.refresh();
-    }
-  }, [props.traceArmed]);
+    const g = graphRef.current;
+    if (g) pathRef.current = tracePathFor(props.traceSteps, g);
+    rendererRef.current?.refresh();
+  }, [props.traceSteps]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

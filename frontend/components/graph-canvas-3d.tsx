@@ -64,6 +64,11 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // resolved above the ambient overlay tint in the draw loop. null when undriven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
+  // FR-61: the manual execution trace's node set, tinted trace-green in the draw
+  // loop (the 3D parallel of the 2D path lens). Driven declaratively from the
+  // Explorer's trace model via props.traceSteps (seed + light effect), so it
+  // survives a rebuild; null when the trace is empty.
+  const traceRef = useRef<ReadonlySet<string> | null>(null);
   // FR-40: in-flight guided-tour step timers — mirror the 2D surface so both step
   // identically (AD-15). Any controller call cancels them so a manual action
   // (or Take control) preempts the agent's tour cleanly.
@@ -97,6 +102,14 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     drawRef.current?.();
   }, [props.markedNodes, props.groupedNodes]);
 
+  // Light effect: the manual trace (FR-61) changed — repaint the trail from the
+  // ordered steps (the draw loop reads traceRef live). The Explorer clears the
+  // trace to [] on disarm, so this also tears the trail down. No rebuild/relayout.
+  useEffect(() => {
+    traceRef.current = props.traceSteps.length ? new Set(props.traceSteps) : null;
+    drawRef.current?.();
+  }, [props.traceSteps]);
+
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -118,6 +131,9 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // Seed the focus lens from the current selection so the first frame already
       // reflects it; the light effect above keeps it current thereafter.
       focusHlRef.current = focusHighlight(cbRef.current.selected, props.edges);
+      // FR-61: re-seed the manual trace trail so a rebuild (new projection/data)
+      // doesn't wipe a trace the user is assembling; the light effect keeps it current.
+      traceRef.current = cbRef.current.traceSteps.length ? new Set(cbRef.current.traceSteps) : null;
       // A rebuild (new dataset/projection) invalidates any in-flight movie tour.
       setMovieRef.current(INACTIVE_MOVIE);
 
@@ -197,8 +213,16 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       const isGrouped = (id: string): boolean => Boolean(groupedRef.current?.has(id));
       const highlightColorOf = (id: string): string | undefined =>
         highlightRef.current?.set.has(id) ? highlightRef.current.color : undefined;
+      // FR-61: a node on the manual trace tints trace-green — below a live driver
+      // highlight/mark (so the agent's pointer still wins) but above the group tint
+      // and kind colour, so a deliberately-traced route stands out on the field.
+      const traceColorOf = (id: string): string | undefined =>
+        traceRef.current?.has(id) ? HIGHLIGHT_STYLE_COLOR.trace : undefined;
       const drawColorOf = (id: string): string | undefined =>
-        highlightColorOf(id) ?? markColorOf(id) ?? (isGrouped(id) ? GROUP_TINT : metaById.get(id)?.color);
+        highlightColorOf(id) ??
+        markColorOf(id) ??
+        traceColorOf(id) ??
+        (isGrouped(id) ? GROUP_TINT : metaById.get(id)?.color);
 
       // --- Camera: orbit around `target` in spherical coords; pan moves `target`.
       const target = new THREE.Vector3(0, 0, 0);
@@ -239,8 +263,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           const id = ids[i];
           const hlColor = highlightColorOf(id);
           const markColor = markColorOf(id);
+          const traceColor = traceColorOf(id);
           const isCenter = focus?.center === id;
-          const inFocus = Boolean(hlColor) || !focus || focus.nodes.has(id);
+          // A trace node leads through a focus lens (FR-61), like a driver highlight.
+          const inFocus = Boolean(hlColor) || Boolean(traceColor) || !focus || focus.nodes.has(id);
           const drawn = drawColorOf(id) ?? meta[i].color;
           if (!inFocus) tmpColor.copy(colDim);
           else if (isCenter && !hlColor) tmpColor.copy(colSelected);
@@ -250,7 +276,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           let r = 0.7 + meta[i].size * 0.16;
           if (isCenter) r += 0.9;
           else if (hlColor) r += 0.8;
-          else if (markColor) r += 0.5;
+          else if (markColor || traceColor) r += 0.5;
           else if (id === hoverId) r += 0.45;
           if (!inFocus) r *= 0.82;
           dummy.position.copy(pos[i]);
@@ -292,6 +318,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           for (const id of markedRef.current.keys()) if (!focus || focus.nodes.has(id)) toLabel.add(id);
         }
         if (highlightRef.current) for (const id of highlightRef.current.set) toLabel.add(id);
+        if (traceRef.current) for (const id of traceRef.current) toLabel.add(id); // FR-61: label traced nodes
 
         labelLayer.replaceChildren();
         if (!toLabel.size) return;
@@ -519,8 +546,12 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         if (dragging && moved < 4) {
           const { mx, my } = localXY(e);
           const hit = pickAt(mx, my);
-          if (hit) cbRef.current.onSelectNode(hit);
-          else cbRef.current.onClearSelection();
+          // FR-61: a click while the trace tool is armed extends the manual trace
+          // (forwarded to the Explorer) instead of selecting — same as the 2D surface.
+          if (hit) {
+            if (cbRef.current.traceArmed) cbRef.current.onTraceClick?.(hit);
+            else cbRef.current.onSelectNode(hit);
+          } else cbRef.current.onClearSelection();
         }
         dragging = false;
         panning = false;

@@ -22,6 +22,7 @@ import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { findPathInEdges } from "@core/graph/path";
+import { EMPTY_TRACE, extendTrace, undoTrace, type TraceState } from "@core/graph/trace";
 import type { PresentationCommand } from "@core/presentation/command";
 import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
 import { PresentingBanner } from "./presenting-banner";
@@ -39,6 +40,7 @@ import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
 import { OnboardingPanel } from "./onboarding-panel";
 import { AskPanel } from "./ask-panel";
+import { TracePanel } from "./trace-panel";
 import { ExplorerToolbar } from "./explorer-toolbar";
 import type { AskFocus } from "@core/assist/ask";
 
@@ -62,6 +64,7 @@ const LAYOUT_KEYS = [
   "codegraph:dock:docs",
   "codegraph:panel:detail",
   "codegraph:panel:onboard",
+  "codegraph:panel:trace",
   "codegraph:panel:diagrams",
   "codegraph:panel:docs",
 ];
@@ -119,6 +122,11 @@ export function Explorer({
   const [traceArmed, setTraceArmed] = useState(false);
   const [orphanCount, setOrphanCount] = useState(0);
   const [traceStatus, setTraceStatus] = useState<{ text: string; tone?: "ok" | "none" }>({ text: "" });
+  // FR-61: the manual execution trace — an ordered node sequence (pure core model)
+  // the user assembles by clicking. A ref mirrors it so the click/undo/clear
+  // handlers read the current value without re-subscribing the surfaces.
+  const [trace, setTrace] = useState<TraceState>(EMPTY_TRACE);
+  const traceRef = useRef<TraceState>(EMPTY_TRACE);
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -367,10 +375,77 @@ export function Explorer({
 
   // A legible label for an address — module paths shorten to a basename (FR-16);
   // the full path stays visible in the detail panel.
-  const labelFor = (address: string): string => {
-    const n = byAddress.get(address);
-    return n ? displayLabel(n.name, n.kind) : address;
-  };
+  const labelFor = useCallback(
+    (address: string): string => {
+      const n = byAddress.get(address);
+      return n ? displayLabel(n.name, n.kind) : address;
+    },
+    [byAddress],
+  );
+
+  // FR-61: commit a new trace state — keep the ref + the render state + every
+  // surface's declarative `traceSteps` in sync from one place.
+  const applyTrace = useCallback((next: TraceState) => {
+    traceRef.current = next;
+    setTrace(next);
+  }, []);
+
+  // FR-61: a click while tracing extends the manual trace. The pure-core
+  // `extendTrace` splices in the shortest directed path to a reachable target (so
+  // every hop is edge-validated) or records a disjoint jump otherwise; the status
+  // line narrates the last hop. View-only (FR-9) — never touches source.
+  const onTraceClick = useCallback(
+    (address: string) => {
+      const prev = traceRef.current;
+      const next = extendTrace(prev, nodes, edges, address);
+      if (next === prev) {
+        setTraceStatus({ text: `${labelFor(address)} is already the trace tail` });
+        return;
+      }
+      applyTrace(next);
+      if (prev.steps.length === 0) {
+        setTraceStatus({ text: `Trace started — ${labelFor(address)}` });
+        return;
+      }
+      const tail = prev.steps[prev.steps.length - 1];
+      const path = findPathInEdges(nodes, edges, tail, address);
+      if (path?.found) {
+        const hops = path.length === 1 ? "1 hop" : `${path.length} hops`;
+        setTraceStatus({
+          text: `${labelFor(tail)} → ${labelFor(address)} · ${hops} · ${next.steps.length} nodes`,
+          tone: "ok",
+        });
+      } else {
+        setTraceStatus({
+          text: `${labelFor(address)} added — no path from ${labelFor(tail)}`,
+          tone: "none",
+        });
+      }
+    },
+    [nodes, edges, labelFor, applyTrace],
+  );
+
+  // FR-61 trace panel actions: undo one hop, clear the whole trace, or play it
+  // back as a cinematic camera walk (reuses the FR-40/FR-48 replay machinery, so
+  // the 3D camera flies node-to-node along the route).
+  const undoTraceStep = useCallback(() => {
+    const next = undoTrace(traceRef.current);
+    applyTrace(next);
+    setTraceStatus(next.steps.length ? { text: `${next.steps.length} nodes traced` } : { text: "" });
+  }, [applyTrace]);
+  const clearTraceAll = useCallback(() => {
+    applyTrace(EMPTY_TRACE);
+    setTraceStatus({ text: "" });
+  }, [applyTrace]);
+  const playTrace = useCallback(() => {
+    if (traceRef.current.steps.length > 1) controllerRef.current?.replay(traceRef.current.steps);
+  }, []);
+
+  // FR-61: the trail the surfaces paint — the live trace while armed, empty while
+  // disarmed (so toggling off hides it without discarding the route, and re-arming
+  // resumes it). `EMPTY_TRACE.steps` is a stable [] so the surfaces' light effect
+  // doesn't re-fire every render. The "Clear" panel action empties it explicitly.
+  const traceSteps = traceArmed ? trace.steps : EMPTY_TRACE.steps;
 
   // FR-50: the ⌘⇧P action catalogue — the SAME setters/handlers the toolbar uses
   // (single source of truth). Built lazily on open, so no ref read during render.
@@ -451,11 +526,12 @@ export function Explorer({
               folderSort={folderSort}
               orphanMode={orphanMode}
               traceArmed={traceArmed}
+              traceSteps={traceSteps}
               onHoverNode={setHovered}
               onSelectNode={selectNode}
+              onTraceClick={onTraceClick}
               onClearSelection={clearSelection}
               onOrphanCount={setOrphanCount}
-              onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
               controllerRef={controllerRef}
               markedNodes={markedNodes}
               groupedNodes={grouped}
@@ -470,6 +546,21 @@ export function Explorer({
             identically over the 2D and 3D surfaces. Dismissible + non-blocking. */}
         {onboardOpen && (
           <OnboardingPanel playbook={playbook} onDismiss={() => setOnboardOpen(false)} />
+        )}
+
+        {/* FR-61: manual execution trace — lists the ordered route the user is
+            assembling by clicking nodes, with undo / clear / cinematic playback.
+            Chrome over both surfaces (the trail itself is painted by the canvas). */}
+        {traceArmed && (
+          <TracePanel
+            steps={trace.steps}
+            labelFor={labelFor}
+            onJump={jumpTo}
+            onUndo={undoTraceStep}
+            onClear={clearTraceAll}
+            onPlay={playTrace}
+            onClose={() => setTraceArmed(false)}
+          />
         )}
 
         {/* Kind legend — bottom-left chrome over both surfaces (FR-53: the dev-only
