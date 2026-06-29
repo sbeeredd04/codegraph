@@ -6,6 +6,7 @@
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
+import type { ChangeKind } from "@adapters/surfaces/webview/render-model";
 import type { SurfaceController } from "@/lib/surface-controller";
 import type { ReduceMotionPref } from "@/lib/reduced-motion";
 import type { LabelDensity } from "@/lib/label-layout-3d";
@@ -84,4 +85,12 @@ export interface GraphSurfaceProps {
    * first-degree focus lens (FR-25) drives instead. 2D honours it now; 3D parity in
    * FR-72b-2. */
   readonly layerDepths?: ReadonlyMap<string, number>;
+  /** Live graph-diff lens (FR-69): address → its change kind ("added" | "changed" |
+   * "moved") between a captured baseline snapshot and the live graph, computed upstream
+   * by the pure-core diffGraphs. Removed nodes are absent — they're gone from the live
+   * graph, so they show only in the diff panel. When present + non-empty the surface
+   * tints each changed node by kind (lib/diff-palette) and recedes the unchanged, so
+   * "what changed" pops; absent/empty → no diff treatment. Honoured by 2D + 3D. AD-14
+   * safe (identities + change kinds only — never source bytes / absolute host paths). */
+  readonly changeMap?: ReadonlyMap<string, ChangeKind>;
 }

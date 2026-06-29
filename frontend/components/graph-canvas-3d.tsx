@@ -24,6 +24,8 @@ import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
 import { buildCameraControls3D } from "@/lib/camera-controls-3d";
 import { buildLabelPass3D } from "@/lib/label-pass-3d";
 import { layerColor } from "@/lib/layer-palette";
+import { DIFF_COLORS } from "@/lib/diff-palette";
+import type { ChangeKind } from "@adapters/surfaces/webview/render-model";
 import { buildPackageRegions, type RegionInput } from "@/lib/package-regions-3d";
 import { NO_PACKAGE_TINT } from "@/lib/package-palette";
 import { resolveReducedMotion } from "@/lib/reduced-motion";
@@ -70,6 +72,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // Read live by the draw loop (layerColorOf) so arming Layers / dragging the depth
   // slider repaints the concentric shells without re-running the heavy build.
   const layerDepthsRef = useRef<ReadonlyMap<string, number> | undefined>(props.layerDepths);
+  // FR-69: the live graph-diff lens (address → change kind: added/changed/moved between
+  // a captured baseline and the live graph). Read live by the draw loop (diffColorOf)
+  // so injecting/clearing a baseline repaints the diff tint without a heavy rebuild.
+  const changeMapRef = useRef<ReadonlyMap<string, ChangeKind> | undefined>(props.changeMap);
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // resolved above the ambient overlay tint in the draw loop. null when undriven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
@@ -102,6 +108,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     groupedRef.current = props.groupedNodes;
     packageTintRef.current = props.packageTints;
     layerDepthsRef.current = props.layerDepths;
+    changeMapRef.current = props.changeMap;
   });
 
   // Light effect: selection (or the edge set) changed — recompute the focus lens
@@ -116,7 +123,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // repaints the tint + relabels (no rebuild/relayout).
   useEffect(() => {
     drawRef.current?.();
-  }, [props.markedNodes, props.groupedNodes, props.packageTints, props.labelDensity, props.layerDepths]);
+  }, [props.markedNodes, props.groupedNodes, props.packageTints, props.labelDensity, props.layerDepths, props.changeMap]);
 
   // Light effect: the manual trace (FR-61) changed — repaint the trail from the
   // ordered steps (the draw loop reads traceRef live). The Explorer clears the
@@ -269,9 +276,18 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         const depth = layerDepthsRef.current?.get(id);
         return depth === undefined || depth === 0 ? undefined : layerColor(depth);
       };
+      // FR-69: while the diff lens is armed a node's change kind tints it from the
+      // shared diff palette (added=green/changed=amber/moved=violet) — above the
+      // layer/mark/group/kind layers, mirroring the 2D nodeReducer. Removed nodes
+      // aren't in the map (they're gone from the live graph), so they never tint here.
+      const diffColorOf = (id: string): string | undefined => {
+        const kind = changeMapRef.current?.get(id);
+        return kind ? DIFF_COLORS[kind] : undefined;
+      };
       // FR-57: the package tint is the recessive base — below group, above kind.
       const drawColorOf = (id: string): string | undefined =>
         highlightColorOf(id) ??
+        diffColorOf(id) ??
         layerColorOf(id) ??
         markColorOf(id) ??
         traceColorOf(id) ??
@@ -290,21 +306,29 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         // FR-72b-2: when the layer lens is active it REPLACES the focus lens as the
         // "what's lit" gate — only nodes within the capped depth map stay bright, the
         // rest recede to colDim (the 3D parallel of the 2D layer nodeReducer branch).
+        // FR-69: an armed diff lens is a stronger gate still — only changed nodes stay
+        // lit, so "what changed" pops over the whole field.
         const layers = layerDepthsRef.current;
+        const changes = changeMapRef.current;
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i];
           const hlColor = highlightColorOf(id);
           const markColor = markColorOf(id);
           const traceColor = traceColorOf(id);
           const isCenter = focus?.center === id;
+          const isChanged = Boolean(changes?.has(id));
           // A trace node leads through a focus lens (FR-61), like a driver highlight.
           const inFocus =
-            layers && layers.size > 0
-              ? layers.has(id) || Boolean(hlColor) || Boolean(traceColor)
-              : Boolean(hlColor) || Boolean(traceColor) || !focus || focus.nodes.has(id);
+            changes && changes.size > 0
+              ? isChanged || Boolean(hlColor) || Boolean(traceColor)
+              : layers && layers.size > 0
+                ? layers.has(id) || Boolean(hlColor) || Boolean(traceColor)
+                : Boolean(hlColor) || Boolean(traceColor) || !focus || focus.nodes.has(id);
           const drawn = drawColorOf(id) ?? meta[i].color;
           if (!inFocus) tmpColor.copy(colDim);
-          else if (isCenter && !hlColor) tmpColor.copy(colSelected);
+          // A changed node keeps its diff hue even when it's also the selection centre
+          // (the diff is the active question) — otherwise centre→SELECTED would mask it.
+          else if (isCenter && !hlColor && !isChanged) tmpColor.copy(colSelected);
           else tmpColor.set(drawn);
           mesh.setColorAt(i, tmpColor);
 

@@ -18,8 +18,7 @@ import type { Overlay } from "@core/overlays/overlay";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import { partitionByPackage } from "@core/graph/package";
-import { KIND_COLORS } from "@/lib/graph-data";
-import { packageColors, packageNodeTints, NO_PACKAGE_TINT } from "@/lib/package-palette";
+import { packageColors, packageNodeTints } from "@/lib/package-palette";
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { findPathInEdges } from "@core/graph/path";
@@ -44,7 +43,10 @@ import { OnboardingPanel } from "./onboarding-panel";
 import { AskPanel } from "./ask-panel";
 import { TracePanel } from "./trace-panel";
 import { LayerDepthControl } from "./layer-depth-control";
+import { DiffPanel } from "./diff-panel";
+import { GraphLegend } from "./graph-legend";
 import { ExplorerToolbar } from "./explorer-toolbar";
+import { useGraphDiff } from "@/lib/use-graph-diff";
 import type { AskFocus } from "@core/assist/ask";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
@@ -69,6 +71,7 @@ const LAYOUT_KEYS = [
   "codegraph:panel:source",
   "codegraph:panel:onboard",
   "codegraph:panel:trace",
+  "codegraph:panel:diff",
   "codegraph:panel:diagrams",
   "codegraph:panel:docs",
 ];
@@ -166,9 +169,17 @@ export function Explorer({
   // when the human holds the wheel. Drives the user-sovereignty preempt banner.
   const [presenting, setPresenting] = useState<string | null>(null);
   const controllerRef = useRef<SurfaceController | null>(null);
+  // The shell root — carries the dev-only `__diff` e2e hook the diff lens installs.
+  const rootRef = useRef<HTMLElement>(null);
   const router = useRouter();
   const diagramList = diagrams ?? [];
   const docList = docs ?? [];
+
+  // FR-69: the live graph-diff lens — armed flag + captured baseline + the computed
+  // delta (tint map / counts / ranked feed), all owned by the hook so the shell stays
+  // lean. The tint map flows to whichever surface is mounted; the panel reads counts +
+  // feed. View-only (FR-9): a baseline is a copy of the graph identities, not source.
+  const diff = useGraphDiff(nodes, edges, rootRef);
 
   // Selecting a node (canvas click or a neighbor jump, which both route through
   // onSelectNode) closes any open source view — it re-opens on demand for the
@@ -511,6 +522,8 @@ export function Explorer({
 
   return (
     <main
+      ref={rootRef}
+      data-explorer
       data-density={settings.displayDensity}
       className="relative flex h-screen flex-col bg-[#0e0f13] font-sans text-zinc-200"
     >
@@ -541,6 +554,8 @@ export function Explorer({
         onToggleTrace={() => setTraceArmed((v) => !v)}
         layersMode={layersMode}
         onToggleLayers={() => setLayersMode((v) => !v)}
+        diffMode={diff.diffMode}
+        onToggleDiff={diff.toggleDiff}
         diagramsOpen={diagramsOpen}
         diagramCount={diagramList.length}
         onToggleDiagrams={() => {
@@ -596,6 +611,7 @@ export function Explorer({
               reduceMotion={settings.reduceMotion}
               labelDensity={settings.labelDensity}
               layerDepths={surfaceLayerDepths}
+              changeMap={diff.result?.changeMap}
             />
           );
         })()}
@@ -640,53 +656,32 @@ export function Explorer({
           />
         )}
 
-        {/* Legend — bottom-left chrome over both surfaces (FR-53: the dev-only Next
-            route badge that used to sit here is hidden via next.config). FR-57: the
-            key switches from node kinds to packages while "colour by package" is on,
-            so the persistent tints stay decodable. */}
-        {showPackages && partition.packages.length >= 2 ? (
-          <div
-            role="img"
-            aria-label="Legend: node colours by package"
-            className="pointer-events-none absolute bottom-3 left-3 flex max-h-[40vh] flex-col gap-1 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur"
-          >
-            {partition.packages.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 text-zinc-400">
-                <span
-                  className="inline-block size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: pkgColors.get(p.id) }}
-                />
-                <span className="truncate">{p.label}</span>
-                <span className="ml-auto pl-2 tabular-nums text-zinc-600">{p.count}</span>
-              </div>
-            ))}
-            {partition.of.size < byAddress.size && (
-              <div className="flex items-center gap-2 text-zinc-400">
-                <span
-                  className="inline-block size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: NO_PACKAGE_TINT }}
-                />
-                <span className="truncate">root</span>
-                <span className="ml-auto pl-2 tabular-nums text-zinc-600">
-                  {byAddress.size - partition.of.size}
-                </span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div
-            role="img"
-            aria-label="Legend: node colours by kind"
-            className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur"
-          >
-            {Object.entries(KIND_COLORS).map(([kind, color]) => (
-              <div key={kind} className="flex items-center gap-2 text-zinc-400">
-                <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: color }} />
-                {kind}
-              </div>
-            ))}
-          </div>
+        {/* FR-69: live graph-diff panel — pins a baseline and lists what changed vs
+            the live graph (+N/−N/~N/→N counts + a blast-radius-ranked feed). Chrome
+            over both surfaces (the changed nodes are tinted by the canvas itself).
+            Disarming keeps the baseline so re-arming resumes; "Clear baseline" drops it. */}
+        {diff.diffMode && (
+          <DiffPanel
+            hasBaseline={diff.hasBaseline}
+            counts={diff.result?.counts ?? null}
+            feed={diff.result?.feed ?? []}
+            onSetBaseline={diff.captureBaseline}
+            onClearBaseline={diff.clearBaseline}
+            onJump={jumpTo}
+            onClose={() => diff.setDiffMode(false)}
+          />
         )}
+
+        {/* Legend — bottom-left chrome over both surfaces (FR-53). The key switches
+            from node kinds to packages while "colour by package" (FR-57) is on, so the
+            persistent tints stay decodable. Extracted to components/graph-legend. */}
+        <GraphLegend
+          showPackages={showPackages}
+          packages={partition.packages}
+          pkgColors={pkgColors}
+          packagedCount={partition.of.size}
+          totalCount={byAddress.size}
+        />
 
         {/* Node detail inspector (FR-15 content, FR-34 workspace frame) — docks
             right (collapsible + resizable) or floats as a draggable card; hidden

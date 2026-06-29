@@ -19,6 +19,7 @@ import {
   Ghost,
   Route as RouteIcon,
   Layers as LayersIcon,
+  GitCompare as GitCompareIcon,
   Workflow,
   FileText,
   ListChecks,
@@ -69,6 +70,11 @@ interface ExplorerToolbarProps {
    * shells, depth-coloured, with a depth control. 2D for now (3D parity in FR-72b-2). */
   readonly layersMode: boolean;
   readonly onToggleLayers: () => void;
+  /** Live graph-diff lens (FR-69): pin a baseline and light what changed between it
+   * and the live graph (added/removed/changed/moved), with a ranked change panel.
+   * Works on both surfaces. */
+  readonly diffMode: boolean;
+  readonly onToggleDiff: () => void;
   readonly diagramsOpen: boolean;
   readonly diagramCount: number;
   readonly onToggleDiagrams: () => void;
@@ -122,6 +128,8 @@ export function ExplorerToolbar({
   onToggleTrace,
   layersMode,
   onToggleLayers,
+  diffMode,
+  onToggleDiff,
   diagramsOpen,
   diagramCount,
   onToggleDiagrams,
@@ -361,6 +369,22 @@ export function ExplorerToolbar({
         }`}
       >
         <LayersIcon size={14} /> Layers
+      </button>
+
+      {/* Live graph-diff lens (FR-69) — pin a baseline, then light what changed between
+          it and the live graph (added=green / removed=red / changed=amber / moved=violet),
+          with a blast-radius-ranked change panel. Works on both surfaces. */}
+      <button
+        aria-pressed={diffMode}
+        title="Diff: pin a baseline and highlight what changed in the live graph"
+        onClick={onToggleDiff}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          diffMode
+            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+            : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+        }`}
+      >
+        <GitCompareIcon size={14} /> Diff
       </button>
 
       {/* Knowledge diagrams drawer (FR-28) — agent-authored Mermaid narratives */}

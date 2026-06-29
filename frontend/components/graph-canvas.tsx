@@ -36,6 +36,8 @@ import { resolveReducedMotion } from "@/lib/reduced-motion";
 import { labelDensityProfile } from "@/lib/label-layout-3d";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
 import { layerColor } from "@/lib/layer-palette";
+import { DIFF_COLORS } from "@/lib/diff-palette";
+import type { ChangeKind } from "@adapters/surfaces/webview/render-model";
 
 interface XY {
   x: number;
@@ -133,6 +135,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // repaints the shells without re-running forceAtlas2. When present + non-empty it
   // supersedes the first-degree focus lens.
   const layerDepthsRef = useRef<ReadonlyMap<string, number> | undefined>(props.layerDepths);
+  // Live graph-diff lens (FR-69): address → change kind (added/changed/moved) between
+  // a captured baseline and the live graph, read live by the nodeReducer so injecting
+  // or clearing a baseline repaints the diff tint without re-running forceAtlas2.
+  const changeMapRef = useRef<ReadonlyMap<string, ChangeKind> | undefined>(props.changeMap);
   // The agent's overlay highlights (FR-37), read live by the nodeReducer so a
   // marks/groups change repaints the tint without re-running the heavy layout.
   const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
@@ -159,6 +165,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     groupedRef.current = props.groupedNodes;
     packageTintRef.current = props.packageTints;
     layerDepthsRef.current = props.layerDepths;
+    changeMapRef.current = props.changeMap;
     cbRef.current = props;
   });
 
@@ -356,6 +363,25 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           res.label = "";
         }
       }
+      // Live graph-diff lens (FR-69): when a change map is present it's the active
+      // "what changed" view — every added/changed/moved node wears its diff hue and
+      // everything unchanged recedes, so the delta pops. Sits above the focus/layer
+      // lenses (the diff is the question being asked) but below the driver highlight,
+      // which always wins. Removed nodes aren't in the map — they're gone from this
+      // graph, so they only ever appear in the diff panel's change feed.
+      const changes = changeMapRef.current;
+      if (changes && changes.size > 0) {
+        const kind = changes.get(node);
+        if (kind) {
+          res.hidden = false;
+          res.color = DIFF_COLORS[kind];
+          res.label = g.getNodeAttribute(node, "label") as string;
+          res.forceLabel = true;
+        } else {
+          res.color = ORPHAN_DIM_NODE;
+          res.label = "";
+        }
+      }
       // Driver highlight (FR-43): the topmost layer — a live "look here" wins over
       // every ambient/lens treatment, even an off-focus dim or a persistent mark,
       // so the agent's pointer is never lost. Clears the moment the driver moves on.
@@ -399,6 +425,14 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
         res.color = focus.edges.has(pathEdgeKey(g.source(edge), g.target(edge)))
           ? PATH_EDGE
           : ORPHAN_DIM_EDGE;
+      }
+      // Diff lens (FR-69): an edge whose BOTH endpoints changed wires the changed
+      // region together — light it; everything else recedes so the changed nodes
+      // pop. Supersedes the focus/layer edge emphasis when the diff is armed.
+      const changes = changeMapRef.current;
+      if (changes && changes.size > 0) {
+        res.color =
+          changes.has(g.source(edge)) && changes.has(g.target(edge)) ? PATH_EDGE : ORPHAN_DIM_EDGE;
       }
       return res;
     });
@@ -604,6 +638,13 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   useEffect(() => {
     rendererRef.current?.refresh();
   }, [props.layerDepths]);
+
+  // Light effect: the diff lens (FR-69) armed/changed — injecting or clearing a
+  // baseline recomputes the change map upstream; the reducers read changeMapRef live,
+  // so this just repaints the diff tint (no forceAtlas2 rerun).
+  useEffect(() => {
+    rendererRef.current?.refresh();
+  }, [props.changeMap]);
 
   // Light effect: FR-65 "Label density" changed — re-apply Sigma's label-thinning
   // thresholds and repaint. No relayout: only the standing-label budget shifts, so
