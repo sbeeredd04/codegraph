@@ -14,6 +14,7 @@
     "test:e2e:export": "npm run build && node scripts/make-webview-html.mjs && playwright test --config=playwright.export.config.ts"
   },
   "dependencies": {
+    "d3-force-3d": "^3.0.6",
     "dompurify": "^3.4.11",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -22,7 +23,8 @@
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "sigma": "^3.0.3"
+    "sigma": "^3.0.3",
+    "three": "^0.176.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -30,6 +32,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.176.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
