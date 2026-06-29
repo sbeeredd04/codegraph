@@ -46,6 +46,61 @@ test("FR-30: Ask builds a graph-grounded prompt from the question", async ({ pag
   await expect(dialog).toBeHidden();
 });
 
+test("FR-63: an intent preset prefills the question and rebuilds the prompt", async ({ page }) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  await page.getByRole("button", { name: "Ask" }).click();
+  const dialog = page.getByRole("dialog", { name: "Ask your agent" });
+  await expect(dialog).toBeVisible();
+
+  // With no node selected, the preset asks about the whole codebase.
+  const presets = dialog.getByRole("group", { name: "Question presets" });
+  await presets.getByRole("button", { name: "Find risks" }).click();
+
+  const textbox = dialog.getByRole("textbox");
+  await expect(textbox).toHaveValue(/riskiest areas of this codebase/);
+  // The live preview rebuilds from the preset-filled question.
+  await expect(dialog.getByTestId("ask-prompt")).toContainText("riskiest areas of this codebase");
+});
+
+test("FR-63: a preset adapts to the selected node (focus-aware form)", async ({ page }) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  // Select the highest-degree node so the panel has a focus.
+  await page.evaluate(() => {
+    const el = document.querySelector("div.absolute.inset-0") as HTMLElement & {
+      __sigma: {
+        getGraph(): { forEachNode(cb: (id: string) => void): void; degree(id: string): number };
+        emit(ev: string, payload: { node: string }): void;
+      };
+    };
+    const g = el.__sigma.getGraph();
+    let best = "";
+    let bestDeg = -1;
+    g.forEachNode((id) => {
+      const d = g.degree(id);
+      if (d > bestDeg) {
+        bestDeg = d;
+        best = id;
+      }
+    });
+    el.__sigma.emit("clickNode", { node: best });
+  });
+
+  await page.getByRole("button", { name: "Ask" }).click();
+  const dialog = page.getByRole("dialog", { name: "Ask your agent" });
+  await dialog.getByRole("group", { name: "Question presets" }).getByRole("button", { name: "Explain this" }).click();
+
+  // The focus-aware variant ("Explain what <node> …") is used, NOT the codebase-level
+  // fallback — and the built prompt carries the selected-node context line.
+  await expect(dialog.getByRole("textbox")).toHaveValue(
+    /^Explain what .+ does, how it works, and how it fits into the wider codebase\.$/,
+  );
+  await expect(dialog.getByTestId("ask-prompt")).toContainText("I'm currently looking at");
+});
+
 test("FR-30: the prompt anchors on the selected node's context", async ({ page }) => {
   await page.goto("/");
   await waitForGraph(page);

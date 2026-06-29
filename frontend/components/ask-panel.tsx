@@ -13,6 +13,42 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildAskPrompt, type AskFocus } from "@core/assist/ask";
+import { Sparkles } from "./icons";
+
+// Intent presets — one click prefills a grounded, ready-to-refine question so the
+// affordance is never a blank page. Each adapts to whether a node is selected, so
+// the question names the focus when there is one and asks about the whole codebase
+// when there isn't. They only set the textarea; the live preview rebuilds from it.
+const ASK_PRESETS: readonly { readonly label: string; readonly q: (f: AskFocus | null) => string }[] = [
+  {
+    label: "Explain this",
+    q: (f) =>
+      f
+        ? `Explain what ${f.name} does, how it works, and how it fits into the wider codebase.`
+        : "Explain this codebase's architecture and the main flows through it.",
+  },
+  {
+    label: "Trace the flow",
+    q: (f) =>
+      f
+        ? `Trace the flow through ${f.name}: what calls it, what it calls, and the end-to-end path on both sides.`
+        : "Trace the main request and data flows end to end across this codebase.",
+  },
+  {
+    label: "Find risks",
+    q: (f) =>
+      f
+        ? `Review ${f.name} for bugs, edge cases, and risky dependencies — what could break, and where?`
+        : "Find the riskiest areas of this codebase: fragile hotspots, tight coupling, and missing checks.",
+  },
+  {
+    label: "Summarize area",
+    q: (f) =>
+      f
+        ? `Summarize the area around ${f.name}: its responsibilities, neighbours, and the key types involved.`
+        : "Give a high-level map of this codebase — the major modules and how they relate.",
+  },
+];
 
 interface AskPanelProps {
   /** The selected node, if any — anchors the agent's exploration. */
@@ -65,6 +101,11 @@ export function AskPanel({ focus, neighbours, root, onClose }: AskPanelProps): R
     })();
   }, [prompt]);
 
+  const applyPreset = useCallback((q: string) => {
+    setQuestion(q);
+    inputRef.current?.focus();
+  }, []);
+
   return (
     <div
       className="absolute inset-0 z-30 flex items-start justify-center bg-black/50 px-4 pt-[12vh] backdrop-blur-sm"
@@ -79,7 +120,7 @@ export function AskPanel({ focus, neighbours, root, onClose }: AskPanelProps): R
       >
         <div className="border-b border-zinc-800 px-5 py-4">
           <div className="flex items-center gap-2">
-            <span aria-hidden className="text-sm">✦</span>
+            <Sparkles size={14} className="text-violet-300" aria-hidden />
             <h2 className="font-display text-sm font-semibold tracking-tight text-zinc-50">Ask your agent</h2>
           </div>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
@@ -96,6 +137,22 @@ export function AskPanel({ focus, neighbours, root, onClose }: AskPanelProps): R
               <span className="text-zinc-600">{focus.kind}</span>
             </div>
           )}
+          <div
+            role="group"
+            aria-label="Question presets"
+            className="mb-2.5 flex flex-wrap gap-1.5"
+          >
+            {ASK_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => applyPreset(p.q(focus))}
+                className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-violet-500/40 hover:bg-violet-500/10 hover:text-violet-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <label htmlFor="ask-q" className="sr-only">
             Your question about this codebase
           </label>
@@ -127,6 +184,10 @@ export function AskPanel({ focus, neighbours, root, onClose }: AskPanelProps): R
             >
               {prompt}
             </pre>
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-400">
+              <Sparkles size={11} className="shrink-0 text-violet-400/70" aria-hidden />
+              Paste into your agent&apos;s chat — it answers from the live graph and saves a diagram or doc back to the board.
+            </p>
           </div>
         </div>
       </div>
