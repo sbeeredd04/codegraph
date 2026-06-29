@@ -704,6 +704,7 @@ export function Explorer({
             key={layoutVersion}
             detail={detail}
             byAddress={byAddress}
+            edges={edges}
             overlays={selectedOverlays}
             onClose={() => setSelected(null)}
             onViewSource={() => setSourceOpen(true)}

@@ -7,14 +7,17 @@
 // The mode is a per-browser layout preference (useDraggable), never the snapshot.
 // Strictly read-only (FR-9): it only reads the selected node + its edges.
 
+import { useMemo } from "react";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Note, Mark, Group, MarkKind } from "@core/overlays/overlay";
 import { deriveFallbackNote } from "@core/docs/doc-note";
 import { describeEdgeCall } from "@core/graph/edge-call";
 import { parseSignature } from "@core/graph/signature";
+import { detectEntryPoints } from "@core/graph/entry-point";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
+import { LogIn } from "./icons";
 import { ResizableDock } from "./resizable-dock";
 
 interface DetailData {
@@ -34,6 +37,8 @@ export interface NodeOverlays {
 interface DetailPanelProps {
   readonly detail: DetailData;
   readonly byAddress: Map<string, GraphNode>;
+  /** All edges — for entry-point detection (FR-56), which is graph-wide. */
+  readonly edges: readonly GraphEdge[];
   /** The agent's overlays pinned to this node (FR-37), if any. */
   readonly overlays?: NodeOverlays;
   /** Clear the selection (closes the panel). */
@@ -51,6 +56,7 @@ const FLOAT_WIDTH = 320;
 export function DetailPanel({
   detail,
   byAddress,
+  edges,
   overlays,
   onClose,
   onViewSource,
@@ -61,11 +67,19 @@ export function DetailPanel({
   const title = displayLabel(node.name, node.kind);
   const dot = KIND_COLORS[node.kind] ?? "#8b93a7";
 
+  // FR-56: is this node an entry point? Detection is graph-wide; we compute the
+  // ranked set once (memoised on nodes+edges) and look up the selected node.
+  const entryReason = useMemo(() => {
+    const eps = detectEntryPoints([...byAddress.values()], edges);
+    return eps.find((e) => e.address === node.address)?.reason ?? null;
+  }, [byAddress, edges, node.address]);
+
   const content = (
     <DetailContent
       detail={detail}
       byAddress={byAddress}
       overlays={overlays}
+      entryReason={entryReason}
       onViewSource={onViewSource}
       onJump={onJump}
     />
@@ -150,12 +164,14 @@ function DetailContent({
   detail,
   byAddress,
   overlays,
+  entryReason,
   onViewSource,
   onJump,
 }: {
   detail: DetailData;
   byAddress: Map<string, GraphNode>;
   overlays?: NodeOverlays;
+  entryReason: string | null;
   onViewSource: () => void;
   onJump: (address: string) => void;
 }): React.JSX.Element {
@@ -167,6 +183,10 @@ function DetailContent({
   const fallbackNote = overlays?.note ? null : deriveFallbackNote(node);
   return (
     <>
+      {/* Entry point (FR-56) — "execution starts here". Up top because it reframes
+          how to read everything below it. */}
+      <EntryPointBadge reason={entryReason} />
+
       {/* Agent overlays (FR-37) — typed markers, the node's note, group membership.
           Sits up top: it's the agent's "look here, this is what's going on". */}
       <OverlaySection overlays={overlays} />
@@ -292,6 +312,29 @@ function DocFallbackNote({
         <DocstringIcon /> From docstring
       </div>
       <p className="text-xs leading-relaxed text-zinc-300">{note.body}</p>
+    </div>
+  );
+}
+
+// Entry-point badge (FR-56). A distinct emerald "start here" marker — unlike the
+// agent's violet note or the neutral docstring card — with the heuristic's reason.
+// The reason is a static core string, rendered as a React child regardless.
+function EntryPointBadge({ reason }: { reason: string | null }): React.JSX.Element | null {
+  if (!reason) return null;
+  return (
+    <div
+      data-testid="node-entry-point"
+      className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2"
+    >
+      <span className="shrink-0 text-emerald-300" aria-hidden>
+        <LogIn size={15} />
+      </span>
+      <div className="min-w-0">
+        <div className="text-xs font-semibold text-emerald-200">Entry point</div>
+        <div className="truncate text-[11px] text-emerald-300/70" title={reason}>
+          {reason}
+        </div>
+      </div>
     </div>
   );
 }
