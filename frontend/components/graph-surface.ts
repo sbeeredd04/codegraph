@@ -8,6 +8,7 @@ import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import type { SurfaceController } from "@/lib/surface-controller";
 import type { ReduceMotionPref } from "@/lib/reduced-motion";
+import type { LabelDensity } from "@/lib/label-layout-3d";
 
 export type RenderMode = "2d" | "3d";
 
@@ -70,4 +71,8 @@ export interface GraphSurfaceProps {
    * replay), "off" forces animation regardless of the OS. Honoured by the 3D camera
    * (FR-47/FR-48) and both surfaces' replay (FR-40). Defaults to "auto" when unset. */
   readonly reduceMotion?: ReduceMotionPref;
+  /** Label-density bias (FR-65): "sparse" shows fewer, cleaner labels, "dense" more,
+   * "balanced" (default) keeps the prior declutter. 3D scales its focus-label cap +
+   * de-collision packing; 2D maps it to Sigma's label thresholds. */
+  readonly labelDensity?: LabelDensity;
 }

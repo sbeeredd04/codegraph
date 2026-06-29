@@ -54,6 +54,38 @@ export const DEFAULT_LABEL_LAYOUT: LabelLayoutOpts = {
   nudgeStep: 13,
 };
 
+// FR-65 label-density: a user-chosen bias for how aggressively labels declutter,
+// surfaced in Settings. "balanced" reproduces the prior FIXED behaviour exactly
+// (3D FOCUS_LABEL_CAP 18 + DEFAULT_LABEL_LAYOUT padding/nudge; 2D Sigma 0.6 / 7), so
+// the default is unchanged. "sparse" shows fewer, cleaner labels (lower cap, more
+// padding); "dense" surfaces more (higher cap, tighter packing). Defined here — the
+// label module — so both surfaces and Settings import it without an import cycle.
+export type LabelDensity = "sparse" | "balanced" | "dense";
+
+export interface LabelDensityProfile {
+  /** 3D: max focus-neighbour labels shown before suppression (the old FOCUS_LABEL_CAP). */
+  readonly focusCap: number;
+  /** 3D: de-collision box padding px (smaller → boxes pack tighter → more survive). */
+  readonly padding: number;
+  /** 3D: vertical nudge attempts each way before a label is dropped. */
+  readonly maxNudge: number;
+  /** 2D: Sigma `labelDensity`. */
+  readonly sigmaDensity: number;
+  /** 2D: Sigma `labelRenderedSizeThreshold` (lower → more nodes get a standing label). */
+  readonly sigmaThreshold: number;
+}
+
+export const LABEL_DENSITY_PROFILES: Record<LabelDensity, LabelDensityProfile> = {
+  sparse: { focusCap: 8, padding: 6, maxNudge: 1, sigmaDensity: 0.35, sigmaThreshold: 11 },
+  balanced: { focusCap: 18, padding: 2, maxNudge: 2, sigmaDensity: 0.6, sigmaThreshold: 7 },
+  dense: { focusCap: 48, padding: 0, maxNudge: 4, sigmaDensity: 1, sigmaThreshold: 3 },
+};
+
+/** Resolve a density preset (defaults to "balanced" when unset). */
+export function labelDensityProfile(density: LabelDensity | undefined): LabelDensityProfile {
+  return LABEL_DENSITY_PROFILES[density ?? "balanced"];
+}
+
 interface Rect {
   left: number;
   right: number;

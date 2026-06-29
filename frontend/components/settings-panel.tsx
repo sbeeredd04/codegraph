@@ -15,6 +15,7 @@ import type { ExplorerSettings } from "@/lib/settings";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { RenderMode } from "./graph-surface";
 import type { ReduceMotionPref } from "@/lib/reduced-motion";
+import type { LabelDensity } from "@/lib/label-layout-3d";
 
 interface SettingsPanelProps {
   readonly settings: ExplorerSettings;
@@ -37,6 +38,11 @@ const REDUCE_MOTIONS: { value: ReduceMotionPref; label: string }[] = [
   { value: "auto", label: "Auto" },
   { value: "on", label: "Reduced" },
   { value: "off", label: "Full" },
+];
+const LABEL_DENSITIES: { value: LabelDensity; label: string }[] = [
+  { value: "sparse", label: "Sparse" },
+  { value: "balanced", label: "Balanced" },
+  { value: "dense", label: "Dense" },
 ];
 
 export function SettingsPanel({ settings, onChange, onReset, onClose }: SettingsPanelProps): React.JSX.Element {
@@ -109,6 +115,13 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Settings
             options={REDUCE_MOTIONS}
             value={settings.reduceMotion}
             onSelect={(v) => onChange({ reduceMotion: v })}
+          />
+          <Segmented
+            label="Label density"
+            hint="How many node labels the graph shows. Sparse keeps it clean; Dense surfaces more."
+            options={LABEL_DENSITIES}
+            value={settings.labelDensity}
+            onSelect={(v) => onChange({ labelDensity: v })}
           />
           <div className="flex items-start justify-between gap-4">
             <div>

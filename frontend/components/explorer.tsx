@@ -561,6 +561,7 @@ export function Explorer({
               groupedNodes={grouped}
               packageTints={packageTints}
               reduceMotion={settings.reduceMotion}
+              labelDensity={settings.labelDensity}
             />
           );
         })()}

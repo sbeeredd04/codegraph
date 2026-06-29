@@ -8,6 +8,7 @@
 import type { ProjectionKind } from "@core/graph/projection";
 import type { RenderMode } from "@/components/graph-surface";
 import type { ReduceMotionPref } from "@/lib/reduced-motion";
+import type { LabelDensity } from "@/lib/label-layout-3d";
 
 export interface ExplorerSettings {
   /** Surface the board opens on (FR-17). */
@@ -19,6 +20,9 @@ export interface ExplorerSettings {
   /** Reduce-motion override (FR-51-deferred): "auto" follows the OS, "on" forces
    * calm camera/replay, "off" forces animation. */
   readonly reduceMotion: ReduceMotionPref;
+  /** Label-density bias (FR-65): "sparse" / "balanced" (default) / "dense" — how
+   * aggressively both surfaces declutter labels. */
+  readonly labelDensity: LabelDensity;
 }
 
 export const DEFAULT_SETTINGS: ExplorerSettings = {
@@ -26,6 +30,7 @@ export const DEFAULT_SETTINGS: ExplorerSettings = {
   defaultProjection: "full",
   folderClustered: false,
   reduceMotion: "auto",
+  labelDensity: "balanced",
 };
 
 export const SETTINGS_KEY = "codegraph:settings";
@@ -33,6 +38,7 @@ export const SETTINGS_KEY = "codegraph:settings";
 const SURFACES: readonly RenderMode[] = ["2d", "3d"];
 const PROJECTIONS: readonly ProjectionKind[] = ["full", "dependency", "call", "structure"];
 const REDUCE_MOTIONS: readonly ReduceMotionPref[] = ["auto", "on", "off"];
+const LABEL_DENSITIES: readonly LabelDensity[] = ["sparse", "balanced", "dense"];
 
 /** Read persisted settings, falling back to the default for anything missing or
  * malformed. SSR-safe — returns defaults when there is no window. */
@@ -61,6 +67,9 @@ export function loadSettings(): ExplorerSettings {
       reduceMotion: REDUCE_MOTIONS.includes(parsed.reduceMotion as ReduceMotionPref)
         ? (parsed.reduceMotion as ReduceMotionPref)
         : DEFAULT_SETTINGS.reduceMotion,
+      labelDensity: LABEL_DENSITIES.includes(parsed.labelDensity as LabelDensity)
+        ? (parsed.labelDensity as LabelDensity)
+        : DEFAULT_SETTINGS.labelDensity,
     };
   } catch {
     return DEFAULT_SETTINGS; // corrupt JSON

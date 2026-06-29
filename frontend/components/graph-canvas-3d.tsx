@@ -22,7 +22,12 @@ import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import { buildEdges3D } from "@/lib/edges-3d";
 import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
 import { buildCameraControls3D } from "@/lib/camera-controls-3d";
-import { layoutLabels3D, type LabelCandidate } from "@/lib/label-layout-3d";
+import {
+  layoutLabels3D,
+  labelDensityProfile,
+  DEFAULT_LABEL_LAYOUT,
+  type LabelCandidate,
+} from "@/lib/label-layout-3d";
 import { buildPackageRegions, type RegionInput } from "@/lib/package-regions-3d";
 import { NO_PACKAGE_TINT } from "@/lib/package-palette";
 import { resolveReducedMotion } from "@/lib/reduced-motion";
@@ -46,9 +51,8 @@ const WORLD = 60; // the layout is normalised to this radius in world units
 // Default camera pose, tween timing + zoom bounds (FR-47) now live with the camera
 // controller in lib/camera-controls-3d.
 const MOVIE_CLOSE_RADIUS = WORLD * 1.2; // close-up orbit distance per movie stop (FR-48)
-// Above this in-focus node count, neighbour labels are suppressed so selecting a
-// hub doesn't re-clutter the field — the centre + hovered node still label.
-const FOCUS_LABEL_CAP = 18;
+// The in-focus neighbour-label cap + de-collision packing are now biased by the
+// FR-65 "Label density" setting (read live via cbRef) — see labelDensityProfile.
 const SVG_NS = "http://www.w3.org/2000/svg"; // FR-57b region-overlay polygons
 
 export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
@@ -107,11 +111,12 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     drawRef.current?.();
   }, [props.selected, props.edges]);
 
-  // Light effect: the agent's overlays changed — the draw loop reads the live
-  // refs, so a marks/groups update just repaints the tint (no rebuild/relayout).
+  // Light effect: the agent's overlays — or the FR-65 label-density setting —
+  // changed. The draw loop reads the live refs (and cbRef for density), so this just
+  // repaints the tint + relabels (no rebuild/relayout).
   useEffect(() => {
     drawRef.current?.();
-  }, [props.markedNodes, props.groupedNodes, props.packageTints]);
+  }, [props.markedNodes, props.groupedNodes, props.packageTints, props.labelDensity]);
 
   // Light effect: the manual trace (FR-61) changed — repaint the trail from the
   // ordered steps (the draw loop reads traceRef live). The Explorer clears the
@@ -350,6 +355,11 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // innerHTML, so nothing renders as markup (FR untrusted-content discipline).
       const renderLabels = (): void => {
         const focus = focusHlRef.current;
+        // FR-65: the user's "Label density" setting biases how many labels survive —
+        // a larger focus cap + tighter de-collision packing when "dense", the reverse
+        // when "sparse". Read live (cbRef) so changing the setting needs no rebuild.
+        const density = labelDensityProfile(cbRef.current.labelDensity);
+        const layoutOpts = { ...DEFAULT_LABEL_LAYOUT, padding: density.padding, maxNudge: density.maxNudge };
         // Build the to-label set with a priority per node (LOWER = more important):
         // selected/center < hover < driver-highlight < mark < trace < focus-neighbour.
         // The de-collision pass keeps the labels that matter when neighbours crowd.
@@ -360,7 +370,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         };
         if (focus) {
           bid(focus.center, 0);
-          if (focus.nodes.size <= FOCUS_LABEL_CAP) for (const id of focus.nodes) bid(id, 5);
+          if (focus.nodes.size <= density.focusCap) for (const id of focus.nodes) bid(id, 5);
         }
         if (hoverId) bid(hoverId, 1);
         if (highlightRef.current) for (const id of highlightRef.current.set) bid(id, 2);
@@ -382,7 +392,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           if (sp.z > 1) continue; // behind the camera
           candidates.push({ id, x: sp.x, y: sp.y, priority, text: meta[i].label });
         }
-        for (const lbl of layoutLabels3D(candidates)) {
+        for (const lbl of layoutLabels3D(candidates, layoutOpts)) {
           const el = document.createElement("div");
           el.textContent = lbl.text;
           el.className = "absolute -translate-y-1/2 whitespace-nowrap font-mono text-[11px] leading-none";

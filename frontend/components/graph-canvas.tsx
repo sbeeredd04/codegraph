@@ -33,6 +33,7 @@ import {
 import type { GraphSurfaceProps } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { resolveReducedMotion } from "@/lib/reduced-motion";
+import { labelDensityProfile } from "@/lib/label-layout-3d";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
 
 interface XY {
@@ -239,9 +240,11 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       // Label declutter (FR-27): at the base zoom only the larger nodes get a
       // standing label and the grid thins crowded regions, so a 590-node graph
       // reads instead of drowning in overlapping text. Hover/selection/orphan/
-      // trace all set `forceLabel`, which bypasses these thresholds.
-      labelRenderedSizeThreshold: 7,
-      labelDensity: 0.6,
+      // trace all set `forceLabel`, which bypasses these thresholds. FR-65: the
+      // density + threshold are biased by the "Label density" setting (the live
+      // effect below re-applies them when it changes); "balanced" = the prior 0.6/7.
+      labelRenderedSizeThreshold: labelDensityProfile(cbRef.current.labelDensity).sigmaThreshold,
+      labelDensity: labelDensityProfile(cbRef.current.labelDensity).sigmaDensity,
       labelGridCellSize: 150,
     });
     rendererRef.current = renderer;
@@ -564,6 +567,18 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   useEffect(() => {
     rendererRef.current?.refresh();
   }, [props.markedNodes, props.groupedNodes, props.packageTints]);
+
+  // Light effect: FR-65 "Label density" changed — re-apply Sigma's label-thinning
+  // thresholds and repaint. No relayout: only the standing-label budget shifts, so
+  // a sparser/denser graph reads without re-running the force layout.
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    const p = labelDensityProfile(props.labelDensity);
+    r.setSetting("labelDensity", p.sigmaDensity);
+    r.setSetting("labelRenderedSizeThreshold", p.sigmaThreshold);
+    r.refresh();
+  }, [props.labelDensity]);
 
   // Light effect: Folders toggled — swap to the clustered (or base) positions and
   // re-frame. No relayout: both maps were computed in the heavy effect (FR-26).
