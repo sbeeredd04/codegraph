@@ -71,13 +71,26 @@ export function exportGraphSnapshot(
     ...(opts.root ? { root: opts.root } : {}),
     nodeCount: nodes.length,
     edgeCount: edges.length,
-    nodes: [...nodes],
+    // The portable snapshot is the cloud-facing artifact (AD-14: source-blind).
+    // `doc` is developer prose lifted from source — host-local only — so it is
+    // stripped here and rides only the live local-plane message, mirroring how
+    // the editor root never enters the snapshot. Structural fields pass through.
+    nodes: nodes.map(stripHostLocal),
     edges: [...edges],
     ...(enrichments ? { enrichments } : {}),
     ...(diagrams ? { diagrams } : {}),
     ...(docs ? { docs } : {}),
     ...(overlays ? { overlays } : {}),
   };
+}
+
+/** Drop host-local fields (FR-60 `doc`) so source-derived prose never reaches the
+ * source-blind cloud plane (AD-14). Returns the same object when there's nothing
+ * to strip, so the common case allocates nothing extra. */
+function stripHostLocal(node: GraphNode): GraphNode {
+  if (node.doc === undefined) return node;
+  const { doc: _doc, ...rest } = node;
+  return rest;
 }
 
 function enrichmentsRecord(

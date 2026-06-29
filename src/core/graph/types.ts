@@ -23,6 +23,15 @@ export interface GraphNode {
   readonly name: string;
   readonly location: SourceLocation;
   readonly signature?: string;
+  /**
+   * The node's leading doc-comment (JSDoc / Python docstring / leading line
+   * comment), captured host-side by the indexer for the FR-60 docstring-fallback
+   * note. HOST-LOCAL: this is developer prose lifted from source, so — like the
+   * editor root (AD-14) — `exportGraphSnapshot` strips it and it never rides the
+   * portable snapshot that reaches the source-blind cloud plane. It travels only
+   * on the live local-plane message (webview / `codegraph serve`).
+   */
+  readonly doc?: string;
 }
 
 export interface GraphEdge {

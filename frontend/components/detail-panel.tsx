@@ -9,6 +9,7 @@
 
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Note, Mark, Group, MarkKind } from "@core/overlays/overlay";
+import { deriveFallbackNote } from "@core/docs/doc-note";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
@@ -157,11 +158,19 @@ function DetailContent({
   onJump: (address: string) => void;
 }): React.JSX.Element {
   const { node } = detail;
+  // FR-60: when the agent hasn't grounded this node with a note, fall back to its
+  // own docstring (cleaned by the pure-core extractor) so the node is never
+  // noteless. Suppressed the moment a real agent note exists — agent grounding
+  // always wins, and the two are visually distinct.
+  const fallbackNote = overlays?.note ? null : deriveFallbackNote(node);
   return (
     <>
       {/* Agent overlays (FR-37) — typed markers, the node's note, group membership.
           Sits up top: it's the agent's "look here, this is what's going on". */}
       <OverlaySection overlays={overlays} />
+
+      {/* Docstring fallback (FR-60) — only when there's no agent note. */}
+      <DocFallbackNote note={fallbackNote} />
 
       <div className="mt-3 break-all font-mono text-xs text-zinc-400">
         {node.location.file}:{node.location.line}
@@ -255,6 +264,38 @@ function OverlaySection({ overlays }: { overlays?: NodeOverlays }): React.JSX.El
         </div>
       )}
     </div>
+  );
+}
+
+// The docstring-derived fallback (FR-60). Deliberately styled UNLIKE the agent's
+// violet "Note" — a neutral slate card labelled "From docstring" — so it never
+// reads as agent grounding: it's the code documenting itself until the agent
+// weighs in. The body is source-derived (untrusted) → a React child, so escaped.
+function DocFallbackNote({
+  note,
+}: {
+  note: { readonly body: string; readonly source: "docstring" } | null;
+}): React.JSX.Element | null {
+  if (!note) return null;
+  return (
+    <div
+      data-testid="node-doc-fallback"
+      className="mt-3 rounded-lg border border-zinc-700/70 bg-zinc-800/30 p-2.5"
+    >
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <DocstringIcon /> From docstring
+      </div>
+      <p className="text-xs leading-relaxed text-zinc-300">{note.body}</p>
+    </div>
+  );
+}
+
+function DocstringIcon(): React.JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
   );
 }
 

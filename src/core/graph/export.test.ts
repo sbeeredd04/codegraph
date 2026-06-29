@@ -31,6 +31,23 @@ describe("exportGraphSnapshot", () => {
     expect(JSON.parse(JSON.stringify(snap))).toEqual(snap);
   });
 
+  it("strips the host-local `doc` field so source prose never reaches the cloud (AD-14)", () => {
+    const withDoc: GraphNode[] = [
+      { ...node("ts:a.ts#fn", "function"), doc: "/** secret docstring */", signature: "fn(): void" },
+    ];
+    const snap = exportGraphSnapshot(withDoc, []);
+    expect(snap.nodes[0]).not.toHaveProperty("doc");
+    // The structural signature is API metadata, not source bytes — it stays.
+    expect(snap.nodes[0].signature).toBe("fn(): void");
+    // And the whole serialized artifact carries no trace of the doc prose.
+    expect(JSON.stringify(snap)).not.toContain("secret docstring");
+  });
+
+  it("leaves nodes untouched (same reference) when there is no host-local field to strip", () => {
+    const snap = exportGraphSnapshot(nodes, edges);
+    expect(snap.nodes[0]).toBe(nodes[0]);
+  });
+
   it("includes the injected metadata without reaching for a clock itself (pure core)", () => {
     const snap = exportGraphSnapshot(nodes, edges, {
       generatedAt: "2026-06-27T00:00:00.000Z",
