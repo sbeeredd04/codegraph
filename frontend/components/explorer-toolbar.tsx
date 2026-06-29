@@ -18,6 +18,7 @@ import {
   Folder as FolderIcon,
   Ghost,
   Route as RouteIcon,
+  Layers as LayersIcon,
   Workflow,
   FileText,
   ListChecks,
@@ -64,6 +65,10 @@ interface ExplorerToolbarProps {
   readonly onToggleOrphans: () => void;
   readonly traceArmed: boolean;
   readonly onToggleTrace: () => void;
+  /** Layered neighbour analysis (FR-72): light the selected node's concentric BFS
+   * shells, depth-coloured, with a depth control. 2D for now (3D parity in FR-72b-2). */
+  readonly layersMode: boolean;
+  readonly onToggleLayers: () => void;
   readonly diagramsOpen: boolean;
   readonly diagramCount: number;
   readonly onToggleDiagrams: () => void;
@@ -115,6 +120,8 @@ export function ExplorerToolbar({
   onToggleOrphans,
   traceArmed,
   onToggleTrace,
+  layersMode,
+  onToggleLayers,
   diagramsOpen,
   diagramCount,
   onToggleDiagrams,
@@ -338,6 +345,22 @@ export function ExplorerToolbar({
         }`}
       >
         <RouteIcon size={14} /> Trace
+      </button>
+
+      {/* Layered neighbour analysis (FR-72) — concentric BFS shells from the selected
+          node, depth-coloured, with a depth control. 2D only for now. */}
+      <button
+        aria-pressed={layersMode}
+        disabled={renderMode === "3d"}
+        title="Layers: light the selected node's neighbourhood layer by layer, coloured by depth"
+        onClick={onToggleLayers}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          layersMode
+            ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
+            : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+        }`}
+      >
+        <LayersIcon size={14} /> Layers
       </button>
 
       {/* Knowledge diagrams drawer (FR-28) — agent-authored Mermaid narratives */}

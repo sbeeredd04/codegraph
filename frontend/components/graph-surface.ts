@@ -75,4 +75,13 @@ export interface GraphSurfaceProps {
    * "balanced" (default) keeps the prior declutter. 3D scales its focus-label cap +
    * de-collision packing; 2D maps it to Sigma's label thresholds. */
   readonly labelDensity?: LabelDensity;
+  /** Layered neighbour analysis (FR-72): address → its BFS depth from the selected
+   * node (0 = the node itself, 1 = first-degree, …), capped at the user's chosen
+   * depth. Computed upstream by `@core/graph/layers` layeredNeighbourhood so both
+   * surfaces paint the SAME concentric shells. When present + non-empty it acts as
+   * a richer focus lens — each depth gets a brand hue that dims outward (see
+   * `lib/layer-palette.ts`), everything off-lens recedes. Absent/empty → the
+   * first-degree focus lens (FR-25) drives instead. 2D honours it now; 3D parity in
+   * FR-72b-2. */
+  readonly layerDepths?: ReadonlyMap<string, number>;
 }

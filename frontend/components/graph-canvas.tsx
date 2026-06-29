@@ -35,6 +35,7 @@ import type { SurfaceController } from "@/lib/surface-controller";
 import { resolveReducedMotion } from "@/lib/reduced-motion";
 import { labelDensityProfile } from "@/lib/label-layout-3d";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
+import { layerColor } from "@/lib/layer-palette";
 
 interface XY {
   x: number;
@@ -127,6 +128,11 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   const pathRef = useRef<PathHighlight | undefined>(undefined);
   const traceArmedRef = useRef(props.traceArmed);
   const focusRefHl = useRef<FocusHighlight | null>(null);
+  // Layered neighbour analysis (FR-72): address → BFS depth from the selected node,
+  // computed upstream and read live by the nodeReducer so dragging the depth slider
+  // repaints the shells without re-running forceAtlas2. When present + non-empty it
+  // supersedes the first-degree focus lens.
+  const layerDepthsRef = useRef<ReadonlyMap<string, number> | undefined>(props.layerDepths);
   // The agent's overlay highlights (FR-37), read live by the nodeReducer so a
   // marks/groups change repaints the tint without re-running the heavy layout.
   const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
@@ -152,6 +158,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     markedRef.current = props.markedNodes;
     groupedRef.current = props.groupedNodes;
     packageTintRef.current = props.packageTints;
+    layerDepthsRef.current = props.layerDepths;
     cbRef.current = props;
   });
 
@@ -314,19 +321,35 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           res.label = "";
         }
       }
-      // Neighbour-focus lens (FR-25): a selected node + its first-degree
-      // neighbours lead (always labelled), everything else recedes. Applied last
-      // so an explicit selection wins over the ambient orphan dim.
+      // Layered neighbour analysis (FR-72): when a depth map is present it is the
+      // richer focus lens — every node in the selected node's neighbourhood wears
+      // its layer's brand hue (depth 0 = the node, brightest; outer shells dim with
+      // depth), everything off-lens recedes. Supersedes the first-degree focus lens
+      // below, so the two never fight.
+      const layers = layerDepthsRef.current;
       const focus = focusRefHl.current;
-      if (focus) {
+      if (layers && layers.size > 0) {
+        const depth = layers.get(node);
+        if (depth !== undefined) {
+          res.hidden = false;
+          res.color = depth === 0 ? SELECTED_NODE : layerColor(depth);
+          res.label = g.getNodeAttribute(node, "label") as string;
+          // Always label the centre; label the rest only when the lit set is small
+          // enough to read, else let the grid thin it (FR-27 declutter).
+          if (depth === 0 || layers.size <= FOCUS_LABEL_CAP) res.forceLabel = true;
+        } else {
+          res.color = ORPHAN_DIM_NODE;
+          res.label = "";
+        }
+      } else if (focus) {
+        // Neighbour-focus lens (FR-25): a selected node + its first-degree
+        // neighbours lead (always labelled), everything else recedes. Applied last
+        // so an explicit selection wins over the ambient orphan dim.
         if (focus.nodes.has(node)) {
           const isCenter = node === focus.center;
           res.hidden = false;
           res.color = isCenter ? SELECTED_NODE : (g.getNodeAttribute(node, "color") as string);
           res.label = g.getNodeAttribute(node, "label") as string;
-          // Always label the centre; label neighbours too only when the focused
-          // set is small enough to read — otherwise let the grid thin a hub's
-          // many neighbours rather than force-stacking every label (FR-27).
           if (isCenter || focus.nodes.size <= FOCUS_LABEL_CAP) res.forceLabel = true;
         } else {
           res.color = ORPHAN_DIM_NODE;
@@ -362,10 +385,17 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           ? PATH_EDGE
           : ORPHAN_DIM_EDGE;
       }
-      // Focus lens (FR-25): light up the selected node's incident edges, recede
-      // the rest — the same emphasis the trace lens uses.
+      // Layered lens (FR-72): an edge whose BOTH endpoints sit in the depth map is
+      // internal to the lit neighbourhood — light it; everything else recedes.
+      // Supersedes the focus edge emphasis below.
+      const layers = layerDepthsRef.current;
       const focus = focusRefHl.current;
-      if (focus) {
+      if (layers && layers.size > 0) {
+        res.color =
+          layers.has(g.source(edge)) && layers.has(g.target(edge)) ? PATH_EDGE : ORPHAN_DIM_EDGE;
+      } else if (focus) {
+        // Focus lens (FR-25): light up the selected node's incident edges, recede
+        // the rest — the same emphasis the trace lens uses.
         res.color = focus.edges.has(pathEdgeKey(g.source(edge), g.target(edge)))
           ? PATH_EDGE
           : ORPHAN_DIM_EDGE;
@@ -567,6 +597,13 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   useEffect(() => {
     rendererRef.current?.refresh();
   }, [props.markedNodes, props.groupedNodes, props.packageTints]);
+
+  // Light effect: the layered-analysis depth map changed (FR-72) — picking a node
+  // or dragging the depth slider rebuilds the map upstream; the reducers read
+  // layerDepthsRef live, so this just repaints the shells (no forceAtlas2 rerun).
+  useEffect(() => {
+    rendererRef.current?.refresh();
+  }, [props.layerDepths]);
 
   // Light effect: FR-65 "Label density" changed — re-apply Sigma's label-thinning
   // thresholds and repaint. No relayout: only the standing-label budget shifts, so

@@ -23,6 +23,7 @@ import { packageColors, packageNodeTints, NO_PACKAGE_TINT } from "@/lib/package-
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { findPathInEdges } from "@core/graph/path";
+import { layeredNeighbourhood } from "@core/graph/layers";
 import { EMPTY_TRACE, extendTrace, undoTrace, type TraceState } from "@core/graph/trace";
 import type { PresentationCommand } from "@core/presentation/command";
 import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
@@ -42,6 +43,7 @@ import { DocsDrawer } from "./docs-drawer";
 import { OnboardingPanel } from "./onboarding-panel";
 import { AskPanel } from "./ask-panel";
 import { TracePanel } from "./trace-panel";
+import { LayerDepthControl } from "./layer-depth-control";
 import { ExplorerToolbar } from "./explorer-toolbar";
 import type { AskFocus } from "@core/assist/ask";
 
@@ -129,6 +131,11 @@ export function Explorer({
   const [folderSort, setFolderSort] = useState<FolderSort>("path");
   const [orphanMode, setOrphanMode] = useState(false);
   const [traceArmed, setTraceArmed] = useState(false);
+  // Layered neighbour analysis (FR-72): armed via the toolbar, with a depth cap the
+  // floating control drives. The cap persists across selections so the user keeps a
+  // comfortable reading depth while exploring different nodes.
+  const [layersMode, setLayersMode] = useState(false);
+  const [layerDepth, setLayerDepth] = useState(3);
   const [orphanCount, setOrphanCount] = useState(0);
   const [traceStatus, setTraceStatus] = useState<{ text: string; tone?: "ok" | "none" }>({ text: "" });
   // FR-61: the manual execution trace — an ordered node sequence (pure core model)
@@ -469,6 +476,26 @@ export function Explorer({
   // doesn't re-fire every render. The "Clear" panel action empties it explicitly.
   const traceSteps = traceArmed ? trace.steps : EMPTY_TRACE.steps;
 
+  // Layered neighbour analysis (FR-72): the full reachable BFS from the selected
+  // node (pure core), computed once per selection; the depth control then CAPS it
+  // without re-walking. layerMaxReached drives the slider's extent; layerDepths is
+  // the capped map the 2D surface paints as concentric shells. Only computed while
+  // Layers mode is armed and a node is selected.
+  const layerFull = useMemo(
+    () => (layersMode && selected ? layeredNeighbourhood(selected, edges) : null),
+    [layersMode, selected, edges],
+  );
+  const layerMaxReached = layerFull?.maxReached ?? 0;
+  const layerDepths = useMemo(() => {
+    if (!layerFull) return undefined;
+    const capped = new Map<string, number>();
+    for (const [addr, d] of layerFull.depthOf) if (d <= layerDepth) capped.set(addr, d);
+    return capped;
+  }, [layerFull, layerDepth]);
+  // 2D-only for now (3D parity is FR-72b-2); withheld in 3D so the unused lens never
+  // confuses the 3D surface.
+  const surfaceLayerDepths = renderMode === "2d" ? layerDepths : undefined;
+
   // FR-50: the ⌘⇧P action catalogue — the SAME setters/handlers the toolbar uses
   // (single source of truth). Built lazily on open, so no ref read during render.
   const buildActions = () =>
@@ -512,6 +539,8 @@ export function Explorer({
         onToggleOrphans={() => setOrphanMode((v) => !v)}
         traceArmed={traceArmed}
         onToggleTrace={() => setTraceArmed((v) => !v)}
+        layersMode={layersMode}
+        onToggleLayers={() => setLayersMode((v) => !v)}
         diagramsOpen={diagramsOpen}
         diagramCount={diagramList.length}
         onToggleDiagrams={() => {
@@ -566,6 +595,7 @@ export function Explorer({
               packageTints={packageTints}
               reduceMotion={settings.reduceMotion}
               labelDensity={settings.labelDensity}
+              layerDepths={surfaceLayerDepths}
             />
           );
         })()}
@@ -591,6 +621,20 @@ export function Explorer({
             onClear={clearTraceAll}
             onPlay={playTrace}
             onClose={() => setTraceArmed(false)}
+          />
+        )}
+
+        {/* FR-72: layered-analysis depth control — drives how far the concentric
+            BFS shells expand from the selected node. 2D only for now (the toggle is
+            disabled in 3D); shown while armed even before a node is picked, to guide. */}
+        {layersMode && renderMode === "2d" && (
+          <LayerDepthControl
+            hasSelection={selected != null}
+            depth={layerDepth}
+            maxReached={layerMaxReached}
+            litCount={layerDepths?.size ?? 0}
+            onDepth={setLayerDepth}
+            onClose={() => setLayersMode(false)}
           />
         )}
 

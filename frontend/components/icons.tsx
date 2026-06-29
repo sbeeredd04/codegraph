@@ -298,6 +298,18 @@ export function Package(p: IconProps) {
   );
 }
 
+// Layers — a stack of plates. Marks layered neighbour analysis (FR-72): the
+// concentric BFS shells radiating out from the selected node.
+export function Layers(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+      <path d="M2 12.65l9.17 4.16a2 2 0 0 0 1.66 0L22 12.65" />
+      <path d="M2 17.65l9.17 4.16a2 2 0 0 0 1.66 0L22 17.65" />
+    </Icon>
+  );
+}
+
 // Log-in — an arrow entering a door. Marks a codebase entry point (FR-56):
 // "execution starts here / enter the program here".
 export function LogIn(p: IconProps) {
