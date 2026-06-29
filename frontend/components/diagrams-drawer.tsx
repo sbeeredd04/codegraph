@@ -81,6 +81,7 @@ export function DiagramsDrawer({
       label="Diagrams"
       role="dialog"
       ariaLabel="Knowledge diagrams"
+      floatKey="codegraph:panel:diagrams"
       surfaceClassName="bg-[#0c0d11]/97 shadow-2xl backdrop-blur"
       scrollBody={false}
       inset

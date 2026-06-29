@@ -230,3 +230,37 @@ export function SlidersHorizontal(p: IconProps) {
     </Icon>
   );
 }
+
+// Drag grip — two columns of dots; signals a panel header is movable.
+export function GripVertical(p: IconProps) {
+  return (
+    <Icon {...p} fill="currentColor" stroke="none">
+      <circle cx="9" cy="6" r="1.4" />
+      <circle cx="9" cy="12" r="1.4" />
+      <circle cx="9" cy="18" r="1.4" />
+      <circle cx="15" cy="6" r="1.4" />
+      <circle cx="15" cy="12" r="1.4" />
+      <circle cx="15" cy="18" r="1.4" />
+    </Icon>
+  );
+}
+
+// Pop-out — float a docked panel as a free card.
+export function PanelFloat(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3" y="3" width="13" height="13" rx="2" />
+      <path d="M21 8v11a2 2 0 0 1-2 2H8" />
+    </Icon>
+  );
+}
+
+// Dock — snap a floating panel back to the edge.
+export function PanelDock(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M15 4v16" />
+    </Icon>
+  );
+}

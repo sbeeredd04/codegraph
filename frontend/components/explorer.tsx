@@ -73,6 +73,8 @@ const LAYOUT_KEYS = [
   "codegraph:dock:docs",
   "codegraph:panel:detail",
   "codegraph:panel:onboard",
+  "codegraph:panel:diagrams",
+  "codegraph:panel:docs",
 ];
 
 const PROJECTIONS: { id: ProjectionKind; label: string; hint: string }[] = [

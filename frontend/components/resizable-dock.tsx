@@ -8,6 +8,8 @@
 
 import type { ReactNode } from "react";
 import { useDockState, type DockBounds, type DockHandleProps } from "@/lib/use-dock-state";
+import { useDraggable } from "@/lib/use-draggable";
+import { GripVertical, PanelFloat, PanelDock } from "./icons";
 
 /**
  * The draggable / keyboard-focusable resize strip. Shared so any dock — the
@@ -65,6 +67,11 @@ interface ResizableDockProps {
    *  header + independently-scrolling panes). Default true wraps them in a single
    *  scroll region. */
   readonly scrollBody?: boolean;
+  /** Per-browser localStorage key for a FREE-FLOATING placement (FR-52). When set,
+   *  the dock gains a Float control: the user can pop it out of its edge into a
+   *  draggable card (and dock it back). Omit to keep a dock-only panel. The
+   *  floating offset lives in localStorage, NEVER the snapshot (AD-14). */
+  readonly floatKey?: string;
   readonly children: ReactNode;
 }
 
@@ -82,6 +89,7 @@ export function ResizableDock({
   surfaceClassName = DEFAULT_SURFACE,
   scrollBody = true,
   inset = false,
+  floatKey,
   children,
 }: ResizableDockProps): React.JSX.Element {
   const { width, collapsed, setCollapsed, resizing, handleProps } = useDockState(
@@ -89,8 +97,54 @@ export function ResizableDock({
     bounds,
     side,
   );
-  const edge = side === "right" ? "right-0" : "left-0";
+  // FR-52: optional free-floating placement. The hook is called unconditionally
+  // (a constant fallback key that's never floated when floatKey is absent).
+  const drag = useDraggable(floatKey ?? "codegraph:nofloat");
+  const floatable = floatKey != null;
   const name = ariaLabel ?? label;
+
+  // Floating: a draggable card at the persisted offset, keeping the docked width
+  // so popping out doesn't jump in size. A thin grab bar carries the move handle
+  // + a Dock control; the panel's own header/chrome lives in `children` below.
+  if (floatable && drag.offset) {
+    const bodyEl = scrollBody ? (
+      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+    ) : (
+      children
+    );
+    return (
+      <aside
+        role={role}
+        aria-label={name}
+        data-testid={`floating-${storageKey}`}
+        style={{ left: drag.offset.x, top: drag.offset.y, width }}
+        className={`absolute z-30 flex max-h-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 shadow-2xl ${surfaceClassName}`}
+      >
+        <div
+          {...drag.dragHandleProps}
+          title="Drag to move · arrow keys to nudge"
+          className={`flex items-center gap-1.5 border-b border-zinc-800/80 px-2.5 py-1.5 select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
+            drag.dragging ? "cursor-grabbing" : "cursor-grab"
+          }`}
+        >
+          <GripVertical size={14} className="text-zinc-600" />
+          <span className="text-[11px] font-medium tracking-wide text-zinc-400">{label}</span>
+          <button
+            onClick={drag.dock}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={`Dock ${label}`}
+            title={`Dock ${label} to the edge`}
+            className="ml-auto rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <PanelDock size={13} />
+          </button>
+        </div>
+        {bodyEl}
+      </aside>
+    );
+  }
+
+  const edge = side === "right" ? "right-0" : "left-0";
   // Inset floats the panel off the edges as a card; flush pins it full-height to
   // the docked edge. The border closes to all sides (rounded card) when inset.
   const position = inset
@@ -128,15 +182,28 @@ export function ResizableDock({
   const handle = (
     <div className="relative flex w-2.5 shrink-0 items-stretch">
       <DockResizeHandle handleProps={handleProps} resizing={resizing} />
-      <button
-        onClick={() => setCollapsed(true)}
-        aria-label={`Collapse ${label}`}
-        aria-expanded
-        title={`Collapse ${label}`}
-        className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-md border border-zinc-700 bg-zinc-900 p-0.5 text-zinc-400 shadow transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-      >
-        <Chevron dir={side === "right" ? "right" : "left"} />
-      </button>
+      {/* Stacked control cluster on the handle: collapse, then (if floatable) pop-out. */}
+      <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col gap-1.5">
+        <button
+          onClick={() => setCollapsed(true)}
+          aria-label={`Collapse ${label}`}
+          aria-expanded
+          title={`Collapse ${label}`}
+          className="rounded-md border border-zinc-700 bg-zinc-900 p-0.5 text-zinc-400 shadow transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+        >
+          <Chevron dir={side === "right" ? "right" : "left"} />
+        </button>
+        {floatable && (
+          <button
+            onClick={drag.float}
+            aria-label={`Float ${label}`}
+            title={`Pop ${label} out as a floating panel`}
+            className="rounded-md border border-zinc-700 bg-zinc-900 p-0.5 text-zinc-400 shadow transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <PanelFloat size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
 

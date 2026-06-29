@@ -79,6 +79,7 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
       label="Docs"
       role="dialog"
       ariaLabel="Knowledge docs"
+      floatKey="codegraph:panel:docs"
       surfaceClassName="bg-[#0c0d11]/97 shadow-2xl backdrop-blur"
       scrollBody={false}
       inset
