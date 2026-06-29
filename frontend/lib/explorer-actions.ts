@@ -44,6 +44,7 @@ export interface ExplorerActionContext {
   readonly setOnboardOpen: Dispatch<SetStateAction<boolean>>;
   readonly setAskOpen: Dispatch<SetStateAction<boolean>>;
   readonly setPaletteOpen: Dispatch<SetStateAction<boolean>>;
+  readonly setSettingsOpen: Dispatch<SetStateAction<boolean>>;
   readonly resetLayout: () => void;
   readonly navigateGuide: () => void;
   /** Live surface controller (FR-43) — null between mounts; 3D camera/movie only. */
@@ -167,6 +168,12 @@ export function buildExplorerActions(ctx: ExplorerActionContext): PaletteAction[
       section: "Panels",
       label: "Search nodes",
       run: () => ctx.setPaletteOpen(true),
+    },
+    {
+      id: "panel-settings",
+      section: "Panels",
+      label: "Open settings",
+      run: () => ctx.setSettingsOpen(true),
     },
     { id: "nav-guide", section: "Navigate", label: "Open the guide", run: ctx.navigateGuide },
     { id: "layout-reset", section: "Layout", label: "Reset panel layout", run: ctx.resetLayout },

@@ -21,18 +21,13 @@ import {
   Workflow,
   FileText,
   ListChecks,
+  SlidersHorizontal as SettingsIcon,
 } from "./icons";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
-import { DIAGRAM_SET_VERSION } from "@core/diagrams/diagram";
 import type { Doc } from "@core/docs/doc";
-import { DOC_SET_VERSION } from "@core/docs/doc";
 import type { Overlay } from "@core/overlays/overlay";
-import { nodeOverlays, overlayHighlights, OVERLAY_SET_VERSION } from "@core/overlays/overlay";
-import type { NodeKind } from "@core/graph/types";
-import { buildOnboardPlaybook } from "@core/onboard/playbook";
-import { MARK_CANVAS_COLOR } from "@/lib/overlay-style";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import { KIND_COLORS } from "@/lib/graph-data";
@@ -47,7 +42,10 @@ import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
 import { ActionPalette } from "./action-palette";
 import { CommandCenter } from "./command-center";
+import { SettingsPanel } from "./settings-panel";
 import { useLauncherShortcuts } from "@/lib/use-launcher-shortcuts";
+import { useExplorerSettings } from "@/lib/use-explorer-settings";
+import { useAgentOverlays } from "@/lib/use-agent-overlays";
 import { buildExplorerActions } from "@/lib/explorer-actions";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
@@ -142,6 +140,7 @@ export function Explorer({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [centerOpen, setCenterOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [onboardOpen, setOnboardOpen] = useState(false);
@@ -185,6 +184,10 @@ export function Explorer({
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeActions = useCallback(() => setActionsOpen(false), []);
   const closeCenter = useCallback(() => setCenterOpen(false), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  // FR-51: persisted prefs (default surface/projection/clustering) — seed the
+  // board on load, apply each change live + persisted.
+  const { settings, changeSetting, resetSettings } = useExplorerSettings({ setRenderMode, setProjection, setFolderClustered });
   // Read the live surface controller only when an action runs (never in render).
   const getController = useCallback(() => controllerRef.current, []);
 
@@ -311,44 +314,17 @@ export function Explorer({
     return { node, callees, callers };
   }, [selected, byAddress, edges]);
 
-  // The agent's overlays (FR-37) wrapped as a set so the core query helper can
-  // pick out the selected node's note, markers, and the groups it belongs to.
-  const overlaySet = useMemo(
-    () => ({ version: OVERLAY_SET_VERSION, overlays: overlays ?? [] }),
-    [overlays],
-  );
-  const selectedOverlays = useMemo(
-    () => (detail ? nodeOverlays(overlaySet, detail.node.address) : undefined),
-    [detail, overlaySet],
-  );
-  // The agent's canvas-level highlights (FR-37): the dominant mark per node and
-  // the grouped-address set, resolved once in the core. markedNodes maps each
-  // marked address to its canvas colour so the 2D surface can tint the node
-  // itself — the agent pointing at the graph, not just the detail panel.
-  const overlayHl = useMemo(() => overlayHighlights(overlaySet), [overlaySet]);
-  const markedNodes = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const [address, mark] of overlayHl.marks) m.set(address, MARK_CANVAS_COLOR[mark.mark]);
-    return m;
-  }, [overlayHl]);
-
-  // FR-42: the agent's on-install bootstrap checklist, mirrored for the human.
-  // Built from the SAME inputs the codegraph_onboard MCP tool reads — the live
-  // snapshot's graph shape + its agent-authored diagrams/docs/overlays — through
-  // the SAME pure-core builder, so the Setup panel shows exactly what the agent
-  // sees: which starter knowledge already exists and what's still a gap.
-  const playbook = useMemo(() => {
-    const byKind = Object.fromEntries(
-      (Object.keys(KIND_COLORS) as NodeKind[]).map((k) => [k, 0]),
-    ) as Record<NodeKind, number>;
-    for (const n of nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1;
-    return buildOnboardPlaybook({
-      stats: { nodeCount: nodes.length, edgeCount: edges.length, byKind },
-      diagrams: { version: DIAGRAM_SET_VERSION, diagrams: diagrams ? [...diagrams] : [] },
-      docs: { version: DOC_SET_VERSION, docs: docs ? [...docs] : [] },
-      overlays: overlaySet,
-    });
-  }, [nodes, edges, diagrams, docs, overlaySet]);
+  // FR-37/FR-42: the agent's overlays (the selected node's note/markers/groups +
+  // the per-node canvas tints + the grouped-address set) and the onboarding
+  // playbook — all derived from the live snapshot through the pure core helpers.
+  const { selectedOverlays, markedNodes, grouped, playbook } = useAgentOverlays({
+    nodes,
+    edges,
+    diagrams,
+    docs,
+    overlays,
+    detail,
+  });
 
   // Context handed to the AI-assist panel (FR-30): the selected node and its
   // first-degree neighbours, so the generated prompt anchors the agent's search.
@@ -378,7 +354,7 @@ export function Explorer({
       renderMode, projection, folderClustered, orphanMode, orphanCount, traceArmed,
       diagramsOpen, docsOpen, onboardOpen, hasSelection: selected != null, assistEnabled,
       setRenderMode, setProjection, setFolderClustered, setOrphanMode, setTraceArmed,
-      setDiagramsOpen, setDocsOpen, setOnboardOpen, setAskOpen, setPaletteOpen,
+      setDiagramsOpen, setDocsOpen, setOnboardOpen, setAskOpen, setPaletteOpen, setSettingsOpen,
       resetLayout,
       navigateGuide: () => router.push("/docs"),
       controller: getController,
@@ -629,6 +605,16 @@ export function Explorer({
             <span aria-hidden>Search</span>
             <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1 font-mono text-[10px] text-zinc-400">⌘K</kbd>
           </button>
+          {/* Settings (FR-51) — persisted board preferences */}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            aria-haspopup="dialog"
+            title="Board preferences"
+            className="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-1.5 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <SettingsIcon size={15} />
+          </button>
           {/* Reset layout (FR-34) — clears every dock/panel size + position back to
               defaults. Layout-only (FR-9: no source touched), so no confirmation. */}
           <button
@@ -677,7 +663,7 @@ export function Explorer({
               onTraceStatus={(text, tone) => setTraceStatus({ text, tone })}
               controllerRef={controllerRef}
               markedNodes={markedNodes}
-              groupedNodes={overlayHl.grouped}
+              groupedNodes={grouped}
             />
           );
         })()}
@@ -728,6 +714,16 @@ export function Explorer({
         {/* ⌘Space command center (FR-49) — unified node + action launcher */}
         {centerOpen && (
           <CommandCenter nodes={nodes} buildActions={buildActions} onSelectNode={jumpTo} onClose={closeCenter} />
+        )}
+
+        {/* Settings (FR-51) — persisted board preferences, applied live */}
+        {settingsOpen && (
+          <SettingsPanel
+            settings={settings}
+            onChange={changeSetting}
+            onReset={resetSettings}
+            onClose={closeSettings}
+          />
         )}
 
         {/* Knowledge diagrams drawer (FR-28) — Related chips jump into the graph */}
