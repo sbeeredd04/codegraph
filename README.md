@@ -135,10 +135,12 @@ Run from the Command Palette.
 | --- | --- |
 | `codegraph: Open Workspace Graph` | Build the graph for the workspace and start watching for changes. |
 | `codegraph: Open Graph Panel (active file)` | Graph just the active file. |
+| `codegraph: Open Unified Explorer (preview)` | Open the Next.js explorer — the surface going forward — in the webview. |
 | `codegraph: Refresh & Diff (show what changed)` | Re-scan and show what changed since the last view. |
 | `codegraph: Diff Against Git Ref (HEAD, branch, tag)` | Diff the working tree against a git ref. |
 | `codegraph: Copy MCP Config (connect your AI agent)` | Copy the MCP client config for this workspace. |
 | `codegraph: Export Graph Snapshot (portable JSON)` | Write a portable JSON snapshot for sharing or the web viewer. |
+| `codegraph: Export Architecture Report (Markdown + diagrams)` | Write a Markdown architecture report with diagrams. |
 
 ## MCP tools
 
@@ -209,20 +211,27 @@ codegraph is hexagonal (ports and adapters):
   cache and provider (`semantic/`), and the webview surface (`surfaces/`).
 - **`src/extension/`** — the VS Code extension host, which is the composition root
   that wires adapters to the core.
-- **`webview/`** and **`web/`** — the in-editor webview client and the standalone web
-  viewer, both built by esbuild.
+- **`frontend/`** — the Next.js **unified explorer**: one app that builds three ways —
+  a static export hosted in the in-editor webview (`media/explorer`, opened with the
+  **Open Unified Explorer** command), a local dev server, and a Vercel deployment.
+  This is the surface going forward.
+- **`webview/`** and **`web/`** — the original bespoke Sigma board and the standalone
+  snapshot viewer, both built by esbuild. **Legacy**: superseded by the unified
+  explorer, kept while it reaches full parity.
 
-The build emits four bundles: the extension host, the in-editor webview, the
-standalone MCP server, and the standalone web viewer.
+The esbuild build emits four bundles — the extension host, the legacy in-editor
+webview, the standalone MCP server, and the standalone web viewer — and stages the
+Next.js explorer export into `media/explorer` (`npm run build:explorer`).
 
 ## Development
 
 ```bash
 npm install
-npm run build      # bundle the extension, webview, MCP server, and web viewer
-npm run watch      # rebuild on change
-npm run verify     # the full gate: typecheck + boundary lint + tests + build
-npm test           # run the test suite (vitest)
+npm run build           # esbuild the extension, legacy webview, MCP server, web viewer
+npm run build:explorer  # build the Next.js explorer and stage it into media/explorer
+npm run watch           # rebuild on change
+npm run verify          # the full gate: typecheck + boundary lint + tests + build
+npm test                # run the test suite (vitest)
 npm run mcp -- /path/to/repo   # run the MCP server against a repo
 ```
 
@@ -236,8 +245,9 @@ src/
   core/         pure domain: graph, diff, reachability, change feed, semantic engine
   adapters/     lang (ts-morph, pyright), git, mcp, semantic, surfaces (webview)
   extension/    VS Code host (composition root)
-webview/        in-editor graph client (Sigma / graphology)
-web/            standalone snapshot viewer
+frontend/       Next.js unified explorer (webview static export · local serve · Vercel)
+webview/        legacy bespoke graph client (Sigma / graphology)
+web/            legacy standalone snapshot viewer
 ```
 
 ## License
