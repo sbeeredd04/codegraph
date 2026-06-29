@@ -36,6 +36,8 @@ export interface Surface3DDevHooks {
   overlay: (address: string) => string | null;
   /** FR-65a: a directed edge's painted RGB (0..1), or null if no such edge. */
   edgeColor: (from: string, to: string) => { r: number; g: number; b: number } | null;
+  /** FR-56: whether a node carries the emerald entry-point marker. */
+  entry: (address: string) => boolean;
   /** FR-40: the surface controller, for the guided-tour parity test. */
   controller: SurfaceController;
   /** FR-47: the camera pose, for Reset/Fit assertions. */
@@ -47,6 +49,7 @@ export interface Surface3DDevHooks {
 interface HookCarrier {
   __overlay3d?: Surface3DDevHooks["overlay"];
   __edge3d?: Surface3DDevHooks["edgeColor"];
+  __entry3d?: Surface3DDevHooks["entry"];
   __controller?: SurfaceController;
   __cameraState?: () => CameraSnapshot;
   __movie?: MovieDevHook;
@@ -56,6 +59,7 @@ export function installSurface3DDevHooks(container: HTMLElement, hooks: Surface3
   const carrier = container as unknown as HookCarrier;
   carrier.__overlay3d = hooks.overlay;
   carrier.__edge3d = hooks.edgeColor;
+  carrier.__entry3d = hooks.entry;
   carrier.__controller = hooks.controller;
   carrier.__cameraState = hooks.cameraState;
   carrier.__movie = hooks.movie;

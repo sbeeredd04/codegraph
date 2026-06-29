@@ -20,6 +20,7 @@ import type * as ThreeNS from "three"; // type-only — values come from the dyn
 import { traceHighlight } from "@core/graph/trace";
 import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import { buildEdges3D } from "@/lib/edges-3d";
+import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
 import { planReplay } from "@core/presentation/replay";
 import { buildScene3D } from "@/lib/build-scene-3d";
 import type { GraphSurfaceProps } from "./graph-surface";
@@ -205,6 +206,12 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         HIGHLIGHT_STYLE_COLOR.trace,
       );
       scene.add(edges.object);
+
+      // Entry-point markers (FR-56): emerald rings on the nodes the pure-core
+      // heuristic flags as likely entry points — the 3D match for the detail panel's
+      // "start here" badge (lib/entry-markers-3d).
+      const entryMarkers = buildEntryMarkers3D(THREE, { nodes: props.nodes, edges: props.edges, indexOf, positions: pos, meta }); // prettier-ignore
+      scene.add(entryMarkers.object);
 
       const colDim = new THREE.Color(DIM_NODE);
       const colSelected = new THREE.Color(SELECTED);
@@ -675,6 +682,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           // FR-65a: the painted RGB (0..1) of a directed edge, read live from the
           // colour buffer — lets a test prove a traced edge is green, not just set.
           edgeColor: (from, to) => edges.colorOf(from, to),
+          // FR-56: whether a node carries the emerald entry-point ring.
+          entry: (address) => entryMarkers.has(address),
           controller,
           cameraState: () => ({ radius, theta, phi, tx: target.x, ty: target.y, tz: target.z }),
           movie: {
@@ -721,6 +730,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         sphereGeo.dispose();
         nodeMat.dispose();
         edges.dispose();
+        entryMarkers.dispose();
         mesh.dispose();
         renderer.dispose();
         renderer.forceContextLoss();
