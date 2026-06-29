@@ -22,6 +22,7 @@ import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import { buildEdges3D } from "@/lib/edges-3d";
 import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
 import { buildCameraControls3D } from "@/lib/camera-controls-3d";
+import { layoutLabels3D, type LabelCandidate } from "@/lib/label-layout-3d";
 import { planReplay } from "@core/presentation/replay";
 import { buildScene3D } from "@/lib/build-scene-3d";
 import type { GraphSurfaceProps } from "./graph-surface";
@@ -304,31 +305,45 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // innerHTML, so nothing renders as markup (FR untrusted-content discipline).
       const renderLabels = (): void => {
         const focus = focusHlRef.current;
-        const toLabel = new Set<string>();
-        if (hoverId) toLabel.add(hoverId);
+        // Build the to-label set with a priority per node (LOWER = more important):
+        // selected/center < hover < driver-highlight < mark < trace < focus-neighbour.
+        // The de-collision pass keeps the labels that matter when neighbours crowd.
+        const prio = new Map<string, number>();
+        const bid = (id: string, p: number): void => {
+          const cur = prio.get(id);
+          if (cur == null || p < cur) prio.set(id, p);
+        };
         if (focus) {
-          toLabel.add(focus.center);
-          if (focus.nodes.size <= FOCUS_LABEL_CAP) for (const id of focus.nodes) toLabel.add(id);
+          bid(focus.center, 0);
+          if (focus.nodes.size <= FOCUS_LABEL_CAP) for (const id of focus.nodes) bid(id, 5);
         }
+        if (hoverId) bid(hoverId, 1);
+        if (highlightRef.current) for (const id of highlightRef.current.set) bid(id, 2);
         if (markedRef.current) {
-          for (const id of markedRef.current.keys()) if (!focus || focus.nodes.has(id)) toLabel.add(id);
+          for (const id of markedRef.current.keys()) if (!focus || focus.nodes.has(id)) bid(id, 3);
         }
-        if (highlightRef.current) for (const id of highlightRef.current.set) toLabel.add(id);
-        if (traceRef.current) for (const id of traceRef.current) toLabel.add(id); // FR-61: label traced nodes
+        if (traceRef.current) for (const id of traceRef.current) bid(id, 4); // FR-61
 
         labelLayer.replaceChildren();
-        if (!toLabel.size) return;
-        for (const id of toLabel) {
+        if (prio.size === 0) return;
+
+        // Project the candidates (drop ones behind the camera), then de-collide in
+        // screen space so the high-priority label wins a crowded cluster.
+        const candidates: LabelCandidate[] = [];
+        for (const [id, priority] of prio) {
           const i = indexOf.get(id);
           if (i == null) continue;
           const sp = cam.projectToScreen(pos[i]);
           if (sp.z > 1) continue; // behind the camera
+          candidates.push({ id, x: sp.x, y: sp.y, priority, text: meta[i].label });
+        }
+        for (const lbl of layoutLabels3D(candidates)) {
           const el = document.createElement("div");
-          el.textContent = meta[i].label;
+          el.textContent = lbl.text;
           el.className = "absolute -translate-y-1/2 whitespace-nowrap font-mono text-[11px] leading-none";
-          el.style.left = `${sp.x + 10}px`;
-          el.style.top = `${sp.y}px`;
-          el.style.color = id === focus?.center ? SELECTED_HEX : LABEL_HEX;
+          el.style.left = `${lbl.x + 10}px`;
+          el.style.top = `${lbl.y}px`;
+          el.style.color = lbl.id === focus?.center ? SELECTED_HEX : LABEL_HEX;
           el.style.textShadow = "0 1px 3px rgba(0,0,0,0.85)";
           labelLayer.appendChild(el);
         }
