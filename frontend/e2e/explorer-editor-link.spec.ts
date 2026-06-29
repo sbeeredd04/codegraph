@@ -90,7 +90,47 @@ test("FR-32: the webview source viewer deep-links the file into the editor", asy
   await expect(open.first()).toHaveAttribute("href", expected);
   await expect(open.last()).toHaveAttribute("href", expected);
   await expect(open.last()).toContainText("Open in VS Code");
+
+  // FR-64: the redesigned unavailable card frames host-local source as the
+  // guarantee it is (not a dead-end) and the CTA lives inside it.
+  const card = page.getByTestId("source-unavailable");
+  await expect(card).toBeVisible();
+  await expect(card.getByRole("heading", { name: "Source stays on your machine" })).toBeVisible();
+  await expect(card.getByTestId("open-in-editor")).toBeVisible();
   await page.screenshot({ path: `${SHOT}/open-in-editor.png` });
+});
+
+test("FR-64: the source-blind web shows a designed, non-dead-end unavailable card", async ({ page }) => {
+  // No acquireVsCodeApi → the standalone web plane. The default tRPC dataset
+  // ships no source sidecar (sourceBase=null), so any node degrades straight to
+  // the unavailable state — the source-blind case the redesign is for.
+  await page.goto("/");
+  await waitForGraph(page);
+
+  await page.evaluate(() => {
+    const el = document.querySelector("div.absolute.inset-0") as HTMLElement & {
+      __sigma: {
+        getGraph(): { forEachNode(cb: (id: string) => void): void };
+        emit(ev: string, payload: { node: string }): void;
+      };
+    };
+    let first = "";
+    el.__sigma.getGraph().forEachNode((id) => {
+      if (!first) first = id;
+    });
+    el.__sigma.emit("clickNode", { node: first });
+  });
+  await page.getByRole("button", { name: "View source" }).click();
+
+  const card = page.getByTestId("source-unavailable");
+  await expect(card).toBeVisible();
+  // It explains WHY (source-blind, a privacy feature) and points to the path
+  // forward (the extension / codegraph serve) — never a bare "not available".
+  await expect(card.getByRole("heading", { name: "This view is source-blind" })).toBeVisible();
+  await expect(card.getByText(/codegraph serve/)).toBeVisible();
+  // The web plane never offers an editor deep link (AD-14: source-blind).
+  await expect(card.getByTestId("open-in-editor")).toHaveCount(0);
+  await page.screenshot({ path: `${SHOT}/source-unavailable-web.png` });
 });
 
 test("FR-31: clicking reveal posts a relative-path openFile request to the host (native reveal)", async ({ page }) => {

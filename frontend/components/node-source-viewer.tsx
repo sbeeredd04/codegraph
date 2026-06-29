@@ -16,6 +16,7 @@ import { tokenizeLines, type Token, type TokenType } from "@/lib/highlight";
 import { isWebviewHost, revealInEditor } from "@/lib/webview-bridge";
 import { useDockState } from "@/lib/use-dock-state";
 import { DockResizeHandle } from "./resizable-dock";
+import { ShieldCheck } from "./icons";
 
 const TOKEN_CLASS: Record<TokenType, string> = {
   plain: "text-zinc-300",
@@ -250,6 +251,13 @@ export function NodeSourceViewer({
   );
 }
 
+// FR-64 — the source-unavailable state, redesigned. Source bytes are deliberately
+// host-local (AD-16) and the hosted plane is source-blind (AD-14), so a node's
+// code legitimately isn't in this page. Rather than a dead-end "not available"
+// message, this frames that as the privacy guarantee it is and always offers the
+// next step: open the real file in the editor when the host owns the code (FR-32),
+// or guidance to read source locally otherwise. The signature is shown as what we
+// DO know about the node.
 function UnavailableCard({
   signature,
   editorLink,
@@ -261,16 +269,41 @@ function UnavailableCard({
   editorLabel: string;
   onEditorOpen: (e: React.MouseEvent) => void;
 }): React.JSX.Element {
+  // The host owns the code (the webview posted its repo root) → the file is on
+  // this machine and we can hand it off, even though its bytes aren't in the page.
+  const hostOwnsCode = editorLink != null;
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-      <div className="text-sm font-medium text-zinc-300">Source not available here</div>
-      <p className="max-w-sm text-xs leading-relaxed text-zinc-500">
-        Source is read on the machine that owns the code — the VS Code extension or
-        <span className="font-mono"> codegraph serve</span>. The hosted demo stays
-        source-blind, so it shows the signature instead.
-      </p>
-      {/* When the host gave us its repo root (FR-32), the source isn't in this
-          page but we can still hand the file off to the real editor. */}
+    <div
+      data-testid="source-unavailable"
+      className="flex h-full flex-col items-center justify-center gap-4 px-8 py-10 text-center"
+    >
+      <span
+        aria-hidden
+        className="grid size-12 place-items-center rounded-2xl border border-violet-500/20 bg-violet-500/10 text-violet-300"
+      >
+        <ShieldCheck size={22} />
+      </span>
+
+      <div className="space-y-1.5">
+        <h3 className="font-display text-sm font-semibold text-zinc-100">
+          {hostOwnsCode ? "Source stays on your machine" : "This view is source-blind"}
+        </h3>
+        <p className="mx-auto max-w-xs text-xs leading-relaxed text-zinc-400">
+          {hostOwnsCode ? (
+            <>
+              codegraph never sends your code to the browser — it stays host-local. The file is
+              right here on your machine; open it in {editorLabel} to read it.
+            </>
+          ) : (
+            <>
+              This hosted view receives only the graph’s structure, never your code. Open this graph
+              in the VS Code extension or <span className="font-mono text-zinc-300">codegraph serve</span>{" "}
+              to read source inline.
+            </>
+          )}
+        </p>
+      </div>
+
       {editorLink && (
         <a
           href={editorLink}
@@ -282,10 +315,16 @@ function UnavailableCard({
           Open in {editorLabel}
         </a>
       )}
+
       {signature && (
-        <pre className="mt-1 max-w-full overflow-x-auto rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-zinc-300">
-          {signature}
-        </pre>
+        <div className="w-full max-w-md">
+          <div className="mb-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+            Signature
+          </div>
+          <pre className="max-w-full overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-zinc-300">
+            {signature}
+          </pre>
+        </div>
       )}
     </div>
   );
