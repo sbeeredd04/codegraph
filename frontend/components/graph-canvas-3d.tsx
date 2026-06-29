@@ -21,6 +21,7 @@ import { traceHighlight } from "@core/graph/trace";
 import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import { buildEdges3D } from "@/lib/edges-3d";
 import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
+import { buildCameraControls3D } from "@/lib/camera-controls-3d";
 import { planReplay } from "@core/presentation/replay";
 import { buildScene3D } from "@/lib/build-scene-3d";
 import type { GraphSurfaceProps } from "./graph-surface";
@@ -38,11 +39,8 @@ const SELECTED = 0xc4b5fd; // the selected node pops in light violet
 const SELECTED_HEX = "#c4b5fd";
 const LABEL_HEX = "#c9d3e3";
 const WORLD = 60; // the layout is normalised to this radius in world units
-// Default camera pose (FR-47) — a pleasant 3/4 orbit; Reset returns here.
-const DEFAULT_RADIUS = WORLD * 2.6;
-const DEFAULT_THETA = 0.7; // azimuth
-const DEFAULT_PHI = 1.15; // polar from +Y
-const CAM_TWEEN_MS = 520; // ease duration for Reset / Fit / node-to-node framing
+// Default camera pose, tween timing + zoom bounds (FR-47) now live with the camera
+// controller in lib/camera-controls-3d.
 const MOVIE_CLOSE_RADIUS = WORLD * 1.2; // close-up orbit distance per movie stop (FR-48)
 // Above this in-focus node count, neighbour labels are suppressed so selecting a
 // hub doesn't re-clutter the field — the centre + hovered node still label.
@@ -169,7 +167,23 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       scene.background = new THREE.Color(BG);
       scene.fog = new THREE.Fog(BG, WORLD * 1.15, WORLD * 3.6); // depth cueing
 
-      const camera = new THREE.PerspectiveCamera(52, widthOf() / heightOf(), 0.1, 6000);
+      // FR-47 camera controller (lib/camera-controls-3d) owns the perspective camera,
+      // orbit pose, and the shared eased tween. It calls back into the component's
+      // render loop: the coalesced requestRender after manual input, and drawTweenFrame
+      // per tween step (both defined below — invoked only post-init, so the forward
+      // references are safe).
+      const prefersReducedMotion = (): boolean =>
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+      const cam = buildCameraControls3D(THREE, {
+        world: WORLD,
+        widthOf,
+        heightOf,
+        requestRender: () => requestRender(),
+        drawFrame: () => drawTweenFrame(),
+        prefersReducedMotion,
+      });
+      const camera = cam.camera;
 
       const renderer = new THREE.WebGLRenderer({
         canvas,
@@ -241,35 +255,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         traceColorOf(id) ??
         (isGrouped(id) ? GROUP_TINT : (packageTintRef.current?.get(id) ?? metaById.get(id)?.color));
 
-      // --- Camera: orbit around `target` in spherical coords; pan moves `target`.
-      const target = new THREE.Vector3(0, 0, 0);
-      let radius = DEFAULT_RADIUS;
-      let theta = DEFAULT_THETA; // azimuth
-      let phi = DEFAULT_PHI; // polar from +Y
-      const PHI_MIN = 0.12;
-      const PHI_MAX = Math.PI - 0.12;
+      // Hover state (not camera pose) — read by applyOverlays + renderLabels for the
+      // hover scale/label, set by the pointer handlers. The camera pose + projection
+      // now live in the FR-47 controller (cam.*).
       let hoverId: string | null = null;
-
-      const updateCamera = (): void => {
-        const sinPhi = Math.sin(phi);
-        camera.position.set(
-          target.x + radius * sinPhi * Math.sin(theta),
-          target.y + radius * Math.cos(phi),
-          target.z + radius * sinPhi * Math.cos(theta),
-        );
-        camera.up.set(0, 1, 0);
-        camera.lookAt(target);
-      };
-
-      const tmpVec = new THREE.Vector3();
-      const projectToScreen = (v: ThreeNS.Vector3): { x: number; y: number; z: number } => {
-        tmpVec.copy(v).project(camera);
-        return {
-          x: (tmpVec.x * 0.5 + 0.5) * widthOf(),
-          y: (-tmpVec.y * 0.5 + 0.5) * heightOf(),
-          z: tmpVec.z,
-        };
-      };
 
       // Recompute per-instance colour/scale + edge colours from the live overlay /
       // focus / highlight state. Cheap (one pass over nodes + edges), runs only on
@@ -332,7 +321,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         for (const id of toLabel) {
           const i = indexOf.get(id);
           if (i == null) continue;
-          const sp = projectToScreen(pos[i]);
+          const sp = cam.projectToScreen(pos[i]);
           if (sp.z > 1) continue; // behind the camera
           const el = document.createElement("div");
           el.textContent = meta[i].label;
@@ -359,68 +348,11 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       };
       drawRef.current = requestRender; // let the light effects repaint this frame
 
-      // --- Camera tween (FR-47): eased radius/orbit/target, shared by Reset, Fit,
-      // node framing, and FR-48 movie stops. Honours reduced motion (jumps to goal);
-      // manual orbit/pan/zoom cancels it so the human never fights the camera.
-      const prefersReducedMotion = (): boolean =>
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-      const easeInOut = (t: number): number =>
-        t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      let tweenRaf = 0;
-      const cancelTween = (): void => {
-        if (tweenRaf) {
-          cancelAnimationFrame(tweenRaf);
-          tweenRaf = 0;
-        }
-      };
-      const tweenTo = (
-        goal: { radius?: number; theta?: number; phi?: number; tx?: number; ty?: number; tz?: number },
-        ms = CAM_TWEEN_MS,
-      ): void => {
-        cancelTween();
-        const from = { radius, theta, phi, tx: target.x, ty: target.y, tz: target.z };
-        let dTheta = (goal.theta ?? theta) - theta; // shortest-arc azimuth
-        while (dTheta > Math.PI) dTheta -= 2 * Math.PI;
-        while (dTheta < -Math.PI) dTheta += 2 * Math.PI;
-        const to = {
-          radius: goal.radius ?? from.radius,
-          theta: from.theta + dTheta,
-          phi: goal.phi ?? from.phi,
-          tx: goal.tx ?? from.tx,
-          ty: goal.ty ?? from.ty,
-          tz: goal.tz ?? from.tz,
-        };
-        const settle = (): void => {
-          radius = to.radius;
-          theta = to.theta;
-          phi = to.phi;
-          target.set(to.tx, to.ty, to.tz);
-          updateCamera();
-          requestRender();
-        };
-        if (ms <= 0 || prefersReducedMotion()) {
-          settle();
-          return;
-        }
-        const start = performance.now();
-        const step = (): void => {
-          const t = Math.min(1, (performance.now() - start) / ms);
-          const e = easeInOut(t);
-          radius = from.radius + (to.radius - from.radius) * e;
-          theta = from.theta + (to.theta - from.theta) * e;
-          phi = from.phi + (to.phi - from.phi) * e;
-          target.set(
-            from.tx + (to.tx - from.tx) * e,
-            from.ty + (to.ty - from.ty) * e,
-            from.tz + (to.tz - from.tz) * e,
-          );
-          updateCamera();
-          renderer.render(scene, camera);
-          renderLabels();
-          tweenRaf = t < 1 ? requestAnimationFrame(step) : 0;
-        };
-        tweenRaf = requestAnimationFrame(step);
+      // The per-frame draw the FR-47 camera tween calls: render + project labels, but
+      // skip the overlay recompute (tints don't change while only the camera moves).
+      const drawTweenFrame = (): void => {
+        renderer.render(scene, camera);
+        renderLabels();
       };
 
       // FR-40: cancel any in-flight guided tour. Called by every controller entry
@@ -443,7 +375,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           if (i == null) return null;
           return { x: pos[i].x, y: pos[i].y, z: pos[i].z, label: metaById.get(address)?.label ?? address };
         },
-        flyTo: (p, ms) => tweenTo({ tx: p.x, ty: p.y, tz: p.z, radius: MOVIE_CLOSE_RADIUS }, ms),
+        flyTo: (p, ms) => cam.tweenTo({ tx: p.x, ty: p.y, tz: p.z, radius: MOVIE_CLOSE_RADIUS }, ms),
         setHighlight: (highlight) => {
           highlightRef.current = highlight;
           requestRender();
@@ -465,11 +397,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       };
 
       const resize = (): void => {
-        const w = widthOf();
-        const h = heightOf();
-        renderer.setSize(w, h, false);
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
+        renderer.setSize(widthOf(), heightOf(), false);
+        cam.resize(); // re-read aspect + update the projection matrix
       };
 
       // Hit-testing: raycast the instanced spheres first, then a forgiving 14px
@@ -484,7 +413,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         let best: string | null = null;
         let bestD2 = 14 * 14;
         for (let i = 0; i < ids.length; i++) {
-          const sp = projectToScreen(pos[i]);
+          const sp = cam.projectToScreen(pos[i]);
           if (sp.z > 1) continue;
           const dx = sp.x - mx;
           const dy = sp.y - my;
@@ -499,9 +428,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
 
       // --- Interaction: drag = orbit; shift/right/middle-drag = pan; wheel = zoom;
       // click = select; hover = highlight. The owner's "enable everything" — full
-      // orbit/pan/zoom; reset + fit-to-graph land in FR-47.
-      const camRight = new THREE.Vector3();
-      const camUp = new THREE.Vector3();
+      // orbit/pan/zoom; the camera math itself lives in the FR-47 controller (cam.*).
       let dragging = false;
       let panning = false;
       let lastX = 0;
@@ -512,7 +439,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         return { mx: e.clientX - rect.left, my: e.clientY - rect.top };
       };
       const onDown = (e: PointerEvent): void => {
-        cancelTween(); // manual control preempts an in-flight camera tween
+        cam.cancelTween(); // manual control preempts an in-flight camera tween
         moviePlayer.stop(); // grabbing the canvas (orbit/pan or a new pick) ends a movie
         dragging = true;
         panning = e.shiftKey || e.button === 1 || e.button === 2;
@@ -528,16 +455,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           lastX = e.clientX;
           lastY = e.clientY;
           moved += Math.abs(dx) + Math.abs(dy);
-          if (panning) {
-            const k = radius * 0.0016;
-            camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
-            camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
-            target.addScaledVector(camRight, -dx * k).addScaledVector(camUp, dy * k);
-          } else {
-            theta -= dx * 0.005;
-            phi = Math.min(PHI_MAX, Math.max(PHI_MIN, phi - dy * 0.005));
-          }
-          updateCamera();
+          if (panning) cam.pan(dx, dy);
+          else cam.orbit(dx, dy);
           requestRender();
           return;
         }
@@ -572,10 +491,9 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       };
       const onWheel = (e: WheelEvent): void => {
         e.preventDefault();
-        cancelTween(); // manual zoom preempts an in-flight camera tween
+        cam.cancelTween(); // manual zoom preempts an in-flight camera tween
         moviePlayer.stop(); // manual zoom ends a movie
-        radius = Math.min(WORLD * 7.5, Math.max(WORLD * 0.8, radius * Math.exp(e.deltaY * 0.0012)));
-        updateCamera();
+        cam.zoom(e.deltaY);
         requestRender();
       };
       const onContext = (e: Event): void => e.preventDefault();
@@ -588,32 +506,21 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       canvas.addEventListener("contextmenu", onContext);
 
       // Pan the camera so a node set's centroid sits at the viewport centre (no
-      // rotation, no zoom change) — the 3D analogue of the 2D camera fit.
+      // rotation, no zoom change) — resolves addresses to world positions, then
+      // delegates the centroid fly-to to the FR-47 controller (the 3D camera fit).
       const frameAddresses = (addresses: readonly string[]): void => {
-        const present = addresses
-          .map((a) => indexOf.get(a))
-          .filter((i): i is number => i != null);
-        if (present.length === 0) return;
-        const c = new THREE.Vector3();
-        for (const i of present) c.add(pos[i]);
-        c.multiplyScalar(1 / present.length);
-        tweenTo({ tx: c.x, ty: c.y, tz: c.z }, 420); // smooth fly-to, no zoom change
+        const present: ThreeNS.Vector3[] = [];
+        for (const a of addresses) {
+          const i = indexOf.get(a);
+          if (i != null) present.push(pos[i]);
+        }
+        cam.frame(present);
       };
 
-      // FR-47: Reset returns the camera to its default 3/4 pose (angle + zoom +
-      // centre); Fit reframes the whole graph from the CURRENT orbit angle (target
-      // back to the centroid, distance to enclose the bounding sphere for the live
-      // aspect). The React affordance below drives these through camApiRef.
-      const resetView = (): void => {
-        tweenTo({ radius: DEFAULT_RADIUS, theta: DEFAULT_THETA, phi: DEFAULT_PHI, tx: 0, ty: 0, tz: 0 });
-      };
-      const fitView = (): void => {
-        const halfV = ((camera.fov * Math.PI) / 180) / 2;
-        const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
-        const fitDist = (WORLD / Math.sin(Math.min(halfV, halfH))) * 1.12;
-        tweenTo({ radius: fitDist, tx: 0, ty: 0, tz: 0 });
-      };
-      camApiRef.current = { reset: resetView, fit: fitView };
+      // FR-47: Reset returns the camera to its default 3/4 pose; Fit reframes the whole
+      // graph from the CURRENT orbit angle (both in the cam controller). The React
+      // affordance below drives these through camApiRef.
+      camApiRef.current = { reset: cam.reset, fit: cam.fit };
 
       // Imperative surface controller (FR-43) — the same contract the 2D canvas
       // implements, against the 3D substrate.
@@ -663,10 +570,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         // delegate to the SAME local functions the bottom-right controls and the
         // "Play tour" trigger call — single source of truth, no behaviour fork.
         resetCamera() {
-          resetView();
+          cam.reset();
         },
         fitCamera() {
-          fitView();
+          cam.fit();
         },
         playTour() {
           playMovieFocus();
@@ -688,7 +595,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           // FR-56: whether a node carries the emerald entry-point ring.
           entry: (address) => entryMarkers.has(address),
           controller,
-          cameraState: () => ({ radius, theta, phi, tx: target.x, ty: target.y, tz: target.z }),
+          cameraState: () => cam.state(),
           movie: {
             play: (a, opts) => moviePlayer.play(a, opts),
             playFocus: playMovieFocus,
@@ -711,13 +618,13 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         requestRender();
       });
       ro.observe(container);
-      updateCamera();
+      cam.update();
       resize();
       requestRender();
 
       teardown = (): void => {
         cancelReplay();
-        cancelTween();
+        cam.cancelTween();
         moviePlayer.destroy();
         camApiRef.current = null;
         movieApiRef.current = null;
