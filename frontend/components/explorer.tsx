@@ -10,6 +10,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import {
+  Sparkles,
+  BookOpen,
+  Search as SearchIcon,
+  Folder as FolderIcon,
+  Ghost,
+  Route as RouteIcon,
+  Workflow,
+  FileText,
+  ListChecks,
+} from "./icons";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
@@ -445,13 +456,13 @@ export function Explorer({
           disabled={renderMode === "3d"}
           title="Gather nodes into per-folder regions"
           onClick={() => setFolderClustered((v) => !v)}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             folderClustered
               ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"
               : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Folders
+          <FolderIcon size={14} /> Folders
         </button>
 
         {/* Folder sort order (FR-26 follow-up) — contextual to clustering; decides
@@ -490,13 +501,13 @@ export function Explorer({
           aria-pressed={orphanMode}
           disabled={orphanCount === 0 || renderMode === "3d"}
           onClick={() => setOrphanMode((v) => !v)}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             orphanMode
               ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
               : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Orphans <span className="font-mono">{orphanCount}</span>
+          <Ghost size={14} /> Orphans <span className="font-mono">{orphanCount}</span>
         </button>
 
         {/* Trace path (PM-backlog #3) — 2D only for now */}
@@ -504,13 +515,13 @@ export function Explorer({
           aria-pressed={traceArmed}
           disabled={renderMode === "3d"}
           onClick={() => setTraceArmed((v) => !v)}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             traceArmed
               ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
               : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Trace
+          <RouteIcon size={14} /> Trace
         </button>
 
         {/* Knowledge diagrams drawer (FR-28) — agent-authored Mermaid narratives */}
@@ -522,13 +533,13 @@ export function Explorer({
             setDocsOpen(false);
             setDiagramsOpen((v) => !v);
           }}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
             diagramsOpen
               ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
               : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Diagrams <span className="font-mono">{diagramList.length}</span>
+          <Workflow size={14} /> Diagrams <span className="font-mono">{diagramList.length}</span>
         </button>
 
         {/* Knowledge docs drawer (FR-29) — agent-authored Markdown prose */}
@@ -540,13 +551,13 @@ export function Explorer({
             setDiagramsOpen(false);
             setDocsOpen((v) => !v);
           }}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
             docsOpen
               ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
               : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Docs <span className="font-mono">{docList.length}</span>
+          <FileText size={14} /> Docs <span className="font-mono">{docList.length}</span>
         </button>
 
         {/* Onboarding progress (FR-42) — mirrors the agent's codegraph_onboard
@@ -557,7 +568,7 @@ export function Explorer({
           aria-expanded={onboardOpen}
           title="Agent onboarding progress — the starter knowledge checklist"
           onClick={() => setOnboardOpen((v) => !v)}
-          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
             onboardOpen
               ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
               : playbook.complete
@@ -565,7 +576,7 @@ export function Explorer({
                 : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Setup{" "}
+          <ListChecks size={14} /> Setup{" "}
           <span className="font-mono">
             {playbook.done}/{playbook.total}
           </span>
@@ -579,7 +590,7 @@ export function Explorer({
               aria-haspopup="dialog"
               className="flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
             >
-              <span aria-hidden>✦</span> Ask
+              <Sparkles size={14} /> Ask
             </button>
           )}
           {/* Guide (FR-45) — client-side nav to the first-party guide pages
@@ -592,7 +603,7 @@ export function Explorer({
             title="Open the codegraph guide"
             className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
           >
-            <span aria-hidden>?</span> Guide
+            <BookOpen size={14} /> Guide
           </Link>
           <button
             onClick={() => setPaletteOpen(true)}
@@ -600,6 +611,7 @@ export function Explorer({
             aria-keyshortcuts="Meta+K Control+K"
             className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
           >
+            <SearchIcon size={14} />
             <span aria-hidden>Search</span>
             <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1 font-mono text-[10px] text-zinc-400">⌘K</kbd>
           </button>
