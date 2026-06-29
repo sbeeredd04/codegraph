@@ -64,6 +64,7 @@ const LAYOUT_KEYS = [
   "codegraph:dock:diagrams",
   "codegraph:dock:docs",
   "codegraph:panel:detail",
+  "codegraph:panel:source",
   "codegraph:panel:onboard",
   "codegraph:panel:trace",
   "codegraph:panel:diagrams",

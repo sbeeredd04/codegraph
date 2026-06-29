@@ -68,8 +68,11 @@ function read(storageKey: string): PanelOffset | null {
 
 /**
  * @param storageKey unique per panel, namespaced by the caller (per-plane).
+ * @param defaultFloat where the panel first lands when popped out (clamped on
+ *   screen). Give each panel a DISTINCT default so two panels that both float
+ *   never stack exactly on top of each other.
  */
-export function useDraggable(storageKey: string): DraggableState {
+export function useDraggable(storageKey: string, defaultFloat: PanelOffset = DEFAULT_FLOAT): DraggableState {
   const [offset, setOffset] = useState<PanelOffset | null>(() => read(storageKey));
   const [dragging, setDragging] = useState(false);
   // Pointer origin + the offset at grab time, so a drag tracks deltas.
@@ -87,7 +90,7 @@ export function useDraggable(storageKey: string): DraggableState {
     }
   }, [storageKey, offset]);
 
-  const float = useCallback(() => setOffset((o) => o ?? clampOffset(DEFAULT_FLOAT)), []);
+  const float = useCallback(() => setOffset((o) => o ?? clampOffset(defaultFloat)), [defaultFloat]);
   const dock = useCallback(() => setOffset(null), []);
 
   const onPointerDown = useCallback(

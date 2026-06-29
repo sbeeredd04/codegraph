@@ -15,8 +15,9 @@ import { buildEditorLink, editorById, DEFAULT_EDITOR } from "@core/links/editor-
 import { tokenizeLines, type Token, type TokenType } from "@/lib/highlight";
 import { isWebviewHost, revealInEditor } from "@/lib/webview-bridge";
 import { useDockState } from "@/lib/use-dock-state";
+import { useDraggable, type PanelOffset } from "@/lib/use-draggable";
 import { DockResizeHandle } from "./resizable-dock";
-import { ShieldCheck } from "./icons";
+import { ShieldCheck, X } from "./icons";
 
 const TOKEN_CLASS: Record<TokenType, string> = {
   plain: "text-zinc-300",
@@ -25,6 +26,13 @@ const TOKEN_CLASS: Record<TokenType, string> = {
   keyword: "text-violet-300",
   number: "text-amber-300",
 };
+
+// Floating-mode geometry (FR-52). Width matches the dock's default so popping out
+// never jumps in size. The default landing offset is DISTINCT from the detail
+// panel's {20,20} so, even though the two are mutually exclusive on screen, a
+// floated source viewer never lands exactly where a floated detail panel would.
+const FLOAT_WIDTH = 640;
+const SOURCE_FLOAT_OFFSET: PanelOffset = { x: 64, y: 64 };
 
 type Loaded = { lines: Token[][]; anchor: number; lineCount: number };
 type ViewState =
@@ -81,6 +89,11 @@ export function NodeSourceViewer({
     { defaultWidth: 640, minWidth: 400, maxWidth: 1100 },
     "right",
   );
+
+  // FR-52: the viewer can also pop OUT of its docked edge into a free-floating,
+  // draggable card the user can place anywhere — the same float system the detail
+  // panel uses. The mode is a per-browser layout preference (never the snapshot).
+  const drag = useDraggable("codegraph:panel:source", SOURCE_FLOAT_OFFSET);
 
   // Fetch (and degrade gracefully). Host-local source only: no sidecar → unavailable.
   useEffect(() => {
@@ -145,6 +158,131 @@ export function NodeSourceViewer({
     [file, line, character],
   );
 
+  // Shared header identity (title, read-only badge, file:line, editor deep-link)
+  // and the scrollable code body — rendered identically whether docked or floating.
+  const headerInfo = (
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <span className="truncate text-sm font-semibold text-zinc-50">{title}</span>
+        <span className="shrink-0 rounded border border-zinc-700 px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          Read-only
+        </span>
+      </div>
+      <div className="mt-0.5 truncate font-mono text-xs text-zinc-500" title={file}>
+        {file}:{line + 1}
+      </div>
+      {editorLink && (
+        <a
+          href={editorLink}
+          onClick={onEditorOpen}
+          data-testid="open-in-editor"
+          className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+        >
+          <ArrowUpRight />
+          Open in {editorLabel}
+        </a>
+      )}
+    </div>
+  );
+
+  const body = (
+    <div className="min-h-0 flex-1 overflow-auto bg-[#0b0c10]">
+      {state.status === "loading" && (
+        <div className="grid h-full place-items-center text-xs text-zinc-600">Loading source…</div>
+      )}
+
+      {state.status === "unavailable" && (
+        <UnavailableCard
+          signature={signature}
+          editorLink={editorLink}
+          editorLabel={editorLabel}
+          onEditorOpen={onEditorOpen}
+        />
+      )}
+
+      {state.status === "error" && (
+        <div className="grid h-full place-items-center px-6 text-center text-xs text-zinc-500">
+          Couldn’t read this file.
+        </div>
+      )}
+
+      {state.status === "ready" && (
+        <pre className="m-0 font-mono text-[12px] leading-[1.55]">
+          <code className="block">
+            {state.data.lines.map((tokens, idx) => {
+              const isAnchor = idx === state.data.anchor;
+              return (
+                <div
+                  key={idx}
+                  ref={isAnchor ? anchorRef : undefined}
+                  className={`flex ${isAnchor ? "bg-violet-500/10" : ""}`}
+                >
+                  <span
+                    aria-hidden
+                    style={{ width: `${gutterWidth + 1}ch` }}
+                    className={`sticky left-0 select-none border-r border-zinc-800/80 bg-[#0b0c10] px-3 text-right ${
+                      isAnchor ? "text-violet-300" : "text-zinc-600"
+                    }`}
+                  >
+                    {idx + 1}
+                  </span>
+                  <span className="whitespace-pre px-3">
+                    {tokens.length === 0 ? (
+                      " "
+                    ) : (
+                      tokens.map((t, k) => (
+                        <span key={k} className={TOKEN_CLASS[t.type]}>
+                          {t.value}
+                        </span>
+                      ))
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </code>
+        </pre>
+      )}
+    </div>
+  );
+
+  // Floating mode: a draggable card at the persisted offset. Stays a
+  // role="region"/"Source for…" landmark (FR-15) — only its frame changes.
+  if (drag.offset) {
+    return (
+      <aside
+        role="region"
+        aria-label={`Source for ${title}`}
+        data-testid="source-floating"
+        style={{ left: drag.offset.x, top: drag.offset.y, width: FLOAT_WIDTH }}
+        className="absolute z-20 flex h-[min(34rem,calc(100%-1.5rem))] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur"
+      >
+        <header className="flex items-start gap-2 border-b border-zinc-800 px-3 py-2">
+          <span
+            {...drag.dragHandleProps}
+            title="Drag to move · arrow keys to nudge"
+            className={`mt-0.5 shrink-0 rounded p-0.5 text-zinc-600 hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+              drag.dragging ? "cursor-grabbing" : "cursor-grab"
+            }`}
+          >
+            <Grip />
+          </span>
+          <div className="min-w-0 flex-1">{headerInfo}</div>
+          <span className="flex shrink-0 items-center gap-0.5">
+            <HeaderIconButton onClick={drag.dock} label="Dock source viewer" title="Dock to the right edge">
+              <DockIcon />
+            </HeaderIconButton>
+            <HeaderIconButton onClick={onClose} label="Close source viewer" title="Close">
+              <X size={14} />
+            </HeaderIconButton>
+          </span>
+        </header>
+        {body}
+      </aside>
+    );
+  }
+
+  // Docked mode (default): the full-height, resizable right dock.
   return (
     <aside
       role="region"
@@ -156,96 +294,18 @@ export function NodeSourceViewer({
     >
       <DockResizeHandle handleProps={handleProps} resizing={resizing} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-zinc-50">{title}</span>
-            <span className="shrink-0 rounded border border-zinc-700 px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-              Read-only
-            </span>
-          </div>
-          <div className="mt-0.5 truncate font-mono text-xs text-zinc-500" title={file}>
-            {file}:{line + 1}
-          </div>
-          {editorLink && (
-            <a
-              href={editorLink}
-              onClick={onEditorOpen}
-              data-testid="open-in-editor"
-              className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-            >
-              <ArrowUpRight />
-              Open in {editorLabel}
-            </a>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          aria-label="Close source viewer"
-          className="-mr-1 -mt-1 rounded p-1 text-zinc-500 hover:bg-zinc-800/70 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-        >
-          ✕
-        </button>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-auto bg-[#0b0c10]">
-        {state.status === "loading" && (
-          <div className="grid h-full place-items-center text-xs text-zinc-600">Loading source…</div>
-        )}
-
-        {state.status === "unavailable" && (
-          <UnavailableCard
-            signature={signature}
-            editorLink={editorLink}
-            editorLabel={editorLabel}
-            onEditorOpen={onEditorOpen}
-          />
-        )}
-
-        {state.status === "error" && (
-          <div className="grid h-full place-items-center px-6 text-center text-xs text-zinc-500">
-            Couldn’t read this file.
-          </div>
-        )}
-
-        {state.status === "ready" && (
-          <pre className="m-0 font-mono text-[12px] leading-[1.55]">
-            <code className="block">
-              {state.data.lines.map((tokens, idx) => {
-                const isAnchor = idx === state.data.anchor;
-                return (
-                  <div
-                    key={idx}
-                    ref={isAnchor ? anchorRef : undefined}
-                    className={`flex ${isAnchor ? "bg-violet-500/10" : ""}`}
-                  >
-                    <span
-                      aria-hidden
-                      style={{ width: `${gutterWidth + 1}ch` }}
-                      className={`sticky left-0 select-none border-r border-zinc-800/80 bg-[#0b0c10] px-3 text-right ${
-                        isAnchor ? "text-violet-300" : "text-zinc-600"
-                      }`}
-                    >
-                      {idx + 1}
-                    </span>
-                    <span className="whitespace-pre px-3">
-                      {tokens.length === 0 ? (
-                        " "
-                      ) : (
-                        tokens.map((t, k) => (
-                          <span key={k} className={TOKEN_CLASS[t.type]}>
-                            {t.value}
-                          </span>
-                        ))
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </code>
-          </pre>
-        )}
-      </div>
+        <header className="flex items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+          {headerInfo}
+          <span className="-mr-1 -mt-1 flex shrink-0 items-center gap-0.5">
+            <HeaderIconButton onClick={drag.float} label="Float source viewer" title="Pop out as a draggable panel">
+              <FloatIcon />
+            </HeaderIconButton>
+            <HeaderIconButton onClick={onClose} label="Close source viewer" title="Close">
+              <X size={14} />
+            </HeaderIconButton>
+          </span>
+        </header>
+        {body}
       </div>
     </aside>
   );
@@ -327,6 +387,61 @@ function UnavailableCard({
         </div>
       )}
     </div>
+  );
+}
+
+// A compact header control (float / dock / close), styled like the detail panel's.
+function HeaderIconButton({
+  onClick,
+  label,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  title: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={title}
+      className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+    >
+      {children}
+    </button>
+  );
+}
+
+function Grip(): React.JSX.Element {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="shrink-0" aria-hidden="true">
+      <circle cx="8" cy="6" r="1.6" />
+      <circle cx="8" cy="12" r="1.6" />
+      <circle cx="8" cy="18" r="1.6" />
+      <circle cx="16" cy="6" r="1.6" />
+      <circle cx="16" cy="12" r="1.6" />
+      <circle cx="16" cy="18" r="1.6" />
+    </svg>
+  );
+}
+
+function FloatIcon(): React.JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="13" height="13" rx="2" />
+      <path d="M21 8v11a2 2 0 0 1-2 2H8" />
+    </svg>
+  );
+}
+
+function DockIcon(): React.JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M15 4v16" />
+    </svg>
   );
 }
 
