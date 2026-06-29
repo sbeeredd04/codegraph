@@ -4,7 +4,10 @@ const path = require("node:path");
 
 const watch = process.argv.includes("--watch");
 
-/** Two bundles: the extension host (node) and the webview client (browser). */
+/** Four bundles: the extension host (node), the in-editor webview client (browser),
+ * the standalone MCP server (node), and the standalone web viewer (browser). main()
+ * additionally stages the Mermaid vendor and the Next.js explorer export
+ * (frontend/out -> media/explorer) — see the copy* helpers below. */
 const builds = [
   {
     entryPoints: ["src/extension/index.ts"],
