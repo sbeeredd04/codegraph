@@ -155,3 +155,62 @@ export function Orbit(p: IconProps) {
     </Icon>
   );
 }
+
+export function Play(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <polygon points="6 3 20 12 6 21 6 3" />
+    </Icon>
+  );
+}
+
+export function Pause(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+    </Icon>
+  );
+}
+
+export function SkipBack(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <polygon points="19 20 9 12 19 4 19 20" />
+      <line x1="5" x2="5" y1="19" y2="5" />
+    </Icon>
+  );
+}
+
+export function SkipForward(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <polygon points="5 4 15 12 5 20 5 4" />
+      <line x1="19" x2="19" y1="5" y2="19" />
+    </Icon>
+  );
+}
+
+export function Film(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M7 3v18" />
+      <path d="M3 7.5h4" />
+      <path d="M3 12h18" />
+      <path d="M3 16.5h4" />
+      <path d="M17 3v18" />
+      <path d="M17 7.5h4" />
+      <path d="M17 16.5h4" />
+    </Icon>
+  );
+}
+
+export function X(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </Icon>
+  );
+}
