@@ -131,6 +131,13 @@ export default function Welcome() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Wordmark />
         <nav aria-label="Primary" className="flex items-center gap-5 text-sm">
+          <Link
+            href="/docs"
+            prefetch={false}
+            className="text-zinc-400 transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] rounded"
+          >
+            Docs
+          </Link>
           <a
             href={REPO_URL}
             target="_blank"
