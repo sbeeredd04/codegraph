@@ -483,7 +483,10 @@ export function Explorer({
     });
 
   return (
-    <main className="relative flex h-screen flex-col bg-[#0e0f13] font-sans text-zinc-200">
+    <main
+      data-density={settings.displayDensity}
+      className="relative flex h-screen flex-col bg-[#0e0f13] font-sans text-zinc-200"
+    >
       <ExplorerToolbar
         title={title}
         nodeCount={nodes.length}

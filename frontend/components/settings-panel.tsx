@@ -16,6 +16,7 @@ import type { ProjectionKind } from "@core/graph/projection";
 import type { RenderMode } from "./graph-surface";
 import type { ReduceMotionPref } from "@/lib/reduced-motion";
 import type { LabelDensity } from "@/lib/label-layout-3d";
+import type { DisplayDensity } from "@/lib/display-density";
 
 interface SettingsPanelProps {
   readonly settings: ExplorerSettings;
@@ -43,6 +44,11 @@ const LABEL_DENSITIES: { value: LabelDensity; label: string }[] = [
   { value: "sparse", label: "Sparse" },
   { value: "balanced", label: "Balanced" },
   { value: "dense", label: "Dense" },
+];
+const DISPLAY_DENSITIES: { value: DisplayDensity; label: string }[] = [
+  { value: "compact", label: "Compact" },
+  { value: "comfortable", label: "Comfortable" },
+  { value: "spacious", label: "Spacious" },
 ];
 
 export function SettingsPanel({ settings, onChange, onReset, onClose }: SettingsPanelProps): React.JSX.Element {
@@ -122,6 +128,13 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Settings
             options={LABEL_DENSITIES}
             value={settings.labelDensity}
             onSelect={(v) => onChange({ labelDensity: v })}
+          />
+          <Segmented
+            label="Display density"
+            hint="How tightly the dashboard chrome packs — toolbar, panels, docks. The graph canvas is unaffected."
+            options={DISPLAY_DENSITIES}
+            value={settings.displayDensity}
+            onSelect={(v) => onChange({ displayDensity: v })}
           />
           <div className="flex items-start justify-between gap-4">
             <div>

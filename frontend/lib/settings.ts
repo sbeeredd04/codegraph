@@ -9,6 +9,8 @@ import type { ProjectionKind } from "@core/graph/projection";
 import type { RenderMode } from "@/components/graph-surface";
 import type { ReduceMotionPref } from "@/lib/reduced-motion";
 import type { LabelDensity } from "@/lib/label-layout-3d";
+import type { DisplayDensity } from "@/lib/display-density";
+import { DISPLAY_DENSITIES } from "@/lib/display-density";
 
 export interface ExplorerSettings {
   /** Surface the board opens on (FR-17). */
@@ -23,6 +25,9 @@ export interface ExplorerSettings {
   /** Label-density bias (FR-65): "sparse" / "balanced" (default) / "dense" — how
    * aggressively both surfaces declutter labels. */
   readonly labelDensity: LabelDensity;
+  /** Display density (FR-65): "compact" / "comfortable" (default) / "spacious" —
+   * how tightly the dashboard CHROME packs (toolbar/panels/docks, not the canvas). */
+  readonly displayDensity: DisplayDensity;
 }
 
 export const DEFAULT_SETTINGS: ExplorerSettings = {
@@ -31,6 +36,7 @@ export const DEFAULT_SETTINGS: ExplorerSettings = {
   folderClustered: false,
   reduceMotion: "auto",
   labelDensity: "balanced",
+  displayDensity: "comfortable",
 };
 
 export const SETTINGS_KEY = "codegraph:settings";
@@ -70,6 +76,9 @@ export function loadSettings(): ExplorerSettings {
       labelDensity: LABEL_DENSITIES.includes(parsed.labelDensity as LabelDensity)
         ? (parsed.labelDensity as LabelDensity)
         : DEFAULT_SETTINGS.labelDensity,
+      displayDensity: DISPLAY_DENSITIES.includes(parsed.displayDensity as DisplayDensity)
+        ? (parsed.displayDensity as DisplayDensity)
+        : DEFAULT_SETTINGS.displayDensity,
     };
   } catch {
     return DEFAULT_SETTINGS; // corrupt JSON

@@ -24,6 +24,23 @@ body {
   font-family: var(--font-sans);
 }
 
+/* FR-65 display density — the Settings "Display density" control writes a
+   `data-density` attribute on the explorer root, and these rules retune Tailwind
+   v4's `--spacing` token for that subtree. Every spacing utility in v4 resolves to
+   `calc(var(--spacing) * N)`, so changing this one variable rescales the chrome's
+   padding/margins/gaps/widths without touching a single component. The graph canvas
+   is absolutely positioned (`inset-0`) and uses no spacing utilities, so it is
+   unaffected. "comfortable" pins the stock 0.25rem, keeping the default unchanged. */
+[data-density="compact"] {
+  --spacing: 0.2rem;
+}
+[data-density="comfortable"] {
+  --spacing: 0.25rem;
+}
+[data-density="spacious"] {
+  --spacing: 0.3rem;
+}
+
 /* Prose typography for the sanitized Markdown the docs drawer renders (FR-29).
    Scoped to .doc-prose so it never bleeds into the app chrome; the markup is
    DOMPurify-sanitized (strict allowlist) before it reaches the DOM. */
