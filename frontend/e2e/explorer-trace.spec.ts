@@ -76,6 +76,23 @@ async function overlay3dColor(page: Page, address: string): Promise<string | nul
   }, address);
 }
 
+/** The painted RGB (0..1) of a directed 3D edge, via the dev __edge3d hook. */
+async function edge3dColor(
+  page: Page,
+  from: string,
+  to: string,
+): Promise<{ r: number; g: number; b: number } | null> {
+  return page.evaluate(
+    ({ from, to }) => {
+      const el = document.querySelector('[data-surface="3d"]') as
+        | (HTMLElement & { __edge3d?: (f: string, t: string) => { r: number; g: number; b: number } | null })
+        | null;
+      return el?.__edge3d?.(from, to) ?? null;
+    },
+    { from, to },
+  );
+}
+
 test("clicking nodes builds an ordered trace with spliced path hops, undo and clear", async ({
   page,
 }) => {
@@ -133,4 +150,23 @@ test("a trace built on 2D carries to the 3D surface as a green trail", async ({ 
   await expect(page.locator('[data-surface="3d"] canvas')).toBeVisible();
   await expect(page.getByTestId("trace-count")).toHaveText("3");
   await expect.poll(() => overlay3dColor(page, "m:src/b.ts"), { timeout: 15_000 }).toBe(TRACE_GREEN);
+
+  // FR-65a — the connecting EDGES along the route are tinted green too (not just
+  // the nodes), matching the 2D path lens. The traced edge a → b reads as a lit
+  // green (green channel dominant + bright); the untraced edge c → d stays dim.
+  await expect
+    .poll(async () => (await edge3dColor(page, "m:src/a.ts", "m:src/b.ts"))?.g ?? 0, { timeout: 15_000 })
+    .toBeGreaterThan(0.3);
+  const traced = await edge3dColor(page, "m:src/a.ts", "m:src/b.ts");
+  expect(traced).not.toBeNull();
+  expect(traced!.g).toBeGreaterThan(traced!.r);
+  expect(traced!.g).toBeGreaterThan(traced!.b);
+
+  const untraced = await edge3dColor(page, "m:src/c.ts", "m:src/d.ts");
+  expect(untraced).not.toBeNull();
+  expect(untraced!.g).toBeLessThan(0.15); // off-route edge stays dim, not green
+
+  await page.screenshot({
+    path: "/private/tmp/claude-501/-Users-sriujjwal-github-codegraph/c61c1bf7-cdf8-4199-b01f-a9f9fd5c54c4/scratchpad/fr65a-trace-3d-edges.png",
+  });
 });

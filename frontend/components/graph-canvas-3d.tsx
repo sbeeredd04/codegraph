@@ -17,8 +17,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type * as ThreeNS from "three"; // type-only — values come from the dynamic import
-import { pathEdgeKey } from "@core/graph/path";
+import { traceHighlight } from "@core/graph/trace";
 import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
+import { buildEdges3D } from "@/lib/edges-3d";
 import { planReplay } from "@core/presentation/replay";
 import { buildScene3D } from "@/lib/build-scene-3d";
 import type { GraphSurfaceProps } from "./graph-surface";
@@ -31,8 +32,6 @@ import { Maximize, RotateCcw, Orbit } from "./icons";
 import { MovieControls3D } from "./movie-controls-3d";
 
 const BG = 0x0e0f13; // canvas + fog colour (matches the 2D surface)
-const EDGE_BASE = 0x5a6480; // recessive edge tone
-const EDGE_FOCUS = 0xa78bfa; // brand-violet focus edge (FR-25)
 const DIM_NODE = 0x39414f; // off-focus node tone, shared with the 2D orphan dim
 const SELECTED = 0xc4b5fd; // the selected node pops in light violet
 const SELECTED_HEX = "#c4b5fd";
@@ -69,6 +68,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // Explorer's trace model via props.traceSteps (seed + light effect), so it
   // survives a rebuild; null when the trace is empty.
   const traceRef = useRef<ReadonlySet<string> | null>(null);
+  // FR-65a: the trace's connecting EDGE keys (pathEdgeKey per consecutive step),
+  // so the 3D edge pass tints the route's wiring trace-green like the 2D path lens
+  // — not just the nodes. Derived alongside traceRef from the same core helper.
+  const traceEdgeRef = useRef<ReadonlySet<string> | null>(null);
   // FR-40: in-flight guided-tour step timers — mirror the 2D surface so both step
   // identically (AD-15). Any controller call cancels them so a manual action
   // (or Take control) preempts the agent's tour cleanly.
@@ -106,7 +109,9 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // ordered steps (the draw loop reads traceRef live). The Explorer clears the
   // trace to [] on disarm, so this also tears the trail down. No rebuild/relayout.
   useEffect(() => {
-    traceRef.current = props.traceSteps.length ? new Set(props.traceSteps) : null;
+    const th = props.traceSteps.length ? traceHighlight({ steps: props.traceSteps }) : null;
+    traceRef.current = th?.nodes ?? null;
+    traceEdgeRef.current = th?.edges ?? null;
     drawRef.current?.();
   }, [props.traceSteps]);
 
@@ -133,7 +138,13 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       focusHlRef.current = focusHighlight(cbRef.current.selected, props.edges);
       // FR-61: re-seed the manual trace trail so a rebuild (new projection/data)
       // doesn't wipe a trace the user is assembling; the light effect keeps it current.
-      traceRef.current = cbRef.current.traceSteps.length ? new Set(cbRef.current.traceSteps) : null;
+      {
+        const th = cbRef.current.traceSteps.length
+          ? traceHighlight({ steps: cbRef.current.traceSteps })
+          : null;
+        traceRef.current = th?.nodes ?? null;
+        traceEdgeRef.current = th?.edges ?? null;
+      }
       // A rebuild (new dataset/projection) invalidates any in-flight movie tour.
       setMovieRef.current(INACTIVE_MOVIE);
 
@@ -181,24 +192,20 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       mesh.frustumCulled = false;
       scene.add(mesh);
 
-      // Edges as one LineSegments with per-vertex colour (recoloured on focus).
-      const edgeGeo = new THREE.BufferGeometry();
-      const edgePos = new Float32Array(edgePairs.length * 6);
-      const edgeCol = new Float32Array(edgePairs.length * 6);
-      for (let i = 0; i < edgePairs.length; i++) {
-        const a = pos[indexOf.get(edgePairs[i][0])!];
-        const b = pos[indexOf.get(edgePairs[i][1])!];
-        edgePos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
-      }
-      edgeGeo.setAttribute("position", new THREE.BufferAttribute(edgePos, 3));
-      edgeGeo.setAttribute("color", new THREE.BufferAttribute(edgeCol, 3));
-      const edgeMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62 });
-      const lines = new THREE.LineSegments(edgeGeo, edgeMat);
-      lines.frustumCulled = false;
-      scene.add(lines);
+      // Edges (FR-65a): geometry built once; colours recompute per lens in
+      // lib/edges-3d. The trail tints trace-green (matching the node tint) over
+      // focus-violet, off-lens edges dim — mirroring the 2D path lens.
+      const edges = buildEdges3D(
+        THREE,
+        edgePairs,
+        (id) => {
+          const i = indexOf.get(id);
+          return i == null ? undefined : pos[i];
+        },
+        HIGHLIGHT_STYLE_COLOR.trace,
+      );
+      scene.add(edges.object);
 
-      const colEdgeBase = new THREE.Color(EDGE_BASE);
-      const colEdgeFocus = new THREE.Color(EDGE_FOCUS);
       const colDim = new THREE.Color(DIM_NODE);
       const colSelected = new THREE.Color(SELECTED);
       const tmpColor = new THREE.Color();
@@ -287,20 +294,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
-        for (let i = 0; i < edgePairs.length; i++) {
-          const [s, t] = edgePairs[i];
-          const isFocusEdge = focus ? focus.edges.has(pathEdgeKey(s, t)) : false;
-          const c = isFocusEdge ? colEdgeFocus : colEdgeBase;
-          const f = focus ? (isFocusEdge ? 1 : 0.18) : 0.6;
-          const o = i * 6;
-          edgeCol[o] = c.r * f;
-          edgeCol[o + 1] = c.g * f;
-          edgeCol[o + 2] = c.b * f;
-          edgeCol[o + 3] = c.r * f;
-          edgeCol[o + 4] = c.g * f;
-          edgeCol[o + 5] = c.b * f;
-        }
-        edgeGeo.attributes.color.needsUpdate = true;
+        // FR-65a: a trace lens dims off-route edges just like a focus lens, so the
+        // green trail reads as a continuous lit path even with no selection (the
+        // trace tint wins over focus-violet — a deliberate route beats the lens).
+        edges.apply(focus, traceEdgeRef.current);
       };
 
       // Labels: an HTML overlay (crisp text, app typography) projected each frame.
@@ -675,6 +672,9 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       if (process.env.NODE_ENV !== "production") {
         installSurface3DDevHooks(container, {
           overlay: (address) => (indexOf.has(address) ? (drawColorOf(address) ?? null) : null),
+          // FR-65a: the painted RGB (0..1) of a directed edge, read live from the
+          // colour buffer — lets a test prove a traced edge is green, not just set.
+          edgeColor: (from, to) => edges.colorOf(from, to),
           controller,
           cameraState: () => ({ radius, theta, phi, tx: target.x, ty: target.y, tz: target.z }),
           movie: {
@@ -720,8 +720,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         canvas.removeEventListener("contextmenu", onContext);
         sphereGeo.dispose();
         nodeMat.dispose();
-        edgeGeo.dispose();
-        edgeMat.dispose();
+        edges.dispose();
         mesh.dispose();
         renderer.dispose();
         renderer.forceContextLoss();

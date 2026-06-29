@@ -34,6 +34,8 @@ export interface MovieDevHook {
 export interface Surface3DDevHooks {
   /** FR-37: a node's overlay-resolved draw colour (null if absent). */
   overlay: (address: string) => string | null;
+  /** FR-65a: a directed edge's painted RGB (0..1), or null if no such edge. */
+  edgeColor: (from: string, to: string) => { r: number; g: number; b: number } | null;
   /** FR-40: the surface controller, for the guided-tour parity test. */
   controller: SurfaceController;
   /** FR-47: the camera pose, for Reset/Fit assertions. */
@@ -44,6 +46,7 @@ export interface Surface3DDevHooks {
 
 interface HookCarrier {
   __overlay3d?: Surface3DDevHooks["overlay"];
+  __edge3d?: Surface3DDevHooks["edgeColor"];
   __controller?: SurfaceController;
   __cameraState?: () => CameraSnapshot;
   __movie?: MovieDevHook;
@@ -52,6 +55,7 @@ interface HookCarrier {
 export function installSurface3DDevHooks(container: HTMLElement, hooks: Surface3DDevHooks): void {
   const carrier = container as unknown as HookCarrier;
   carrier.__overlay3d = hooks.overlay;
+  carrier.__edge3d = hooks.edgeColor;
   carrier.__controller = hooks.controller;
   carrier.__cameraState = hooks.cameraState;
   carrier.__movie = hooks.movie;
