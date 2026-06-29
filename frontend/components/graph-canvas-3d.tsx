@@ -23,6 +23,8 @@ import { buildEdges3D } from "@/lib/edges-3d";
 import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
 import { buildCameraControls3D } from "@/lib/camera-controls-3d";
 import { layoutLabels3D, type LabelCandidate } from "@/lib/label-layout-3d";
+import { buildPackageRegions, type RegionInput } from "@/lib/package-regions-3d";
+import { NO_PACKAGE_TINT } from "@/lib/package-palette";
 import { planReplay } from "@core/presentation/replay";
 import { buildScene3D } from "@/lib/build-scene-3d";
 import type { GraphSurfaceProps } from "./graph-surface";
@@ -46,11 +48,13 @@ const MOVIE_CLOSE_RADIUS = WORLD * 1.2; // close-up orbit distance per movie sto
 // Above this in-focus node count, neighbour labels are suppressed so selecting a
 // hub doesn't re-clutter the field — the centre + hovered node still label.
 const FOCUS_LABEL_CAP = 18;
+const SVG_NS = "http://www.w3.org/2000/svg"; // FR-57b region-overlay polygons
 
 export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
+  const regionsRef = useRef<SVGSVGElement>(null); // FR-57b package-region overlay
   const cbRef = useRef(props);
   // The current focus lens (FR-25) + a handle to the live frame's redraw, both set
   // by the heavy effect, read by the light selection effect below.
@@ -122,7 +126,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     const container = containerRef.current;
     const canvas = canvasRef.current;
     const labelLayer = labelsRef.current;
-    if (!container || !canvas || !labelLayer) return;
+    const regionLayer = regionsRef.current;
+    if (!container || !canvas || !labelLayer || !regionLayer) return;
 
     let disposed = false;
     let teardown: (() => void) | null = null;
@@ -300,6 +305,44 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         edges.apply(focus, traceEdgeRef.current);
       };
 
+      // FR-57b package regions: a translucent convex hull around each package's
+      // members, so "colour by package" reads as enclosed territories, not just
+      // same-coloured dots. The hull math is pure (lib/package-regions-3d); this
+      // projects the package-tinted nodes, builds the polygons, and strokes them as
+      // SVG. The opaque WebGL canvas can't show a layer truly beneath it, so the SVG
+      // sits ABOVE the canvas but recessive (low opacity) and BELOW the labels in the
+      // DOM — visually a backdrop wash, labels + nodes still dominate. Only painted
+      // while colour-by-package is active (packageTints present); root-level files
+      // (NO_PACKAGE_TINT) are excluded — they're not a package.
+      const renderRegions = (): void => {
+        const tints = packageTintRef.current;
+        if (!tints || tints.size === 0) {
+          if (regionLayer.childElementCount) regionLayer.replaceChildren();
+          return;
+        }
+        const inputs: RegionInput[] = [];
+        for (let i = 0; i < ids.length; i++) {
+          const color = tints.get(ids[i]);
+          if (!color || color === NO_PACKAGE_TINT) continue;
+          const sp = cam.projectToScreen(pos[i]);
+          if (sp.z > 1) continue; // behind the camera
+          inputs.push({ x: sp.x, y: sp.y, color });
+        }
+        regionLayer.replaceChildren();
+        if (inputs.length === 0) return;
+        for (const region of buildPackageRegions(inputs)) {
+          const poly = document.createElementNS(SVG_NS, "polygon");
+          poly.setAttribute("points", region.polygon.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "));
+          poly.setAttribute("fill", region.color);
+          poly.setAttribute("fill-opacity", "0.06");
+          poly.setAttribute("stroke", region.color);
+          poly.setAttribute("stroke-opacity", "0.42");
+          poly.setAttribute("stroke-width", "1.5");
+          poly.setAttribute("stroke-linejoin", "round");
+          regionLayer.appendChild(poly);
+        }
+      };
+
       // Labels: an HTML overlay (crisp text, app typography) projected each frame.
       // Node labels are structural symbol/path text — set via textContent, never
       // innerHTML, so nothing renders as markup (FR untrusted-content discipline).
@@ -355,6 +398,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         raf = 0;
         applyOverlays();
         renderer.render(scene, camera);
+        renderRegions();
         renderLabels();
       };
       const requestRender = (): void => {
@@ -367,6 +411,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // skip the overlay recompute (tints don't change while only the camera moves).
       const drawTweenFrame = (): void => {
         renderer.render(scene, camera);
+        renderRegions();
         renderLabels();
       };
 
@@ -660,6 +705,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         renderer.dispose();
         renderer.forceContextLoss();
         labelLayer.replaceChildren();
+        regionLayer.replaceChildren();
         highlightRef.current = null;
         if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = null;
       };
@@ -674,7 +720,15 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   return (
     <div ref={containerRef} data-surface="3d" className="absolute inset-0">
       <canvas ref={canvasRef} className="absolute inset-0 size-full cursor-grab active:cursor-grabbing" />
-      <div ref={labelsRef} className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden />
+      {/* FR-57b: package-region hulls — a recessive wash over the nodes, under the
+          labels. Painted imperatively in the render loop (lib/package-regions-3d). */}
+      <svg
+        ref={regionsRef}
+        data-layer="regions"
+        className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        aria-hidden
+      />
+      <div ref={labelsRef} data-layer="labels" className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden />
 
       {/* FR-48: cinematic movie mode — a "Play tour" trigger when a node is selected,
           and a transport bar (prev / play-pause / next / readout / close) while a

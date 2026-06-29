@@ -80,7 +80,7 @@ interface LabelBox {
 /** The bounding rects + text of every rendered 3D label div. */
 async function labelRects(page: Page): Promise<LabelBox[]> {
   return page.evaluate(() => {
-    const layer = document.querySelector('[data-surface="3d"] > [aria-hidden]') as HTMLElement | null;
+    const layer = document.querySelector('[data-surface="3d"] [data-layer="labels"]') as HTMLElement | null;
     if (!layer) return [];
     return Array.from(layer.children).map((c) => {
       const r = (c as HTMLElement).getBoundingClientRect();
