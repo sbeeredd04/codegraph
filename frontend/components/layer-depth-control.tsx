@@ -26,6 +26,9 @@ interface LayerDepthControlProps {
   readonly onDepth: (depth: number) => void;
   /** Disarm Layers mode entirely. */
   readonly onClose: () => void;
+  /** Lift above the 3D surface's bottom-centre movie row so the two don't overlap
+   * (the 2D surface has no movie controls, so it stays at the base offset). */
+  readonly raised?: boolean;
 }
 
 export function LayerDepthControl({
@@ -35,6 +38,7 @@ export function LayerDepthControl({
   litCount,
   onDepth,
   onClose,
+  raised = false,
 }: LayerDepthControlProps): React.JSX.Element {
   // The effective cap can never exceed what's reachable; the slider reflects that.
   const cap = Math.min(depth, maxReached);
@@ -45,7 +49,9 @@ export function LayerDepthControl({
       data-testid="layer-depth-control"
       role="group"
       aria-label="Layer analysis depth"
-      className="pointer-events-auto absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-xl border border-zinc-800 bg-[#0c0d11]/95 px-4 py-2.5 shadow-2xl backdrop-blur-sm"
+      className={`pointer-events-auto absolute left-1/2 z-20 -translate-x-1/2 rounded-xl border border-zinc-800 bg-[#0c0d11]/95 px-4 py-2.5 shadow-2xl backdrop-blur-sm ${
+        raised ? "bottom-20" : "bottom-4"
+      }`}
     >
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1.5 text-xs font-medium text-violet-300">

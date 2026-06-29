@@ -22,12 +22,8 @@ import { focusHighlight, type FocusHighlight } from "@core/graph/focus";
 import { buildEdges3D } from "@/lib/edges-3d";
 import { buildEntryMarkers3D } from "@/lib/entry-markers-3d";
 import { buildCameraControls3D } from "@/lib/camera-controls-3d";
-import {
-  layoutLabels3D,
-  labelDensityProfile,
-  DEFAULT_LABEL_LAYOUT,
-  type LabelCandidate,
-} from "@/lib/label-layout-3d";
+import { buildLabelPass3D } from "@/lib/label-pass-3d";
+import { layerColor } from "@/lib/layer-palette";
 import { buildPackageRegions, type RegionInput } from "@/lib/package-regions-3d";
 import { NO_PACKAGE_TINT } from "@/lib/package-palette";
 import { resolveReducedMotion } from "@/lib/reduced-motion";
@@ -45,14 +41,12 @@ import { MovieControls3D } from "./movie-controls-3d";
 const BG = 0x0e0f13; // canvas + fog colour (matches the 2D surface)
 const DIM_NODE = 0x39414f; // off-focus node tone, shared with the 2D orphan dim
 const SELECTED = 0xc4b5fd; // the selected node pops in light violet
-const SELECTED_HEX = "#c4b5fd";
-const LABEL_HEX = "#c9d3e3";
 const WORLD = 60; // the layout is normalised to this radius in world units
 // Default camera pose, tween timing + zoom bounds (FR-47) now live with the camera
 // controller in lib/camera-controls-3d.
 const MOVIE_CLOSE_RADIUS = WORLD * 1.2; // close-up orbit distance per movie stop (FR-48)
-// The in-focus neighbour-label cap + de-collision packing are now biased by the
-// FR-65 "Label density" setting (read live via cbRef) — see labelDensityProfile.
+// The HTML-overlay label pass (cap + de-collision, FR-65 density + FR-72 shells) now
+// lives in lib/label-pass-3d; the surface just wires live getters to it.
 const SVG_NS = "http://www.w3.org/2000/svg"; // FR-57b region-overlay polygons
 
 export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
@@ -71,6 +65,11 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
   // FR-57: "colour by package" tints (address → recessive base colour), read live.
   const packageTintRef = useRef<ReadonlyMap<string, string> | undefined>(props.packageTints);
+  // FR-72b-2: the layered-analysis depth map (address → BFS depth from the selected
+  // node), computed upstream by @core/graph/layers and capped by the depth control.
+  // Read live by the draw loop (layerColorOf) so arming Layers / dragging the depth
+  // slider repaints the concentric shells without re-running the heavy build.
+  const layerDepthsRef = useRef<ReadonlyMap<string, number> | undefined>(props.layerDepths);
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // resolved above the ambient overlay tint in the draw loop. null when undriven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
@@ -102,6 +101,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     markedRef.current = props.markedNodes;
     groupedRef.current = props.groupedNodes;
     packageTintRef.current = props.packageTints;
+    layerDepthsRef.current = props.layerDepths;
   });
 
   // Light effect: selection (or the edge set) changed — recompute the focus lens
@@ -116,7 +116,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // repaints the tint + relabels (no rebuild/relayout).
   useEffect(() => {
     drawRef.current?.();
-  }, [props.markedNodes, props.groupedNodes, props.packageTints, props.labelDensity]);
+  }, [props.markedNodes, props.groupedNodes, props.packageTints, props.labelDensity, props.layerDepths]);
 
   // Light effect: the manual trace (FR-61) changed — repaint the trail from the
   // ordered steps (the draw loop reads traceRef live). The Explorer clears the
@@ -261,9 +261,18 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // and kind colour, so a deliberately-traced route stands out on the field.
       const traceColorOf = (id: string): string | undefined =>
         traceRef.current?.has(id) ? HIGHLIGHT_STYLE_COLOR.trace : undefined;
+      // FR-72b-2: while the layer lens is active, a node's BFS depth tints it from the
+      // shared depth ramp (layerColor) — above marks/group/kind, mirroring the 2D lens.
+      // depth 0 (the centre) returns undefined so the existing center=SELECTED branch
+      // in applyOverlays wins, exactly like 2D's depth-0 → SELECTED_NODE.
+      const layerColorOf = (id: string): string | undefined => {
+        const depth = layerDepthsRef.current?.get(id);
+        return depth === undefined || depth === 0 ? undefined : layerColor(depth);
+      };
       // FR-57: the package tint is the recessive base — below group, above kind.
       const drawColorOf = (id: string): string | undefined =>
         highlightColorOf(id) ??
+        layerColorOf(id) ??
         markColorOf(id) ??
         traceColorOf(id) ??
         (isGrouped(id) ? GROUP_TINT : (packageTintRef.current?.get(id) ?? metaById.get(id)?.color));
@@ -278,6 +287,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // a real change since the draw loop is on-demand.
       const applyOverlays = (): void => {
         const focus = focusHlRef.current;
+        // FR-72b-2: when the layer lens is active it REPLACES the focus lens as the
+        // "what's lit" gate — only nodes within the capped depth map stay bright, the
+        // rest recede to colDim (the 3D parallel of the 2D layer nodeReducer branch).
+        const layers = layerDepthsRef.current;
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i];
           const hlColor = highlightColorOf(id);
@@ -285,7 +298,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           const traceColor = traceColorOf(id);
           const isCenter = focus?.center === id;
           // A trace node leads through a focus lens (FR-61), like a driver highlight.
-          const inFocus = Boolean(hlColor) || Boolean(traceColor) || !focus || focus.nodes.has(id);
+          const inFocus =
+            layers && layers.size > 0
+              ? layers.has(id) || Boolean(hlColor) || Boolean(traceColor)
+              : Boolean(hlColor) || Boolean(traceColor) || !focus || focus.nodes.has(id);
           const drawn = drawColorOf(id) ?? meta[i].color;
           if (!inFocus) tmpColor.copy(colDim);
           else if (isCenter && !hlColor) tmpColor.copy(colSelected);
@@ -350,59 +366,24 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         }
       };
 
-      // Labels: an HTML overlay (crisp text, app typography) projected each frame.
-      // Node labels are structural symbol/path text — set via textContent, never
-      // innerHTML, so nothing renders as markup (FR untrusted-content discipline).
-      const renderLabels = (): void => {
-        const focus = focusHlRef.current;
-        // FR-65: the user's "Label density" setting biases how many labels survive —
-        // a larger focus cap + tighter de-collision packing when "dense", the reverse
-        // when "sparse". Read live (cbRef) so changing the setting needs no rebuild.
-        const density = labelDensityProfile(cbRef.current.labelDensity);
-        const layoutOpts = { ...DEFAULT_LABEL_LAYOUT, padding: density.padding, maxNudge: density.maxNudge };
-        // Build the to-label set with a priority per node (LOWER = more important):
-        // selected/center < hover < driver-highlight < mark < trace < focus-neighbour.
-        // The de-collision pass keeps the labels that matter when neighbours crowd.
-        const prio = new Map<string, number>();
-        const bid = (id: string, p: number): void => {
-          const cur = prio.get(id);
-          if (cur == null || p < cur) prio.set(id, p);
-        };
-        if (focus) {
-          bid(focus.center, 0);
-          if (focus.nodes.size <= density.focusCap) for (const id of focus.nodes) bid(id, 5);
-        }
-        if (hoverId) bid(hoverId, 1);
-        if (highlightRef.current) for (const id of highlightRef.current.set) bid(id, 2);
-        if (markedRef.current) {
-          for (const id of markedRef.current.keys()) if (!focus || focus.nodes.has(id)) bid(id, 3);
-        }
-        if (traceRef.current) for (const id of traceRef.current) bid(id, 4); // FR-61
-
-        labelLayer.replaceChildren();
-        if (prio.size === 0) return;
-
-        // Project the candidates (drop ones behind the camera), then de-collide in
-        // screen space so the high-priority label wins a crowded cluster.
-        const candidates: LabelCandidate[] = [];
-        for (const [id, priority] of prio) {
-          const i = indexOf.get(id);
-          if (i == null) continue;
-          const sp = cam.projectToScreen(pos[i]);
-          if (sp.z > 1) continue; // behind the camera
-          candidates.push({ id, x: sp.x, y: sp.y, priority, text: meta[i].label });
-        }
-        for (const lbl of layoutLabels3D(candidates, layoutOpts)) {
-          const el = document.createElement("div");
-          el.textContent = lbl.text;
-          el.className = "absolute -translate-y-1/2 whitespace-nowrap font-mono text-[11px] leading-none";
-          el.style.left = `${lbl.x + 10}px`;
-          el.style.top = `${lbl.y}px`;
-          el.style.color = lbl.id === focus?.center ? SELECTED_HEX : LABEL_HEX;
-          el.style.textShadow = "0 1px 3px rgba(0,0,0,0.85)";
-          labelLayer.appendChild(el);
-        }
-      };
+      // Labels: an HTML overlay (crisp text, app typography) projected each frame by
+      // the extracted pure pass (lib/label-pass-3d) over live getters — including the
+      // FR-72 layer depths, so a lit shell is labelled like the 2D surface. Label TEXT
+      // is set via textContent inside the pass, never innerHTML (untrusted-content).
+      const renderLabels = buildLabelPass3D({
+        labelLayer,
+        indexOf,
+        meta,
+        positions: pos,
+        projectToScreen: (p) => cam.projectToScreen(p),
+        focus: () => focusHlRef.current,
+        labelDensity: () => cbRef.current.labelDensity,
+        hoverId: () => hoverId,
+        highlight: () => highlightRef.current,
+        marked: () => markedRef.current,
+        trace: () => traceRef.current,
+        layerDepths: () => layerDepthsRef.current,
+      });
 
       // On-demand, rAF-coalesced render (battery-friendly — no idle loop).
       let raf = 0;

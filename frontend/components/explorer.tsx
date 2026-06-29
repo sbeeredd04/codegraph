@@ -492,9 +492,9 @@ export function Explorer({
     for (const [addr, d] of layerFull.depthOf) if (d <= layerDepth) capped.set(addr, d);
     return capped;
   }, [layerFull, layerDepth]);
-  // 2D-only for now (3D parity is FR-72b-2); withheld in 3D so the unused lens never
-  // confuses the 3D surface.
-  const surfaceLayerDepths = renderMode === "2d" ? layerDepths : undefined;
+  // FR-72b-2: both surfaces honour the lens now — the 2D Sigma reducer and the 3D draw
+  // loop paint the same depth ramp — so the capped map flows to whichever is mounted.
+  const surfaceLayerDepths = layerDepths;
 
   // FR-50: the ⌘⇧P action catalogue — the SAME setters/handlers the toolbar uses
   // (single source of truth). Built lazily on open, so no ref read during render.
@@ -625,9 +625,10 @@ export function Explorer({
         )}
 
         {/* FR-72: layered-analysis depth control — drives how far the concentric
-            BFS shells expand from the selected node. 2D only for now (the toggle is
-            disabled in 3D); shown while armed even before a node is picked, to guide. */}
-        {layersMode && renderMode === "2d" && (
+            BFS shells expand from the selected node. Shown on both surfaces (FR-72b-2
+            brought the lens to 3D); appears while armed even before a node is picked,
+            to guide the user to select one. */}
+        {layersMode && (
           <LayerDepthControl
             hasSelection={selected != null}
             depth={layerDepth}
@@ -635,6 +636,7 @@ export function Explorer({
             litCount={layerDepths?.size ?? 0}
             onDepth={setLayerDepth}
             onClose={() => setLayersMode(false)}
+            raised={renderMode === "3d"}
           />
         )}
 

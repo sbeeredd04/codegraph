@@ -348,10 +348,10 @@ export function ExplorerToolbar({
       </button>
 
       {/* Layered neighbour analysis (FR-72) — concentric BFS shells from the selected
-          node, depth-coloured, with a depth control. 2D only for now. */}
+          node, depth-coloured, with a depth control. Works on both surfaces (FR-72b-2
+          brought the depth ramp to the 3D draw loop). */}
       <button
         aria-pressed={layersMode}
-        disabled={renderMode === "3d"}
         title="Layers: light the selected node's neighbourhood layer by layer, coloured by depth"
         onClick={onToggleLayers}
         className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${

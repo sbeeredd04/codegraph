@@ -166,3 +166,67 @@ test("FR-72: disarming Layers restores the plain first-degree focus lens", async
   expect(d.center.color).toBe(CENTER); // selection still lit by the focus lens
   expect(d.n1.color).not.toBe(DEPTH1); // back to its kind colour, not the layer hue
 });
+
+// FR-72b-2 — 3D PARITY. The same pure-core depth map drives the 3D draw loop via the
+// shared layer palette; the dev `__overlay3d` hook routes through the SAME drawColorOf
+// the WebGL instances paint, so we assert the depth hues deterministically (no pixel
+// reading). We pick the triple on the 2D surface first (its `__sigma` hook exposes the
+// graph), then switch to 3D — node addresses are stable across surfaces.
+async function switchTo3D(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "3d", exact: true }).click();
+  await expect(page.locator('[data-surface="3d"] canvas')).toBeVisible();
+}
+
+/** A node's overlay-resolved 3D draw colour via __overlay3d (null if absent/unbuilt). */
+function overlay3d(page: Page, address: string): Promise<string | null> {
+  return page.evaluate((addr) => {
+    const el = document.querySelector('[data-surface="3d"]') as
+      | (HTMLElement & { __overlay3d?: (a: string) => string | null })
+      | null;
+    return el?.__overlay3d ? el.__overlay3d(addr) : null;
+  }, address);
+}
+
+test("FR-72b-2: the 3D surface paints the same depth shells, capped by the control", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  const ids = await pickTriple(page);
+  expect(ids.n1, "dataset should have a first-degree neighbour").not.toBe("");
+  expect(ids.n2, "dataset should have a genuine second-degree node").not.toBe("");
+
+  // Switch to the WebGL surface and arm Layers (the toggle now works in 3D).
+  await switchTo3D(page);
+  await page.getByRole("button", { name: "Layers" }).click();
+  await expect(page.getByTestId("layer-depth-control")).toBeVisible();
+
+  // Select the centre through the surface controller (deterministic — the force
+  // layout makes pixel-clicking fragile); the explorer recomputes the depth map.
+  await expect.poll(() => overlay3d(page, ids.center)).not.toBeNull(); // scene built
+  await page.evaluate((center) => {
+    const el = document.querySelector('[data-surface="3d"]') as HTMLElement & {
+      __controller: { focus(addresses: string[]): void };
+    };
+    el.__controller.focus([center]);
+  }, ids.center);
+
+  // Cap at depth 1 — the first shell lights at layerColor(1); the 2nd-degree node is
+  // beyond the cap, so it is NOT painted a layer hue (falls back to its kind colour).
+  await page.getByRole("slider", { name: "Analysis depth" }).fill("1");
+  await expect.poll(() => overlay3d(page, ids.n1)).toBe(DEPTH1);
+  expect(await overlay3d(page, ids.n2)).not.toBe(DEPTH2);
+  expect(await overlay3d(page, ids.n2)).not.toBe(DEPTH1);
+
+  await page.screenshot({ path: `${SHOT}/layers-3d-depth-1.png` });
+
+  // Expand to depth 2 — the second shell now lights at the DIMMER layerColor(2),
+  // while the first shell keeps layerColor(1).
+  await page.getByRole("slider", { name: "Analysis depth" }).fill("2");
+  await expect.poll(() => overlay3d(page, ids.n2)).toBe(DEPTH2);
+  expect(await overlay3d(page, ids.n1)).toBe(DEPTH1);
+  expect(DEPTH2).not.toBe(DEPTH1); // depth dims outward on the violet ramp
+
+  await page.screenshot({ path: `${SHOT}/layers-3d-depth-2.png` });
+});
