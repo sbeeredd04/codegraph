@@ -621,6 +621,18 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
             else replayTimersRef.current.push(setTimeout(run, step.startMs));
           }
         },
+        // FR-50: expose the FR-47 camera + FR-48 movie to the action palette. These
+        // delegate to the SAME local functions the bottom-right controls and the
+        // "Play tour" trigger call — single source of truth, no behaviour fork.
+        resetCamera() {
+          resetView();
+        },
+        fitCamera() {
+          fitView();
+        },
+        playTour() {
+          playMovieFocus();
+        },
       };
       if (cbRef.current.controllerRef) cbRef.current.controllerRef.current = controller;
 

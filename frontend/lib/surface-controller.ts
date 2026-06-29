@@ -31,4 +31,12 @@ export interface SurfaceController {
    * call — or the human taking control — preempts an in-flight tour. The 3D
    * surface wires this in slice 2; until then its implementation is a no-op. */
   replay(addresses: readonly string[], opts?: { dwellMs?: number }): void;
+  /** FR-47: ease the camera back to the default framing. 3D-only — the 2D Sigma
+   * surface has no perspective camera, so it leaves this undefined. */
+  resetCamera?(): void;
+  /** FR-47: frame the whole graph's bounding sphere from any zoom. 3D-only. */
+  fitCamera?(): void;
+  /** FR-48: fly a cinematic tour through the selected node's neighbourhood.
+   * 3D-only; a no-op/absent on 2D. Requires a current selection to have a path. */
+  playTour?(): void;
 }

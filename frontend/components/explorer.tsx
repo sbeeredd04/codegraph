@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Sparkles,
   BookOpen,
@@ -44,6 +45,8 @@ import { PresentingBanner } from "./presenting-banner";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
+import { ActionPalette } from "./action-palette";
+import { buildExplorerActions } from "@/lib/explorer-actions";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
 import { OnboardingPanel } from "./onboarding-panel";
@@ -135,6 +138,7 @@ export function Explorer({
   const [selected, setSelected] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [onboardOpen, setOnboardOpen] = useState(false);
@@ -146,6 +150,7 @@ export function Explorer({
   // when the human holds the wheel. Drives the user-sovereignty preempt banner.
   const [presenting, setPresenting] = useState<string | null>(null);
   const controllerRef = useRef<SurfaceController | null>(null);
+  const router = useRouter();
   const diagramList = diagrams ?? [];
   const docList = docs ?? [];
 
@@ -173,8 +178,11 @@ export function Explorer({
     [selectNode],
   );
 
-  // Stable closer so the palette's effects don't re-run each render.
+  // Stable closers so the palettes' effects don't re-run each render.
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const closeActions = useCallback(() => setActionsOpen(false), []);
+  // Read the live surface controller only when an action runs (never in render).
+  const getController = useCallback(() => controllerRef.current, []);
 
   // Reset every dock/panel to its default size, position, and expanded state in
   // one action (FR-34). Layout is purely a localStorage preference, so we clear
@@ -280,13 +288,18 @@ export function Explorer({
   // path-trace resolves against the current edges.
   useEffect(() => subscribeToPresentationCommands(dispatchCommand), [dispatchCommand]);
 
-  // Global ⌘K / Ctrl+K toggles the palette. The listener owns the toggle so the
-  // palette can mount only while open (fresh state, no reset effect). setState in
-  // the callback is fine — it's the synchronous-setState-in-effect-body that the
-  // React Compiler lint forbids, not an event handler.
+  // Global keyboard shortcuts. ⌘K / Ctrl+K toggles the node-search palette;
+  // ⌘⇧P / Ctrl+⇧P toggles the FR-50 action palette (distinct surfaces). Each
+  // listener owns its toggle so the palette mounts only while open (fresh state,
+  // no reset effect). setState in the callback is fine — it's the synchronous
+  // setState-in-effect-body that the React Compiler lint forbids, not a handler.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.shiftKey && (e.key === "p" || e.key === "P" || e.code === "KeyP")) {
+        e.preventDefault();
+        setActionsOpen((v) => !v);
+      } else if (mod && !e.shiftKey && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
@@ -369,6 +382,19 @@ export function Explorer({
     const n = byAddress.get(address);
     return n ? displayLabel(n.name, n.kind) : address;
   };
+
+  // FR-50: the ⌘⇧P action catalogue — the SAME setters/handlers the toolbar uses
+  // (single source of truth). Built lazily on open, so no ref read during render.
+  const buildActions = () =>
+    buildExplorerActions({
+      renderMode, projection, folderClustered, orphanMode, orphanCount, traceArmed,
+      diagramsOpen, docsOpen, onboardOpen, hasSelection: selected != null, assistEnabled,
+      setRenderMode, setProjection, setFolderClustered, setOrphanMode, setTraceArmed,
+      setDiagramsOpen, setDocsOpen, setOnboardOpen, setAskOpen, setPaletteOpen,
+      resetLayout,
+      navigateGuide: () => router.push("/docs"),
+      controller: getController,
+    });
 
   return (
     <main className="relative flex h-screen flex-col bg-[#0e0f13] font-sans text-zinc-200">
@@ -707,6 +733,9 @@ export function Explorer({
         {paletteOpen && (
           <CommandPalette nodes={nodes} onClose={closePalette} onSelect={jumpTo} />
         )}
+
+        {/* ⌘⇧P action palette (FR-50) — fuzzy run-an-action, distinct from ⌘K */}
+        {actionsOpen && <ActionPalette build={buildActions} onClose={closeActions} />}
 
         {/* Knowledge diagrams drawer (FR-28) — Related chips jump into the graph */}
         {diagramsOpen && (
