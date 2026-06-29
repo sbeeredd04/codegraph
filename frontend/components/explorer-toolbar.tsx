@@ -13,6 +13,7 @@ import Link from "next/link";
 import {
   Sparkles,
   BookOpen,
+  Home as HomeIcon,
   Search as SearchIcon,
   Folder as FolderIcon,
   Ghost,
@@ -70,6 +71,12 @@ interface ExplorerToolbarProps {
   readonly onboardDone: number;
   readonly onboardTotal: number;
   readonly onboardComplete: boolean;
+  /**
+   * Destination of the "Home" link back to the FR-35 landing page (FR-66), or
+   * null/undefined to hide it. Withheld inside the VS Code webview, where the
+   * embedded board has no marketing page to return to (AD-14).
+   */
+  readonly landingHref?: string | null;
   readonly assistEnabled: boolean;
   readonly onAsk: () => void;
   readonly onSearch: () => void;
@@ -113,6 +120,7 @@ export function ExplorerToolbar({
   onboardDone,
   onboardTotal,
   onboardComplete,
+  landingHref,
   assistEnabled,
   onAsk,
   onSearch,
@@ -370,6 +378,21 @@ export function ExplorerToolbar({
           >
             <Sparkles size={14} /> Ask
           </button>
+        )}
+        {/* Home (FR-66) — cross-surface nav back to the FR-35 landing page. A
+            cloud/web-plane affordance: the host passes a href on the web, and
+            withholds it (null) inside the VS Code webview, where the embedded
+            board has no marketing page to return to (AD-14). Root-relative so it
+            resolves under the web mount; next/link for client-side nav. */}
+        {landingHref && (
+          <Link
+            href={landingHref}
+            prefetch={false}
+            title="Back to the codegraph home page"
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <HomeIcon size={14} /> Home
+          </Link>
         )}
         {/* Guide (FR-45) — client-side nav to the first-party guide pages
             (/docs is root-level, so the link resolves under both the web mount

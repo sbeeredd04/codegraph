@@ -105,6 +105,11 @@ export default function Home() {
       // Editor deep-linking (FR-32) lights up only when the host posts its
       // absolute root — i.e. inside the VS Code webview, never on the cloud demo.
       editorRoot={editorRoot}
+      // Cross-surface nav (FR-66): a "Home" link back to the landing page, on the
+      // web/cloud plane only. In the webview the host graph is live and there's no
+      // marketing page to return to, so it's withheld (same withholding as the
+      // sample dataset switcher / source sidecar above).
+      landingHref={live ? null : "/welcome"}
       title={`${snap.root ?? "snapshot"} · ${snap.nodeCount} nodes`}
       // Live (webview) graphs carry no bundled source sidecar and have no sample
       // datasets to switch between, so both affordances are withheld.

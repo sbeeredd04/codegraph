@@ -94,6 +94,12 @@ interface ExplorerProps {
    * web/cloud, where there's no local checkout to open (AD-14).
    */
   readonly editorRoot?: string | null;
+  /**
+   * Destination for the "Home" toolbar link back to the FR-35 landing page
+   * (FR-66), or null on the VS Code webview where there's no marketing page to
+   * return to (AD-14). Set by the host page.
+   */
+  readonly landingHref?: string | null;
   /** Optional dataset switcher — when present, renders a selector in the header. */
   readonly datasets?: readonly { readonly id: string; readonly label: string }[];
   readonly datasetId?: string;
@@ -110,6 +116,7 @@ export function Explorer({
   title,
   sourceBase = null,
   editorRoot = null,
+  landingHref = null,
   datasets,
   datasetId,
   onDataset,
@@ -502,6 +509,7 @@ export function Explorer({
         onboardDone={playbook.done}
         onboardTotal={playbook.total}
         onboardComplete={playbook.complete}
+        landingHref={landingHref}
         assistEnabled={assistEnabled}
         onAsk={() => setAskOpen(true)}
         onSearch={() => setPaletteOpen(true)}
