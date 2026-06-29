@@ -46,6 +46,8 @@ import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
 import { CommandPalette } from "./command-palette";
 import { ActionPalette } from "./action-palette";
+import { CommandCenter } from "./command-center";
+import { useLauncherShortcuts } from "@/lib/use-launcher-shortcuts";
 import { buildExplorerActions } from "@/lib/explorer-actions";
 import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
@@ -139,6 +141,7 @@ export function Explorer({
   const [sourceOpen, setSourceOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [centerOpen, setCenterOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [onboardOpen, setOnboardOpen] = useState(false);
@@ -181,6 +184,7 @@ export function Explorer({
   // Stable closers so the palettes' effects don't re-run each render.
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeActions = useCallback(() => setActionsOpen(false), []);
+  const closeCenter = useCallback(() => setCenterOpen(false), []);
   // Read the live surface controller only when an action runs (never in render).
   const getController = useCallback(() => controllerRef.current, []);
 
@@ -288,25 +292,9 @@ export function Explorer({
   // path-trace resolves against the current edges.
   useEffect(() => subscribeToPresentationCommands(dispatchCommand), [dispatchCommand]);
 
-  // Global keyboard shortcuts. ⌘K / Ctrl+K toggles the node-search palette;
-  // ⌘⇧P / Ctrl+⇧P toggles the FR-50 action palette (distinct surfaces). Each
-  // listener owns its toggle so the palette mounts only while open (fresh state,
-  // no reset effect). setState in the callback is fine — it's the synchronous
-  // setState-in-effect-body that the React Compiler lint forbids, not a handler.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.shiftKey && (e.key === "p" || e.key === "P" || e.code === "KeyP")) {
-        e.preventDefault();
-        setActionsOpen((v) => !v);
-      } else if (mod && !e.shiftKey && (e.key === "k" || e.key === "K")) {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  // ⌘Space command center (FR-49) · ⌘⇧P actions (FR-50) · ⌘K node search — one
+  // listener, mutually exclusive so the launcher modals never stack.
+  useLauncherShortcuts({ setSearch: setPaletteOpen, setActions: setActionsOpen, setCenter: setCenterOpen });
 
   const byAddress = useMemo(() => {
     const m = new Map<string, GraphNode>();
@@ -736,6 +724,11 @@ export function Explorer({
 
         {/* ⌘⇧P action palette (FR-50) — fuzzy run-an-action, distinct from ⌘K */}
         {actionsOpen && <ActionPalette build={buildActions} onClose={closeActions} />}
+
+        {/* ⌘Space command center (FR-49) — unified node + action launcher */}
+        {centerOpen && (
+          <CommandCenter nodes={nodes} buildActions={buildActions} onSelectNode={jumpTo} onClose={closeCenter} />
+        )}
 
         {/* Knowledge diagrams drawer (FR-28) — Related chips jump into the graph */}
         {diagramsOpen && (
