@@ -7,6 +7,17 @@ export type NodeKind = "module" | "class" | "function" | "method" | "workflow";
 /** Semantic relationships (AD-4). */
 export type EdgeType = "calls" | "depends-on" | "contains" | "hands-off-to";
 
+/** Closed vocabulary for an edge's precise call classification (FR-58). The
+ * human labels + the from-endpoint derivation live in `edge-call.ts`. */
+export type EdgeCallKind =
+  | "construct"
+  | "method-call"
+  | "call"
+  | "import"
+  | "depend"
+  | "contain"
+  | "handoff";
+
 /** Stable string address for a node, e.g. `ts:src/auth.ts#login`. Overload-disambiguated (AD-10). */
 export type NodeAddress = string;
 
@@ -38,6 +49,14 @@ export interface GraphEdge {
   readonly from: NodeAddress;
   readonly to: NodeAddress;
   readonly type: EdgeType;
+  /**
+   * Optional, precise call classification captured by the indexer (FR-58), e.g.
+   * `"construct"` for a `calls` edge into a class. A closed-vocabulary structural
+   * tag (NOT source bytes), so — unlike the host-local `doc` — it is cloud-safe
+   * and rides the portable snapshot. When absent, `describeEdgeCall` derives the
+   * kind from the edge type and the target node's kind.
+   */
+  readonly call?: EdgeCallKind;
 }
 
 /** The one delta type all consumers receive (AD-6). */

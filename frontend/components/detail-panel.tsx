@@ -10,6 +10,7 @@
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Note, Mark, Group, MarkKind } from "@core/overlays/overlay";
 import { deriveFallbackNote } from "@core/docs/doc-note";
+import { describeEdgeCall } from "@core/graph/edge-call";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
@@ -190,8 +191,8 @@ function DetailContent({
         </pre>
       )}
 
-      <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" onJump={onJump} byAddress={byAddress} />
-      <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" onJump={onJump} byAddress={byAddress} />
+      <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" selfNode={node} onJump={onJump} byAddress={byAddress} />
+      <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" selfNode={node} onJump={onJump} byAddress={byAddress} />
     </>
   );
 }
@@ -335,12 +336,15 @@ function NeighborList({
   label,
   edges,
   dir,
+  selfNode,
   onJump,
   byAddress,
 }: {
   label: string;
   edges: readonly GraphEdge[];
   dir: "to" | "from";
+  /** The selected node — the edge's target for incoming (`from`) rows. */
+  selfNode: GraphNode;
   onJump: (address: string) => void;
   byAddress: Map<string, GraphNode>;
 }): React.JSX.Element | null {
@@ -354,15 +358,28 @@ function NeighborList({
         {edges.slice(0, 12).map((e) => {
           const addr = dir === "to" ? e.to : e.from;
           const n = byAddress.get(addr);
+          // FR-58: classify the edge by its TARGET. For an outgoing row the target
+          // is the neighbour; for an incoming row it is the selected node — so the
+          // tag reads from the right side ("constructs" vs "constructed by").
+          const call = describeEdgeCall(e, dir === "to" ? n : selfNode);
+          const tag = dir === "to" ? call.label : call.inverseLabel;
           return (
             <li key={`${e.from}->${e.to}:${e.type}`}>
               <button
                 onClick={() => onJump(addr)}
-                className="w-full truncate rounded px-1.5 py-1 text-left font-mono text-xs text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-50"
+                className="flex w-full items-baseline gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-50"
                 title={addr}
               >
-                <span className="text-zinc-600">{e.type} </span>
-                {n ? displayLabel(n.name, n.kind) : addr.split("::").pop()}
+                <span
+                  className="shrink-0 text-[10px] text-zinc-500"
+                  title={call.description}
+                  data-call-kind={call.kind}
+                >
+                  {tag}
+                </span>
+                <span className="truncate font-mono">
+                  {n ? displayLabel(n.name, n.kind) : addr.split("::").pop()}
+                </span>
               </button>
             </li>
           );
