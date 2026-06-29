@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
@@ -581,6 +582,18 @@ export function Explorer({
               <span aria-hidden>✦</span> Ask
             </button>
           )}
+          {/* Guide (FR-45) — client-side nav to the first-party guide pages
+              (/docs is root-level, so the link resolves under both the web mount
+              and the webview origin). Named "Guide" to stay distinct from the
+              agent-authored Docs drawer toggle above. */}
+          <Link
+            href="/docs"
+            prefetch={false}
+            title="Open the codegraph guide"
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <span aria-hidden>?</span> Guide
+          </Link>
           <button
             onClick={() => setPaletteOpen(true)}
             aria-label="Search nodes"

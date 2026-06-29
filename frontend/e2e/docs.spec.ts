@@ -42,6 +42,17 @@ test("a guide page renders its Markdown and the sidebar marks it active", async 
   );
 });
 
+test("the explorer board chrome links into the docs", async ({ page }) => {
+  await page.goto("/");
+  // The "Guide" link in the topbar — named distinctly from the agent-authored
+  // "Docs" drawer toggle — does client-side nav to the first-party guides.
+  const guideLink = page.getByRole("link", { name: /^.?\s*guide$/i });
+  await expect(guideLink).toHaveAttribute("href", "/docs");
+  await guideLink.click();
+  await expect(page).toHaveURL(/\/docs$/);
+  await expect(page.getByRole("heading", { level: 1, name: /documentation/i })).toBeVisible();
+});
+
 test("the landing page links into the docs", async ({ page }) => {
   await page.goto("/welcome");
   const docsLink = page.getByRole("navigation", { name: /primary/i }).getByRole("link", { name: /^docs$/i });
