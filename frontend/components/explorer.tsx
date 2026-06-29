@@ -9,20 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Sparkles,
-  BookOpen,
-  Search as SearchIcon,
-  Folder as FolderIcon,
-  Ghost,
-  Route as RouteIcon,
-  Workflow,
-  FileText,
-  ListChecks,
-  SlidersHorizontal as SettingsIcon,
-} from "./icons";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Diagram } from "@core/diagrams/diagram";
@@ -30,6 +17,7 @@ import type { Doc } from "@core/docs/doc";
 import type { Overlay } from "@core/overlays/overlay";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
+import { partitionByPackage } from "@core/graph/package";
 import { KIND_COLORS } from "@/lib/graph-data";
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
@@ -51,6 +39,7 @@ import { DiagramsDrawer } from "./diagrams-drawer";
 import { DocsDrawer } from "./docs-drawer";
 import { OnboardingPanel } from "./onboarding-panel";
 import { AskPanel } from "./ask-panel";
+import { ExplorerToolbar } from "./explorer-toolbar";
 import type { AskFocus } from "@core/assist/ask";
 
 // Sigma evaluates WebGL globals (WebGL2RenderingContext) at module load, which
@@ -75,13 +64,6 @@ const LAYOUT_KEYS = [
   "codegraph:panel:onboard",
   "codegraph:panel:diagrams",
   "codegraph:panel:docs",
-];
-
-const PROJECTIONS: { id: ProjectionKind; label: string; hint: string }[] = [
-  { id: "full", label: "Full", hint: "Every node and edge" },
-  { id: "dependency", label: "Depends", hint: "Module dependency edges" },
-  { id: "call", label: "Calls", hint: "Function/method call edges" },
-  { id: "structure", label: "Structure", hint: "Containment hierarchy" },
 ];
 
 interface ExplorerProps {
@@ -148,6 +130,8 @@ export function Explorer({
   const [docsOpen, setDocsOpen] = useState(false);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  // FR-57: the monorepo package the board is focused on, or null for "all".
+  const [activePackage, setActivePackage] = useState<string | null>(null);
   // Bumped by "Reset layout" — used as a remount key so every dock re-reads its
   // (now-cleared) localStorage and returns to defaults.
   const [layoutVersion, setLayoutVersion] = useState(0);
@@ -308,6 +292,36 @@ export function Explorer({
     return m;
   }, [nodes]);
 
+  // FR-57: partition the graph into monorepo packages from path metadata already
+  // on the nodes (structural, cloud-safe). Recomputed only when the node set
+  // changes; the toolbar renders a filter only when there are ≥2 packages.
+  const partition = useMemo(() => partitionByPackage(nodes), [nodes]);
+
+  // Focus the board on one package: highlight + frame its nodes through the same
+  // FR-43 surface controller the agent drives, or clear back to the whole graph.
+  // Read-only (FR-9): only the view changes. If a stale selection leaves the
+  // package empty, treat it as "all".
+  const onPackage = useCallback(
+    (id: string | null) => {
+      const c = controllerRef.current;
+      if (!id) {
+        c?.highlight([]);
+        setActivePackage(null);
+        return;
+      }
+      const members: string[] = [];
+      for (const [address, pkg] of partition.of) if (pkg === id) members.push(address);
+      setActivePackage(members.length ? id : null);
+      if (!members.length) {
+        c?.highlight([]);
+        return;
+      }
+      c?.highlight(members, "accent");
+      c?.frame(members);
+    },
+    [partition],
+  );
+
   const detail = useMemo(() => {
     if (!selected) return null;
     const node = byAddress.get(selected);
@@ -316,6 +330,14 @@ export function Explorer({
     const callers = edges.filter((e) => e.to === selected);
     return { node, callees, callers };
   }, [selected, byAddress, edges]);
+
+  // FR-57: the human label of the selected node's package, for the detail chip.
+  const selectedPackageLabel = useMemo(() => {
+    if (!detail) return null;
+    const id = partition.of.get(detail.node.address);
+    if (!id) return null;
+    return partition.packages.find((p) => p.id === id)?.label ?? id;
+  }, [detail, partition]);
 
   // FR-37/FR-42: the agent's overlays (the selected node's note/markers/groups +
   // the per-node canvas tints + the grouped-address set) and the onboarding
@@ -365,284 +387,54 @@ export function Explorer({
 
   return (
     <main className="relative flex h-screen flex-col bg-[#0e0f13] font-sans text-zinc-200">
-      <header className="z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-800 bg-[#0e0f13]/90 px-4 py-2.5 backdrop-blur">
-        <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className="inline-block size-3 rounded-[3px] bg-gradient-to-br from-violet-400 to-cyan-400"
-          />
-          <span className="font-display text-sm font-semibold tracking-tight text-zinc-50">
-            codegraph
-          </span>
-          <span className="hidden text-xs text-zinc-500 sm:inline">{title}</span>
-        </div>
-
-        {datasets && datasets.length > 1 && onDataset && (
-          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <span className="sr-only">Dataset</span>
-            <select
-              value={datasetId}
-              onChange={(e) => onDataset(e.target.value)}
-              aria-label="Dataset"
-              className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-xs font-medium text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-            >
-              {datasets.map((d) => (
-                <option key={d.id} value={d.id} className="bg-zinc-900">
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <div className="flex items-center gap-3 text-xs text-zinc-500">
-          <span>
-            <span className="font-mono text-zinc-300">{nodes.length.toLocaleString()}</span> nodes
-          </span>
-          <span>
-            <span className="font-mono text-zinc-300">{edges.length.toLocaleString()}</span> edges
-          </span>
-        </div>
-
-        {/* Projection segmented control (FR-4) */}
-        <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5" role="tablist" aria-label="Projection">
-          {PROJECTIONS.map((p) => (
-            <button
-              key={p.id}
-              role="tab"
-              aria-selected={projection === p.id}
-              title={p.hint}
-              onClick={() => setProjection(p.id)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                projection === p.id
-                  ? "bg-zinc-700/80 text-zinc-50"
-                  : "text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {/* 2D ⇄ 3D render-mode toggle (FR-17) — same graph, swappable surface */}
-        <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5" role="group" aria-label="Render mode">
-          {(["2d", "3d"] as const).map((m) => (
-            <button
-              key={m}
-              aria-pressed={renderMode === m}
-              title={m === "3d" ? "Rotatable 3D layout (drag to orbit, scroll to zoom)" : "2D graph"}
-              onClick={() => setRenderMode(m)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium uppercase transition-colors ${
-                renderMode === m
-                  ? "bg-zinc-700/80 text-zinc-50"
-                  : "text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-
-        {/* Folder clustering (FR-26) — gather nodes into per-folder regions; 2D only */}
-        <button
-          aria-pressed={folderClustered}
-          disabled={renderMode === "3d"}
-          title="Gather nodes into per-folder regions"
-          onClick={() => setFolderClustered((v) => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            folderClustered
-              ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"
-              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <FolderIcon size={14} /> Folders
-        </button>
-
-        {/* Folder sort order (FR-26 follow-up) — contextual to clustering; decides
-            which folder takes the central anchor. Shown only when clustering is on. */}
-        {folderClustered && renderMode !== "3d" && (
-          <div
-            role="group"
-            aria-label="Sort folders"
-            className="flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5"
-          >
-            {(
-              [
-                { id: "path", title: "Order folders alphabetically" },
-                { id: "size", title: "Largest folders toward the centre" },
-              ] as const
-            ).map((s) => (
-              <button
-                key={s.id}
-                aria-pressed={folderSort === s.id}
-                title={s.title}
-                onClick={() => setFolderSort(s.id)}
-                className={`rounded-md px-2 py-0.5 text-[11px] font-medium capitalize transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${
-                  folderSort === s.id
-                    ? "bg-cyan-500/15 text-cyan-300"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {s.id}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Orphan overlay (FR-12) — 2D only for now */}
-        <button
-          aria-pressed={orphanMode}
-          disabled={orphanCount === 0 || renderMode === "3d"}
-          onClick={() => setOrphanMode((v) => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            orphanMode
-              ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
-              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <Ghost size={14} /> Orphans <span className="font-mono">{orphanCount}</span>
-        </button>
-
-        {/* Trace path (PM-backlog #3) — 2D only for now */}
-        <button
-          aria-pressed={traceArmed}
-          disabled={renderMode === "3d"}
-          onClick={() => setTraceArmed((v) => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            traceArmed
-              ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
-              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <RouteIcon size={14} /> Trace
-        </button>
-
-        {/* Knowledge diagrams drawer (FR-28) — agent-authored Mermaid narratives */}
-        <button
-          aria-pressed={diagramsOpen}
-          aria-haspopup="dialog"
-          title="Agent-authored knowledge diagrams"
-          onClick={() => {
-            setDocsOpen(false);
-            setDiagramsOpen((v) => !v);
-          }}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-            diagramsOpen
-              ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
-              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <Workflow size={14} /> Diagrams <span className="font-mono">{diagramList.length}</span>
-        </button>
-
-        {/* Knowledge docs drawer (FR-29) — agent-authored Markdown prose */}
-        <button
-          aria-pressed={docsOpen}
-          aria-haspopup="dialog"
-          title="Agent-authored documentation"
-          onClick={() => {
-            setDiagramsOpen(false);
-            setDocsOpen((v) => !v);
-          }}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-            docsOpen
-              ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
-              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <FileText size={14} /> Docs <span className="font-mono">{docList.length}</span>
-        </button>
-
-        {/* Onboarding progress (FR-42) — mirrors the agent's codegraph_onboard
-            checklist so the human sees how far the knowledge layer is bootstrapped.
-            Emerald when the starter layer is complete, neutral while gaps remain. */}
-        <button
-          aria-pressed={onboardOpen}
-          aria-expanded={onboardOpen}
-          title="Agent onboarding progress — the starter knowledge checklist"
-          onClick={() => setOnboardOpen((v) => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-            onboardOpen
-              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
-              : playbook.complete
-                ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-300/80 hover:text-emerald-200"
-                : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <ListChecks size={14} /> Setup{" "}
-          <span className="font-mono">
-            {playbook.done}/{playbook.total}
-          </span>
-        </button>
-
-        <div className="ml-auto flex items-center gap-3 text-xs">
-          {/* AI-assist "Ask" (FR-30) — local-plane only (withheld on cloud) */}
-          {assistEnabled && (
-            <button
-              onClick={() => setAskOpen(true)}
-              aria-haspopup="dialog"
-              className="flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-            >
-              <Sparkles size={14} /> Ask
-            </button>
-          )}
-          {/* Guide (FR-45) — client-side nav to the first-party guide pages
-              (/docs is root-level, so the link resolves under both the web mount
-              and the webview origin). Named "Guide" to stay distinct from the
-              agent-authored Docs drawer toggle above. */}
-          <Link
-            href="/docs"
-            prefetch={false}
-            title="Open the codegraph guide"
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-          >
-            <BookOpen size={14} /> Guide
-          </Link>
-          <button
-            onClick={() => setPaletteOpen(true)}
-            aria-label="Search nodes"
-            aria-keyshortcuts="Meta+K Control+K"
-            className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-          >
-            <SearchIcon size={14} />
-            <span aria-hidden>Search</span>
-            <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1 font-mono text-[10px] text-zinc-400">⌘K</kbd>
-          </button>
-          {/* Settings (FR-51) — persisted board preferences */}
-          <button
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Open settings"
-            aria-haspopup="dialog"
-            title="Board preferences"
-            className="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-1.5 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-          >
-            <SettingsIcon size={15} />
-          </button>
-          {/* Reset layout (FR-34) — clears every dock/panel size + position back to
-              defaults. Layout-only (FR-9: no source touched), so no confirmation. */}
-          <button
-            onClick={resetLayout}
-            aria-label="Reset layout"
-            title="Reset all panels to their default size and position"
-            className="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/60 p-1.5 text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-          >
-            <ResetIcon />
-          </button>
-          {traceArmed && (
-            <span
-              aria-live="polite"
-              className={`font-mono ${
-                traceStatus.tone === "none" ? "text-zinc-500" : "text-violet-300"
-              }`}
-            >
-              {traceStatus.text || "Click a node to start the trace"}
-            </span>
-          )}
-          {hovered && !traceArmed && (
-            <span className="font-mono text-zinc-500">{labelFor(hovered)}</span>
-          )}
-        </div>
-      </header>
+      <ExplorerToolbar
+        title={title}
+        nodeCount={nodes.length}
+        edgeCount={edges.length}
+        datasets={datasets}
+        datasetId={datasetId}
+        onDataset={onDataset}
+        projection={projection}
+        onProjection={setProjection}
+        renderMode={renderMode}
+        onRenderMode={setRenderMode}
+        folderClustered={folderClustered}
+        onToggleFolders={() => setFolderClustered((v) => !v)}
+        folderSort={folderSort}
+        onFolderSort={setFolderSort}
+        packages={partition.packages}
+        activePackage={activePackage}
+        onPackage={onPackage}
+        orphanMode={orphanMode}
+        orphanCount={orphanCount}
+        onToggleOrphans={() => setOrphanMode((v) => !v)}
+        traceArmed={traceArmed}
+        onToggleTrace={() => setTraceArmed((v) => !v)}
+        diagramsOpen={diagramsOpen}
+        diagramCount={diagramList.length}
+        onToggleDiagrams={() => {
+          setDocsOpen(false);
+          setDiagramsOpen((v) => !v);
+        }}
+        docsOpen={docsOpen}
+        docCount={docList.length}
+        onToggleDocs={() => {
+          setDiagramsOpen(false);
+          setDocsOpen((v) => !v);
+        }}
+        onboardOpen={onboardOpen}
+        onToggleOnboard={() => setOnboardOpen((v) => !v)}
+        onboardDone={playbook.done}
+        onboardTotal={playbook.total}
+        onboardComplete={playbook.complete}
+        assistEnabled={assistEnabled}
+        onAsk={() => setAskOpen(true)}
+        onSearch={() => setPaletteOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+        onResetLayout={resetLayout}
+        traceStatus={traceStatus}
+        hoveredLabel={hovered ? labelFor(hovered) : null}
+      />
 
       <div className="relative flex-1">
         {/* One contract, swappable surface (AD-15): the 2D Sigma canvas or the 3D
@@ -706,6 +498,7 @@ export function Explorer({
             byAddress={byAddress}
             edges={edges}
             overlays={selectedOverlays}
+            packageLabel={selectedPackageLabel}
             onClose={() => setSelected(null)}
             onViewSource={() => setSourceOpen(true)}
             onJump={(a) => controllerRef.current?.focus([a])}
@@ -783,15 +576,5 @@ export function Explorer({
         )}
       </div>
     </main>
-  );
-}
-
-// A counter-clockwise reset arrow — the "restore defaults" affordance for layout.
-function ResetIcon(): React.JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
   );
 }

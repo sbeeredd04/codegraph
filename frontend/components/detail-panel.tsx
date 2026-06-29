@@ -17,7 +17,7 @@ import { detectEntryPoints } from "@core/graph/entry-point";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
-import { LogIn } from "./icons";
+import { LogIn, Package } from "./icons";
 import { ResizableDock } from "./resizable-dock";
 
 interface DetailData {
@@ -41,6 +41,8 @@ interface DetailPanelProps {
   readonly edges: readonly GraphEdge[];
   /** The agent's overlays pinned to this node (FR-37), if any. */
   readonly overlays?: NodeOverlays;
+  /** Human label of the monorepo package this node lives in (FR-57), or null. */
+  readonly packageLabel?: string | null;
   /** Clear the selection (closes the panel). */
   readonly onClose: () => void;
   /** Open the read-only source dock for this node (FR-15). */
@@ -58,6 +60,7 @@ export function DetailPanel({
   byAddress,
   edges,
   overlays,
+  packageLabel,
   onClose,
   onViewSource,
   onJump,
@@ -80,6 +83,7 @@ export function DetailPanel({
       byAddress={byAddress}
       overlays={overlays}
       entryReason={entryReason}
+      packageLabel={packageLabel}
       onViewSource={onViewSource}
       onJump={onJump}
     />
@@ -165,6 +169,7 @@ function DetailContent({
   byAddress,
   overlays,
   entryReason,
+  packageLabel,
   onViewSource,
   onJump,
 }: {
@@ -172,6 +177,7 @@ function DetailContent({
   byAddress: Map<string, GraphNode>;
   overlays?: NodeOverlays;
   entryReason: string | null;
+  packageLabel?: string | null;
   onViewSource: () => void;
   onJump: (address: string) => void;
 }): React.JSX.Element {
@@ -197,6 +203,9 @@ function DetailContent({
       <div className="mt-3 break-all font-mono text-xs text-zinc-400">
         {node.location.file}:{node.location.line}
       </div>
+
+      {/* Package membership (FR-57) — which monorepo workspace this node lives in. */}
+      <PackageChip label={packageLabel} />
 
       {/* View source (FR-15) — opens the read-only code dock */}
       <button
@@ -335,6 +344,24 @@ function EntryPointBadge({ reason }: { reason: string | null }): React.JSX.Eleme
           {reason}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Package chip (FR-57). A recessive line tying the node to its monorepo package —
+// supplementary metadata, so it reads quieter than the entry-point badge. The
+// label is a static path-derived core string, rendered as an escaped React child.
+function PackageChip({ label }: { label?: string | null }): React.JSX.Element | null {
+  if (!label) return null;
+  return (
+    <div className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500" data-testid="node-package">
+      <span aria-hidden className="text-zinc-600">
+        <Package size={13} />
+      </span>
+      <span className="text-zinc-500">package</span>
+      <span className="truncate font-medium text-zinc-300" title={label}>
+        {label}
+      </span>
     </div>
   );
 }
