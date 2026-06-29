@@ -19,6 +19,7 @@ import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import { partitionByPackage } from "@core/graph/package";
 import { KIND_COLORS } from "@/lib/graph-data";
+import { packageColors, packageNodeTints, NO_PACKAGE_TINT } from "@/lib/package-palette";
 import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { findPathInEdges } from "@core/graph/path";
@@ -147,6 +148,9 @@ export function Explorer({
   const [askOpen, setAskOpen] = useState(false);
   // FR-57: the monorepo package the board is focused on, or null for "all".
   const [activePackage, setActivePackage] = useState<string | null>(null);
+  // FR-57: when on, every node is persistently tinted by its package and the
+  // legend switches from kind to package — a standing cue, not just a filter.
+  const [showPackages, setShowPackages] = useState(false);
   // Bumped by "Reset layout" — used as a remount key so every dock re-reads its
   // (now-cleared) localStorage and returns to defaults.
   const [layoutVersion, setLayoutVersion] = useState(0);
@@ -311,6 +315,16 @@ export function Explorer({
   // on the nodes (structural, cloud-safe). Recomputed only when the node set
   // changes; the toolbar renders a filter only when there are ≥2 packages.
   const partition = useMemo(() => partitionByPackage(nodes), [nodes]);
+
+  // FR-57: per-package colours + the per-node tint map, computed only while
+  // "colour by package" is on. The surfaces honour `packageTints` as a recessive
+  // base; the bottom-left legend mirrors `pkgColors` as a colour key.
+  const pkgColors = useMemo(() => packageColors(partition.packages), [partition]);
+  const packageTints = useMemo(
+    () =>
+      showPackages ? packageNodeTints(byAddress.keys(), partition.of, pkgColors) : undefined,
+    [showPackages, byAddress, partition, pkgColors],
+  );
 
   // Focus the board on one package: highlight + frame its nodes through the same
   // FR-43 surface controller the agent drives, or clear back to the whole graph.
@@ -487,6 +501,8 @@ export function Explorer({
         packages={partition.packages}
         activePackage={activePackage}
         onPackage={onPackage}
+        showPackages={showPackages}
+        onTogglePackages={() => setShowPackages((v) => !v)}
         orphanMode={orphanMode}
         orphanCount={orphanCount}
         onToggleOrphans={() => setOrphanMode((v) => !v)}
@@ -543,6 +559,7 @@ export function Explorer({
               controllerRef={controllerRef}
               markedNodes={markedNodes}
               groupedNodes={grouped}
+              packageTints={packageTints}
             />
           );
         })()}
@@ -571,20 +588,53 @@ export function Explorer({
           />
         )}
 
-        {/* Kind legend — bottom-left chrome over both surfaces (FR-53: the dev-only
-            Next route badge that used to sit here is hidden via next.config). */}
-        <div
-          role="img"
-          aria-label="Legend: node colours by kind"
-          className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur"
-        >
-          {Object.entries(KIND_COLORS).map(([kind, color]) => (
-            <div key={kind} className="flex items-center gap-2 text-zinc-400">
-              <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: color }} />
-              {kind}
-            </div>
-          ))}
-        </div>
+        {/* Legend — bottom-left chrome over both surfaces (FR-53: the dev-only Next
+            route badge that used to sit here is hidden via next.config). FR-57: the
+            key switches from node kinds to packages while "colour by package" is on,
+            so the persistent tints stay decodable. */}
+        {showPackages && partition.packages.length >= 2 ? (
+          <div
+            role="img"
+            aria-label="Legend: node colours by package"
+            className="pointer-events-none absolute bottom-3 left-3 flex max-h-[40vh] flex-col gap-1 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur"
+          >
+            {partition.packages.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 text-zinc-400">
+                <span
+                  className="inline-block size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: pkgColors.get(p.id) }}
+                />
+                <span className="truncate">{p.label}</span>
+                <span className="ml-auto pl-2 tabular-nums text-zinc-600">{p.count}</span>
+              </div>
+            ))}
+            {partition.of.size < byAddress.size && (
+              <div className="flex items-center gap-2 text-zinc-400">
+                <span
+                  className="inline-block size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: NO_PACKAGE_TINT }}
+                />
+                <span className="truncate">root</span>
+                <span className="ml-auto pl-2 tabular-nums text-zinc-600">
+                  {byAddress.size - partition.of.size}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div
+            role="img"
+            aria-label="Legend: node colours by kind"
+            className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5 text-xs backdrop-blur"
+          >
+            {Object.entries(KIND_COLORS).map(([kind, color]) => (
+              <div key={kind} className="flex items-center gap-2 text-zinc-400">
+                <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: color }} />
+                {kind}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Node detail inspector (FR-15 content, FR-34 workspace frame) — docks
             right (collapsible + resizable) or floats as a draggable card; hidden

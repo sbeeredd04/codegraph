@@ -129,6 +129,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // marks/groups change repaints the tint without re-running the heavy layout.
   const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
   const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
+  // "Colour by package" (FR-57): address → its package's recessive base tint. The
+  // lowest-priority layer — every lens below overrides it — so it reads as a
+  // persistent backdrop, not a competing signal.
+  const packageTintRef = useRef<ReadonlyMap<string, string> | undefined>(props.packageTints);
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // read by the nodeReducer above every ambient layer. null when nothing is driven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
@@ -145,6 +149,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     traceArmedRef.current = props.traceArmed;
     markedRef.current = props.markedNodes;
     groupedRef.current = props.groupedNodes;
+    packageTintRef.current = props.packageTints;
     cbRef.current = props;
   });
 
@@ -265,6 +270,11 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
         highlighted?: boolean;
       } = { ...data };
       if (lod && nodeHiddenAtRatio(data.kind as NodeKind, camera.ratio)) res.hidden = true;
+      // "Colour by package" base (FR-57): recolour every node by its package as a
+      // persistent backdrop. Applied first so every layer below — mark, group,
+      // orphan, path, focus, driver-highlight — still overrides it.
+      const pkgTint = packageTintRef.current?.get(node);
+      if (pkgTint) res.color = pkgTint;
       // Agent overlay layer (FR-37): the agent's marks + groups tint the graph
       // itself, so it can "point" at nodes, not just annotate the detail panel.
       // Ambient — applied above LOD (a marked node is never culled) but below the
@@ -553,7 +563,7 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
   // the overlay maps only, never the heavy layout inputs (no forceAtlas2 rerun).
   useEffect(() => {
     rendererRef.current?.refresh();
-  }, [props.markedNodes, props.groupedNodes]);
+  }, [props.markedNodes, props.groupedNodes, props.packageTints]);
 
   // Light effect: Folders toggled — swap to the clustered (or base) positions and
   // re-frame. No relayout: both maps were computed in the heavy effect (FR-26).

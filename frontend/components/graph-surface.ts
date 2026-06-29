@@ -58,4 +58,10 @@ export interface GraphSurfaceProps {
   /** Addresses that belong to any agent group (FR-37) — tinted as an ambient
    * hint when not already marked. Honoured by 2D + 3D. */
   readonly groupedNodes?: ReadonlySet<string>;
+  /** "Colour by package" (FR-57): address → its package's recessive base tint, or
+   * absent/undefined for the default kind colouring. The LOWEST-priority lens —
+   * every other lens (highlight / mark / trace / focus / group) overrides it — so
+   * package membership reads as a persistent backdrop, not a competing signal.
+   * Honoured by 2D + 3D. */
+  readonly packageTints?: ReadonlyMap<string, string>;
 }

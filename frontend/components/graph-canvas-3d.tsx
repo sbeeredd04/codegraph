@@ -61,6 +61,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // marks/groups change repaints the tint without re-running the heavy build.
   const markedRef = useRef<ReadonlyMap<string, string> | undefined>(props.markedNodes);
   const groupedRef = useRef<ReadonlySet<string> | undefined>(props.groupedNodes);
+  // FR-57: "colour by package" tints (address → recessive base colour), read live.
+  const packageTintRef = useRef<ReadonlyMap<string, string> | undefined>(props.packageTints);
   // The driver's transient highlight (FR-43): a live "look here" set + its colour,
   // resolved above the ambient overlay tint in the draw loop. null when undriven.
   const highlightRef = useRef<{ set: ReadonlySet<string>; color: string } | null>(null);
@@ -91,6 +93,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     cbRef.current = props;
     markedRef.current = props.markedNodes;
     groupedRef.current = props.groupedNodes;
+    packageTintRef.current = props.packageTints;
   });
 
   // Light effect: selection (or the edge set) changed — recompute the focus lens
@@ -104,7 +107,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   // refs, so a marks/groups update just repaints the tint (no rebuild/relayout).
   useEffect(() => {
     drawRef.current?.();
-  }, [props.markedNodes, props.groupedNodes]);
+  }, [props.markedNodes, props.groupedNodes, props.packageTints]);
 
   // Light effect: the manual trace (FR-61) changed — repaint the trail from the
   // ordered steps (the draw loop reads traceRef live). The Explorer clears the
@@ -208,8 +211,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       scene.add(edges.object);
 
       // Entry-point markers (FR-56): emerald rings on the nodes the pure-core
-      // heuristic flags as likely entry points — the 3D match for the detail panel's
-      // "start here" badge (lib/entry-markers-3d).
+      // heuristic flags — the 3D match for the detail panel's badge (lib/entry-markers-3d).
       const entryMarkers = buildEntryMarkers3D(THREE, { nodes: props.nodes, edges: props.edges, indexOf, positions: pos, meta }); // prettier-ignore
       scene.add(entryMarkers.object);
 
@@ -232,11 +234,12 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // and kind colour, so a deliberately-traced route stands out on the field.
       const traceColorOf = (id: string): string | undefined =>
         traceRef.current?.has(id) ? HIGHLIGHT_STYLE_COLOR.trace : undefined;
+      // FR-57: the package tint is the recessive base — below group, above kind.
       const drawColorOf = (id: string): string | undefined =>
         highlightColorOf(id) ??
         markColorOf(id) ??
         traceColorOf(id) ??
-        (isGrouped(id) ? GROUP_TINT : metaById.get(id)?.color);
+        (isGrouped(id) ? GROUP_TINT : (packageTintRef.current?.get(id) ?? metaById.get(id)?.color));
 
       // --- Camera: orbit around `target` in spherical coords; pan moves `target`.
       const target = new THREE.Vector3(0, 0, 0);

@@ -55,6 +55,10 @@ interface ExplorerToolbarProps {
   readonly packages: readonly PackageInfo[];
   readonly activePackage: string | null;
   readonly onPackage: (id: string | null) => void;
+  /** "Colour by package" (FR-57): persistently tint every node by its package as a
+   * recessive backdrop, and switch the legend from kind to package. */
+  readonly showPackages: boolean;
+  readonly onTogglePackages: () => void;
   readonly orphanMode: boolean;
   readonly orphanCount: number;
   readonly onToggleOrphans: () => void;
@@ -104,6 +108,8 @@ export function ExplorerToolbar({
   packages,
   activePackage,
   onPackage,
+  showPackages,
+  onTogglePackages,
   orphanMode,
   orphanCount,
   onToggleOrphans,
@@ -239,6 +245,24 @@ export function ExplorerToolbar({
             ))}
           </select>
         </label>
+      )}
+
+      {/* Colour-by-package (FR-57) — persistently tint every node by its package as
+          a recessive backdrop + switch the legend to packages. Distinct from the
+          filter above, which only narrows; this is an always-on cue. Multi-pkg only. */}
+      {packages.length >= 2 && (
+        <button
+          aria-pressed={showPackages}
+          title="Colour every node by its package"
+          onClick={onTogglePackages}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            showPackages
+              ? "border-violet-500/50 bg-violet-500/15 text-violet-200"
+              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <Package size={14} /> Colour
+        </button>
       )}
 
       {/* Folder clustering (FR-26) — gather nodes into per-folder regions; 2D only */}
