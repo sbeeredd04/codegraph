@@ -32,6 +32,7 @@ import {
 } from "@adapters/surfaces/webview/folder-layout";
 import type { GraphSurfaceProps } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
+import { resolveReducedMotion } from "@/lib/reduced-motion";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
 
 interface XY {
@@ -433,9 +434,8 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
         // reduced-motion plan collapses to one instant final-state step. Stepping is
         // transient highlight only — never a selection or a source touch (FR-9).
         cancelReplay();
-        const reducedMotion =
-          typeof window !== "undefined" &&
-          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+        // FR-51-deferred: the Settings override beats the OS query (read live).
+        const reducedMotion = resolveReducedMotion(cbRef.current.reduceMotion);
         const stops = addresses.filter((a) => g.hasNode(a));
         const plan = planReplay(stops, { dwellMs: opts?.dwellMs, reducedMotion });
         for (const step of plan.steps) {

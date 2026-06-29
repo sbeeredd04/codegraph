@@ -7,6 +7,7 @@
 
 import type { ProjectionKind } from "@core/graph/projection";
 import type { RenderMode } from "@/components/graph-surface";
+import type { ReduceMotionPref } from "@/lib/reduced-motion";
 
 export interface ExplorerSettings {
   /** Surface the board opens on (FR-17). */
@@ -15,18 +16,23 @@ export interface ExplorerSettings {
   readonly defaultProjection: ProjectionKind;
   /** Whether folder clustering (FR-26) is on at load (2D only). */
   readonly folderClustered: boolean;
+  /** Reduce-motion override (FR-51-deferred): "auto" follows the OS, "on" forces
+   * calm camera/replay, "off" forces animation. */
+  readonly reduceMotion: ReduceMotionPref;
 }
 
 export const DEFAULT_SETTINGS: ExplorerSettings = {
   defaultSurface: "2d",
   defaultProjection: "full",
   folderClustered: false,
+  reduceMotion: "auto",
 };
 
 export const SETTINGS_KEY = "codegraph:settings";
 
 const SURFACES: readonly RenderMode[] = ["2d", "3d"];
 const PROJECTIONS: readonly ProjectionKind[] = ["full", "dependency", "call", "structure"];
+const REDUCE_MOTIONS: readonly ReduceMotionPref[] = ["auto", "on", "off"];
 
 /** Read persisted settings, falling back to the default for anything missing or
  * malformed. SSR-safe — returns defaults when there is no window. */
@@ -52,6 +58,9 @@ export function loadSettings(): ExplorerSettings {
         typeof parsed.folderClustered === "boolean"
           ? parsed.folderClustered
           : DEFAULT_SETTINGS.folderClustered,
+      reduceMotion: REDUCE_MOTIONS.includes(parsed.reduceMotion as ReduceMotionPref)
+        ? (parsed.reduceMotion as ReduceMotionPref)
+        : DEFAULT_SETTINGS.reduceMotion,
     };
   } catch {
     return DEFAULT_SETTINGS; // corrupt JSON

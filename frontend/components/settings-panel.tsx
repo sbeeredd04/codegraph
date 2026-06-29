@@ -14,6 +14,7 @@ import { X } from "./icons";
 import type { ExplorerSettings } from "@/lib/settings";
 import type { ProjectionKind } from "@core/graph/projection";
 import type { RenderMode } from "./graph-surface";
+import type { ReduceMotionPref } from "@/lib/reduced-motion";
 
 interface SettingsPanelProps {
   readonly settings: ExplorerSettings;
@@ -31,6 +32,11 @@ const PROJECTIONS: { value: ProjectionKind; label: string }[] = [
   { value: "dependency", label: "Depends" },
   { value: "call", label: "Calls" },
   { value: "structure", label: "Structure" },
+];
+const REDUCE_MOTIONS: { value: ReduceMotionPref; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "on", label: "Reduced" },
+  { value: "off", label: "Full" },
 ];
 
 export function SettingsPanel({ settings, onChange, onReset, onClose }: SettingsPanelProps): React.JSX.Element {
@@ -96,6 +102,13 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Settings
             options={PROJECTIONS}
             value={settings.defaultProjection}
             onSelect={(v) => onChange({ defaultProjection: v })}
+          />
+          <Segmented
+            label="Motion"
+            hint="Camera fly-throughs and guided tours. Auto follows your system reduce-motion setting."
+            options={REDUCE_MOTIONS}
+            value={settings.reduceMotion}
+            onSelect={(v) => onChange({ reduceMotion: v })}
           />
           <div className="flex items-start justify-between gap-4">
             <div>

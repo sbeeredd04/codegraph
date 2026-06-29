@@ -7,6 +7,7 @@ import type { ProjectionKind } from "@core/graph/projection";
 import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { FolderSort } from "@adapters/surfaces/webview/folder-layout";
 import type { SurfaceController } from "@/lib/surface-controller";
+import type { ReduceMotionPref } from "@/lib/reduced-motion";
 
 export type RenderMode = "2d" | "3d";
 
@@ -64,4 +65,9 @@ export interface GraphSurfaceProps {
    * package membership reads as a persistent backdrop, not a competing signal.
    * Honoured by 2D + 3D. */
   readonly packageTints?: ReadonlyMap<string, string>;
+  /** "Reduce motion" override (FR-51-deferred): "auto" follows the OS
+   * `prefers-reduced-motion`, "on" forces calm (instant 3D camera tweens + guided
+   * replay), "off" forces animation regardless of the OS. Honoured by the 3D camera
+   * (FR-47/FR-48) and both surfaces' replay (FR-40). Defaults to "auto" when unset. */
+  readonly reduceMotion?: ReduceMotionPref;
 }

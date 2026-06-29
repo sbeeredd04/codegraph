@@ -560,6 +560,7 @@ export function Explorer({
               markedNodes={markedNodes}
               groupedNodes={grouped}
               packageTints={packageTints}
+              reduceMotion={settings.reduceMotion}
             />
           );
         })()}

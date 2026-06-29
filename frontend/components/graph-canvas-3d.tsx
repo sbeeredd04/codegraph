@@ -25,6 +25,7 @@ import { buildCameraControls3D } from "@/lib/camera-controls-3d";
 import { layoutLabels3D, type LabelCandidate } from "@/lib/label-layout-3d";
 import { buildPackageRegions, type RegionInput } from "@/lib/package-regions-3d";
 import { NO_PACKAGE_TINT } from "@/lib/package-palette";
+import { resolveReducedMotion } from "@/lib/reduced-motion";
 import { planReplay } from "@core/presentation/replay";
 import { buildScene3D } from "@/lib/build-scene-3d";
 import type { GraphSurfaceProps } from "./graph-surface";
@@ -178,9 +179,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // render loop: the coalesced requestRender after manual input, and drawTweenFrame
       // per tween step (both defined below — invoked only post-init, so the forward
       // references are safe).
-      const prefersReducedMotion = (): boolean =>
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+      // FR-51-deferred: the user's Settings override beats the OS query. Read live
+      // from cbRef (kept current each render) so changing the pref takes effect on
+      // the next tween without a rebuild.
+      const prefersReducedMotion = (): boolean => resolveReducedMotion(cbRef.current.reduceMotion);
       const cam = buildCameraControls3D(THREE, {
         world: WORLD,
         widthOf,
@@ -611,9 +613,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           // collapses to one instant final-state step. Transient highlight only —
           // never a selection or a source touch (FR-9).
           cancelReplay();
-          const reducedMotion =
-            typeof window !== "undefined" &&
-            window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+          const reducedMotion = prefersReducedMotion();
           const stops = addresses.filter((a) => indexOf.has(a));
           const plan = planReplay(stops, { dwellMs: opts?.dwellMs, reducedMotion });
           for (const step of plan.steps) {
