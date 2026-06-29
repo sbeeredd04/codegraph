@@ -43,6 +43,17 @@ describe("exportGraphSnapshot", () => {
     expect(JSON.stringify(snap)).not.toContain("secret docstring");
   });
 
+  it("strips the host-local `examples` field so sample I/O values never reach the cloud (AD-14)", () => {
+    const withExamples: GraphNode[] = [
+      { ...node("ts:a.ts#add", "function"), examples: ["add(2, 3) → 5"], signature: "add(a: number, b: number): number" },
+    ];
+    const snap = exportGraphSnapshot(withExamples, []);
+    expect(snap.nodes[0]).not.toHaveProperty("examples");
+    // The signature shape is structural metadata — it stays.
+    expect(snap.nodes[0].signature).toBe("add(a: number, b: number): number");
+    expect(JSON.stringify(snap)).not.toContain("→ 5");
+  });
+
   it("leaves nodes untouched (same reference) when there is no host-local field to strip", () => {
     const snap = exportGraphSnapshot(nodes, edges);
     expect(snap.nodes[0]).toBe(nodes[0]);

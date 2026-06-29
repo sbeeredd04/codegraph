@@ -84,12 +84,13 @@ export function exportGraphSnapshot(
   };
 }
 
-/** Drop host-local fields (FR-60 `doc`) so source-derived prose never reaches the
- * source-blind cloud plane (AD-14). Returns the same object when there's nothing
- * to strip, so the common case allocates nothing extra. */
+/** Drop host-local fields (FR-60 `doc`, FR-59 `examples`) so source-/runtime-
+ * derived prose and values never reach the source-blind cloud plane (AD-14).
+ * Returns the same object when there's nothing to strip, so the common case
+ * allocates nothing extra. */
 function stripHostLocal(node: GraphNode): GraphNode {
-  if (node.doc === undefined) return node;
-  const { doc: _doc, ...rest } = node;
+  if (node.doc === undefined && node.examples === undefined) return node;
+  const { doc: _doc, examples: _examples, ...rest } = node;
   return rest;
 }
 

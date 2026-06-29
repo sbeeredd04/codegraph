@@ -43,6 +43,16 @@ export interface GraphNode {
    * on the live local-plane message (webview / `codegraph serve`).
    */
   readonly doc?: string;
+  /**
+   * Representative input/output examples for the node (FR-59), e.g.
+   * `"add(2, 3) → 5"` — sample call values captured host-side from source or a
+   * runtime trace. HOST-LOCAL like `doc`: these can embed literal source/runtime
+   * VALUES, so `exportGraphSnapshot` strips them and they never reach the
+   * source-blind cloud plane (AD-14). The signature-derived param/return SHAPE
+   * (see `signature.ts`) is structural and stays in the snapshot; only these
+   * concrete value examples are host-local.
+   */
+  readonly examples?: readonly string[];
 }
 
 export interface GraphEdge {

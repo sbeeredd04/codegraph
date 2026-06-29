@@ -11,6 +11,7 @@ import type { GraphNode, GraphEdge } from "@core/graph/types";
 import type { Note, Mark, Group, MarkKind } from "@core/overlays/overlay";
 import { deriveFallbackNote } from "@core/docs/doc-note";
 import { describeEdgeCall } from "@core/graph/edge-call";
+import { parseSignature } from "@core/graph/signature";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
@@ -191,6 +192,10 @@ function DetailContent({
         </pre>
       )}
 
+      {/* FR-59: the node's input/output — parameter shapes + return type parsed
+          from the signature (structural, cloud-safe), plus host-local sample I/O. */}
+      <IOSection node={node} />
+
       <NeighborList label="Calls / depends on" edges={detail.callees} dir="to" selfNode={node} onJump={onJump} byAddress={byAddress} />
       <NeighborList label="Called / depended on by" edges={detail.callers} dir="from" selfNode={node} onJump={onJump} byAddress={byAddress} />
     </>
@@ -329,6 +334,70 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+// FR-59 — the node's input/output. Parameters and return type are parsed from the
+// (structural, cloud-safe) signature; examples are host-local sample I/O values.
+// Every string rendered here is a React child, so source-derived text is escaped.
+function IOSection({ node }: { node: GraphNode }): React.JSX.Element | null {
+  const shape = parseSignature(node.signature);
+  const examples = node.examples ?? [];
+  if (!shape && examples.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-2.5" data-testid="node-io">
+      {shape && shape.params.length > 0 && (
+        <div data-testid="node-params">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Parameters <span className="font-mono">{shape.params.length}</span>
+          </div>
+          <ul className="flex flex-col gap-0.5">
+            {shape.params.map((p, i) => (
+              <li key={`${i}:${p.name}`} className="flex items-baseline gap-1.5 text-xs">
+                <span className="shrink-0 font-mono text-zinc-200">{p.name}</span>
+                {p.type && (
+                  <span className="truncate font-mono text-zinc-500" title={p.type}>
+                    {p.type}
+                  </span>
+                )}
+                {p.optional && (
+                  <span className="ml-auto shrink-0 rounded bg-zinc-800 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-zinc-400">
+                    optional
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {shape?.returns && (
+        <div data-testid="node-returns">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Returns
+          </div>
+          <div className="font-mono text-xs break-all text-zinc-300">{shape.returns}</div>
+        </div>
+      )}
+
+      {examples.length > 0 && (
+        <div data-testid="node-examples">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Examples
+          </div>
+          <ul className="flex flex-col gap-0.5">
+            {examples.map((ex, i) => (
+              <li
+                key={`${i}:${ex}`}
+                className="rounded bg-zinc-950/50 px-2 py-1 font-mono text-[11px] break-all text-zinc-300"
+              >
+                {ex}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
