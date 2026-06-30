@@ -40,6 +40,10 @@ export interface GraphSurfaceProps {
   readonly onHoverNode: (address: string | null) => void;
   /** A node was clicked (while not tracing) — select it for the detail panel. */
   readonly onSelectNode: (address: string) => void;
+  /** A node was ctrl/⌘-clicked (FR-71) — peek its connections (a transient cyan
+   * spotlight of the node + its first-degree neighbours) WITHOUT selecting it or
+   * opening the detail panel. Distinct from `onSelectNode`. Honoured by 2D + 3D. */
+  readonly onPeekNode?: (address: string) => void;
   /** A node was clicked while the trace tool is armed (FR-61) — extend the manual
    * trace to it. The Explorer owns the pure trace model and repaints the trail via
    * `traceSteps`; the surface only reports the click. Both surfaces. */

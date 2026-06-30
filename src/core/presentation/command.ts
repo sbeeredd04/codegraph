@@ -20,8 +20,11 @@ import type { ProjectionKind } from "../graph/projection.js";
 export const PRESENTATION_COMMAND_VERSION = 1 as const;
 
 /** The transient-highlight palette, shared with the frontend surface controller
- * (FR-43) so the command vocabulary and the renderer agree by construction. */
-export const HIGHLIGHT_STYLES = ["accent", "trace", "warn"] as const;
+ * (FR-43) so the command vocabulary and the renderer agree by construction.
+ * `peek` (FR-71) is the user's "what's this wired to" connections spotlight —
+ * ctrl/⌘-clicking a node, or locating it from its open source — distinct in hue
+ * from selection so a peek never reads as a pick. */
+export const HIGHLIGHT_STYLES = ["accent", "trace", "warn", "peek"] as const;
 export type HighlightStyle = (typeof HIGHLIGHT_STYLES)[number];
 
 /** Panels the agent can open or close on the board. */

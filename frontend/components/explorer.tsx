@@ -23,6 +23,7 @@ import type { RenderMode } from "./graph-surface";
 import type { SurfaceController } from "@/lib/surface-controller";
 import { findPathInEdges } from "@core/graph/path";
 import { layeredNeighbourhood } from "@core/graph/layers";
+import { neighborsOf } from "@core/graph/focus";
 import { EMPTY_TRACE, extendTrace, undoTrace, type TraceState } from "@core/graph/trace";
 import type { PresentationCommand } from "@core/presentation/command";
 import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
@@ -148,6 +149,10 @@ export function Explorer({
   const traceRef = useRef<TraceState>(EMPTY_TRACE);
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // FR-71: the node whose connections are currently "peeked" (a transient cyan
+  // spotlight of it + its neighbours), or null. A peek is deliberately NOT a
+  // selection — it never opens the detail panel — so it lives in its own state.
+  const [peekCenter, setPeekCenter] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -187,13 +192,41 @@ export function Explorer({
   const selectNode = useCallback((address: string) => {
     setSelected(address);
     setSourceOpen(false);
+    // A plain pick supersedes any active connections-peek (FR-71): drop the
+    // transient cyan highlight so the new selection's focus lens reads cleanly.
+    setPeekCenter(null);
+    controllerRef.current?.highlight([]);
   }, []);
 
-  // Clearing selection (empty-canvas click) also closes any open source dock.
+  // Clearing selection (empty-canvas click) also closes any open source dock and
+  // drops an active connections-peek (FR-71).
   const clearSelection = useCallback(() => {
     setSelected(null);
     setSourceOpen(false);
+    setPeekCenter(null);
+    controllerRef.current?.highlight([]);
   }, []);
+
+  // FR-71: peek a node's connections — a transient cyan spotlight of the node +
+  // its first-degree neighbours, distinct from selection (never opens the detail
+  // panel). Routed through the surface controller's transient highlight (the same
+  // mechanism the agent driver uses), so it paints identically on 2D and 3D and
+  // clears the moment the user picks or clears. Ctrl/⌘-clicking the same node
+  // again toggles the peek off.
+  const peekNode = useCallback(
+    (address: string) => {
+      const c = controllerRef.current;
+      if (!c) return;
+      if (address === peekCenter) {
+        setPeekCenter(null);
+        c.highlight([]);
+        return;
+      }
+      setPeekCenter(address);
+      c.highlight([address, ...neighborsOf(address, edges)], "peek");
+    },
+    [peekCenter, edges],
+  );
 
   // Palette/jump: select first (so the detail panel opens even for a node the
   // active projection has filtered out), then pan the camera when it's on screen.
@@ -601,6 +634,7 @@ export function Explorer({
               traceSteps={traceSteps}
               onHoverNode={setHovered}
               onSelectNode={selectNode}
+              onPeekNode={peekNode}
               onTraceClick={onTraceClick}
               onClearSelection={clearSelection}
               onOrphanCount={setOrphanCount}
@@ -768,6 +802,7 @@ export function Explorer({
             title={displayLabel(detail.node.name, detail.node.kind)}
             signature={detail.node.signature}
             onClose={() => setSourceOpen(false)}
+            onLocate={() => peekNode(detail.node.address)}
           />
         )}
       </div>

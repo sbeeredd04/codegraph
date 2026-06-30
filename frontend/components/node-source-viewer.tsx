@@ -19,7 +19,7 @@ import { useDockState } from "@/lib/use-dock-state";
 import { useDraggable, type PanelOffset } from "@/lib/use-draggable";
 import { DockResizeHandle } from "./resizable-dock";
 import { CodeSurface } from "./code-surface";
-import { ShieldCheck, X } from "./icons";
+import { Crosshair, ShieldCheck, X } from "./icons";
 
 // Floating-mode geometry (FR-52). Width matches the dock's default so popping out
 // never jumps in size. The default landing offset is DISTINCT from the detail
@@ -53,6 +53,12 @@ interface NodeSourceViewerProps {
   readonly title: string;
   /** The node's signature, shown as a fallback when source is unavailable. */
   readonly signature?: string;
+  /**
+   * FR-71 — "locate in graph": flash this node + its neighbours in the graph
+   * (the connections peek). Wired from the explorer to `peekNode(address)`;
+   * absent when there is no graph surface to drive (e.g. a standalone test mount).
+   */
+  readonly onLocate?: () => void;
   readonly onClose: () => void;
 }
 
@@ -64,6 +70,7 @@ export function NodeSourceViewer({
   character,
   title,
   signature,
+  onLocate,
   onClose,
 }: NodeSourceViewerProps): React.JSX.Element {
   // Lazy initial state: "unavailable" up front when this host serves no source,
@@ -154,17 +161,34 @@ export function NodeSourceViewer({
       <div className="mt-0.5 truncate font-mono text-xs text-zinc-500" title={file}>
         {file}:{line + 1}
       </div>
-      {editorLink && (
-        <a
-          href={editorLink}
-          onClick={onEditorOpen}
-          data-testid="open-in-editor"
-          className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-        >
-          <ArrowUpRight />
-          Open in {editorLabel}
-        </a>
-      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        {editorLink && (
+          <a
+            href={editorLink}
+            onClick={onEditorOpen}
+            data-testid="open-in-editor"
+            className="inline-flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 transition-colors hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <ArrowUpRight />
+            Open in {editorLabel}
+          </a>
+        )}
+        {/* FR-71 code→graph sync: jump to where this open file sits in the graph
+            and flash its connections (the cyan "peek"). Transient — never changes
+            the selected node or opens the detail panel. */}
+        {onLocate && (
+          <button
+            onClick={onLocate}
+            data-testid="locate-in-graph"
+            aria-label="Locate in graph"
+            title="Highlight this node and its connections in the graph"
+            className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-200 transition-colors hover:bg-cyan-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+          >
+            <Crosshair size={12} />
+            Locate in graph
+          </button>
+        )}
+      </div>
     </div>
   );
 

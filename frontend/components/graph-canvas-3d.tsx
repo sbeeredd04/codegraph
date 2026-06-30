@@ -551,8 +551,11 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           const hit = pickAt(mx, my);
           // FR-61: a click while the trace tool is armed extends the manual trace
           // (forwarded to the Explorer) instead of selecting — same as the 2D surface.
+          // FR-71: ctrl/⌘-click peeks the node's connections without selecting it —
+          // parity with the 2D surface's modifier-click.
           if (hit) {
             if (cbRef.current.traceArmed) cbRef.current.onTraceClick?.(hit);
+            else if (e.ctrlKey || e.metaKey) cbRef.current.onPeekNode?.(hit);
             else cbRef.current.onSelectNode(hit);
           } else cbRef.current.onClearSelection();
         }

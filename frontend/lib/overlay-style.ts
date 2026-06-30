@@ -27,4 +27,8 @@ export const HIGHLIGHT_STYLE_COLOR: Record<HighlightStyle, string> = {
   accent: "#a78bfa", // brand violet — generic "look here"
   trace: "#34d399", // emerald — an execution / call path step
   warn: "#f59e0b", // amber — attention without alarm
+  // FR-71 — the connections peek: cyan, deliberately distinct from the violet
+  // selection/focus lens (FR-25), emerald trace and amber warn/diff hues, so a
+  // ctrl/⌘-click peek of a node + its neighbours never reads as a selection.
+  peek: "#22d3ee", // cyan-400 — "what is this wired to"
 };

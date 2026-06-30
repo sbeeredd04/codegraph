@@ -444,12 +444,22 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
       cbRef.current.onHoverNode(null);
       cbRef.current.onClearSelection();
     });
-    renderer.on("clickNode", ({ node }) => {
+    renderer.on("clickNode", ({ node, event }) => {
       // FR-61: while the trace tool is armed, a click extends the manual trace
       // (the Explorer owns the pure model + repaints the trail via props.traceSteps)
       // rather than selecting. Unifies the old two-click "Trace" toggle.
       if (traceArmedRef.current) {
         cbRef.current.onTraceClick?.(node);
+        return;
+      }
+      // FR-71: ctrl/⌘-click peeks the node's connections (a transient highlight of
+      // it + its neighbours) WITHOUT selecting — see what it's wired to while
+      // keeping your place. A plain click still selects + opens the detail panel.
+      // `event` is Sigma's MouseCoords (optional-chained: synthetic emits in tests
+      // may omit it, and a missing modifier simply falls through to a plain select).
+      const orig = event?.original as { ctrlKey?: boolean; metaKey?: boolean } | undefined;
+      if (orig && (orig.ctrlKey || orig.metaKey)) {
+        cbRef.current.onPeekNode?.(node);
         return;
       }
       cbRef.current.onSelectNode(node);
