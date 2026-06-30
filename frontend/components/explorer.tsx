@@ -30,19 +30,15 @@ import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
 import { PresentingBanner } from "./presenting-banner";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
-import { CommandPalette } from "./command-palette";
-import { ActionPalette } from "./action-palette";
-import { CommandCenter } from "./command-center";
-import { SettingsPanel } from "./settings-panel";
+import { ExplorerDialogs } from "./explorer-dialogs";
 import { useLauncherShortcuts } from "@/lib/use-launcher-shortcuts";
 import { useExplorerSettings } from "@/lib/use-explorer-settings";
 import { useAgentOverlays } from "@/lib/use-agent-overlays";
 import { buildExplorerActions } from "@/lib/explorer-actions";
-import { DiagramsDrawer } from "./diagrams-drawer";
-import { DocsDrawer } from "./docs-drawer";
 import { OnboardingPanel } from "./onboarding-panel";
-import { AskPanel } from "./ask-panel";
 import { TracePanel } from "./trace-panel";
+import { useIngest } from "@/lib/use-ingest";
+import { isWebviewHost } from "@/lib/webview-bridge";
 import { LayerDepthControl } from "./layer-depth-control";
 import { DiffPanel } from "./diff-panel";
 import { GraphLegend } from "./graph-legend";
@@ -185,6 +181,14 @@ export function Explorer({
   // lean. The tint map flows to whichever surface is mounted; the panel reads counts +
   // feed. View-only (FR-9): a baseline is a copy of the graph identities, not source.
   const diff = useGraphDiff(nodes, edges, rootRef);
+
+  // FR-55: live repo-ingestion. Owns the folded scan state + the user "Index"
+  // trigger, subscribes to the host's progress stream, and installs the dev
+  // `__ingest` hook the e2e drives. The trigger is offered only where source is
+  // reachable — the VS Code webview host, plus dev for the e2e — and withheld on
+  // the source-blind cloud plane, which can't scan host files (AD-14).
+  const ingest = useIngest(rootRef);
+  const canIndex = isWebviewHost() || process.env.NODE_ENV !== "production";
 
   // Selecting a node (canvas click or a neighbor jump, which both route through
   // onSelectNode) closes any open source view — it re-opens on demand for the
@@ -607,6 +611,8 @@ export function Explorer({
         onboardTotal={playbook.total}
         onboardComplete={playbook.complete}
         landingHref={landingHref}
+        onIndex={canIndex ? ingest.index : undefined}
+        indexing={ingest.view.active}
         assistEnabled={assistEnabled}
         onAsk={() => setAskOpen(true)}
         onSearch={() => setPaletteOpen(true)}
@@ -735,60 +741,40 @@ export function Explorer({
           />
         )}
 
-        {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
-        {paletteOpen && (
-          <CommandPalette nodes={nodes} onClose={closePalette} onSelect={jumpTo} />
-        )}
-
-        {/* ⌘⇧P action palette (FR-50) — fuzzy run-an-action, distinct from ⌘K */}
-        {actionsOpen && <ActionPalette build={buildActions} onClose={closeActions} />}
-
-        {/* ⌘Space command center (FR-49) — unified node + action launcher */}
-        {centerOpen && (
-          <CommandCenter nodes={nodes} buildActions={buildActions} onSelectNode={jumpTo} onClose={closeCenter} />
-        )}
-
-        {/* Settings (FR-51) — persisted board preferences, applied live */}
-        {settingsOpen && (
-          <SettingsPanel
-            settings={settings}
-            onChange={changeSetting}
-            onReset={resetSettings}
-            onClose={closeSettings}
-          />
-        )}
-
-        {/* Knowledge diagrams drawer (FR-28) — Related chips jump into the graph */}
-        {diagramsOpen && (
-          <DiagramsDrawer
-            key={layoutVersion}
-            diagrams={diagramList}
-            byAddress={byAddress}
-            onJump={jumpTo}
-            onClose={() => setDiagramsOpen(false)}
-          />
-        )}
-
-        {/* Knowledge docs drawer (FR-29) — sanitized Markdown + node deep-links */}
-        {docsOpen && (
-          <DocsDrawer
-            key={layoutVersion}
-            docs={docList}
-            byAddress={byAddress}
-            onJump={jumpTo}
-            onClose={() => setDocsOpen(false)}
-          />
-        )}
-
-        {/* AI-assist "Ask" panel (FR-30) — builds a prompt for the user's agent */}
-        {assistEnabled && askOpen && (
-          <AskPanel
-            focus={askFocus}
-            neighbours={askNeighbours}
-            root={title}
-            onClose={() => setAskOpen(false)}
-          />
-        )}
+        {/* Overlay dialogs + knowledge drawers (extracted for cap relief) — the ⌘K
+            palette, ⌘⇧P actions, ⌘Space center, settings sheet, diagrams/docs
+            drawers, and the Ask panel. Each gated by its own flag the shell owns. */}
+        <ExplorerDialogs
+          nodes={nodes}
+          byAddress={byAddress}
+          diagramList={diagramList}
+          docList={docList}
+          layoutVersion={layoutVersion}
+          jumpTo={jumpTo}
+          buildActions={buildActions}
+          settings={settings}
+          changeSetting={changeSetting}
+          resetSettings={resetSettings}
+          assistEnabled={assistEnabled}
+          askFocus={askFocus}
+          askNeighbours={askNeighbours}
+          title={title}
+          paletteOpen={paletteOpen}
+          closePalette={closePalette}
+          actionsOpen={actionsOpen}
+          closeActions={closeActions}
+          centerOpen={centerOpen}
+          closeCenter={closeCenter}
+          settingsOpen={settingsOpen}
+          closeSettings={closeSettings}
+          diagramsOpen={diagramsOpen}
+          onCloseDiagrams={() => setDiagramsOpen(false)}
+          docsOpen={docsOpen}
+          onCloseDocs={() => setDocsOpen(false)}
+          askOpen={askOpen}
+          onCloseAsk={() => setAskOpen(false)}
+          ingest={ingest}
+        />
 
         {/* Read-only source dock (FR-15) — replaces the detail panel while open */}
         {detail && sourceOpen && (

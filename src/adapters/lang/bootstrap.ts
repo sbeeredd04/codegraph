@@ -9,6 +9,7 @@ import { createTypeScriptAdapter } from "./typescript/index.js";
 import { createPythonAdapter } from "./python/index.js";
 import { resolveImportEdges, resolveCallEdges } from "./typescript/edges.js";
 import { resolvePythonEdges } from "./python/pyright-edges.js";
+import type { IngestEvent } from "../../core/ingest/progress.js";
 
 // Polyglot whole-repo bootstrap (FR-1): tree-sitter skeletons for every TS/JS
 // and Python file + ts-morph accurate edges for the TS files. I/O lives here
@@ -92,14 +93,36 @@ export function findSourceFiles(
   return acc;
 }
 
+/**
+ * Optional progress sink (FR-55) — the live-progress UI's data source. Called as
+ * the scan walks → parses → resolves edges; emits ONLY counts + a repo-relative
+ * current file (AD-16/AD-14: never source bytes / an absolute host path). It is a
+ * per-CALL concern (not a BootstrapOptions setting): the extension's live scan
+ * passes one to stream into the webview; the baseline/MCP scans omit it. Best
+ * effort — a throwing sink never derails the scan.
+ */
+export type IngestProgress = (event: IngestEvent) => void;
+
 export async function bootstrapRepo(
   rootDir: string,
   wasmDir: string,
   options: BootstrapOptions = {},
+  onProgress?: IngestProgress,
 ): Promise<BootstrapResult> {
+  // Wrap the sink so a buggy/throwing consumer can never crash ingestion.
+  const emit: IngestProgress = (e) => {
+    if (!onProgress) return;
+    try {
+      onProgress(e);
+    } catch {
+      /* progress is advisory — never let it derail the scan */
+    }
+  };
+
   const useTs = options.typescript !== false;
   const usePy = options.python !== false;
   const skip = new Set([...SKIP_DIRS, ...(options.exclude ?? [])]);
+  emit({ phase: "discovering" });
   const tsAdapter: LanguageAdapter = await createTypeScriptAdapter(wasmDir);
   const pyAdapter: LanguageAdapter = await createPythonAdapter(wasmDir);
   const files = await filterGitIgnored(rootDir, findSourceFiles(rootDir, skip, useTs, usePy));
@@ -107,8 +130,14 @@ export async function bootstrapRepo(
   const skipped: string[] = [];
   let parsed = 0;
   let failed = 0;
+  emit({ phase: "discovering", found: files.length });
 
-  for (const file of files) {
+  // Throttle per-file ticks so a large repo posts at most ~100 parsing updates
+  // (each crosses the host→webview boundary) instead of one per file.
+  const step = Math.max(1, Math.ceil(files.length / 100));
+  emit({ phase: "parsing", found: files.length, parsed: 0, nodes: 0, edges: 0 });
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
     try {
       const source = fs.readFileSync(file, "utf8");
       const rel = path.relative(rootDir, file).split(path.sep).join("/");
@@ -117,6 +146,17 @@ export async function bootstrapRepo(
       for (const node of nodes) graph.addNode(node);
       for (const edge of edges) graph.addEdge(edge);
       parsed += 1;
+      if (parsed % step === 0 || i === files.length - 1) {
+        emit({
+          phase: "parsing",
+          found: files.length,
+          parsed,
+          failed,
+          nodes: graph.order,
+          edges: graph.size,
+          file: path.relative(rootDir, file).split(path.sep).join("/"),
+        });
+      }
     } catch {
       failed += 1;
       skipped.push(path.relative(rootDir, file));
@@ -125,6 +165,7 @@ export async function bootstrapRepo(
 
   // Accurate edges (ts-morph) over the TS/JS files: module `depends-on` plus
   // function/method `calls`. Python accurate edges (Pyright over LSP) follow below.
+  emit({ phase: "resolving", found: files.length, parsed, failed, nodes: graph.order, edges: graph.size });
   try {
     const tsFiles = files.filter((f) => !f.endsWith(".py"));
     const project = new Project();
@@ -142,5 +183,13 @@ export async function bootstrapRepo(
     // best-effort
   }
 
+  emit({
+    phase: "done",
+    found: files.length,
+    parsed,
+    failed,
+    nodes: graph.order,
+    edges: graph.size,
+  });
   return { graph, coverage: { found: files.length, parsed, failed, skipped } };
 }

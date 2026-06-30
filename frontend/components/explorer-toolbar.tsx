@@ -24,6 +24,7 @@ import {
   FileText,
   ListChecks,
   Package,
+  Database,
   SlidersHorizontal as SettingsIcon,
 } from "./icons";
 import type { ProjectionKind } from "@core/graph/projection";
@@ -92,6 +93,15 @@ interface ExplorerToolbarProps {
    * embedded board has no marketing page to return to (AD-14).
    */
   readonly landingHref?: string | null;
+  /**
+   * (Re)index the workspace (FR-55 user trigger). Present only where source is
+   * reachable — the VS Code webview host (and dev, for the e2e) — and withheld on
+   * the source-blind cloud plane, which has no host files to scan (AD-14). When
+   * set, the toolbar shows an "Index" affordance that streams live progress.
+   */
+  readonly onIndex?: () => void;
+  /** A scan is in flight — the Index button reflects it (label + busy state). */
+  readonly indexing?: boolean;
   readonly assistEnabled: boolean;
   readonly onAsk: () => void;
   readonly onSearch: () => void;
@@ -142,6 +152,8 @@ export function ExplorerToolbar({
   onboardTotal,
   onboardComplete,
   landingHref,
+  onIndex,
+  indexing,
   assistEnabled,
   onAsk,
   onSearch,
@@ -440,6 +452,21 @@ export function ExplorerToolbar({
       </button>
 
       <div className="ml-auto flex items-center gap-3 text-xs">
+        {/* Index repository (FR-55) — scan the workspace and (re)build the graph,
+            with live progress on the board. Present only where source is reachable
+            (the webview host / dev); withheld on the source-blind cloud plane,
+            which has no host files to scan (AD-14). */}
+        {onIndex && (
+          <button
+            onClick={onIndex}
+            aria-label="Index repository"
+            aria-busy={indexing}
+            title="Scan this workspace and rebuild the graph (live progress)"
+            className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 font-medium text-cyan-200 transition-colors hover:bg-cyan-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+          >
+            <Database size={14} /> {indexing ? "Indexing…" : "Index"}
+          </button>
+        )}
         {/* AI-assist "Ask" (FR-30) — local-plane only (withheld on cloud) */}
         {assistEnabled && (
           <button

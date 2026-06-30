@@ -9,6 +9,7 @@
 
 import type { GraphSnapshot } from "../../../core/graph/export.js";
 import type { PresentationCommand } from "../../../core/presentation/command.js";
+import { isIngestPhase, type IngestEvent } from "../../../core/ingest/progress.js";
 
 /** webview → host: "mounted, send me the graph." */
 export const READY_TYPE = "codegraph:ready" as const;
@@ -21,6 +22,13 @@ export const SNAPSHOT_TYPE = "codegraph:snapshot" as const;
 /** host → webview: a live presentation directive from the agent (FR-39). Ephemeral
  * — it drives the view and is NEVER folded into the portable GraphSnapshot. */
 export const COMMAND_TYPE = "codegraph:command" as const;
+/** host → webview: a live repo-ingestion progress tick (FR-55). Counts + a
+ * repo-relative current file only — never source bytes / an absolute path
+ * (AD-16/AD-14) — so the live-progress UI can render without a host round-trip. */
+export const INGEST_TYPE = "codegraph:ingest" as const;
+/** webview → host: "(re)index this workspace" (FR-55 user trigger). Carries no
+ * payload — the host already owns the workspace root and scan options. */
+export const INDEX_REQUEST_TYPE = "codegraph:indexRepo" as const;
 
 export interface SnapshotMessage {
   readonly type: typeof SNAPSHOT_TYPE;
@@ -113,4 +121,61 @@ export function snapshotMessage(snapshot: GraphSnapshot, editorRoot?: string): S
  */
 export function withTrailingSlash(base: string): string {
   return base.endsWith("/") ? base : `${base}/`;
+}
+
+/** host → webview: a live ingestion progress tick (FR-55). */
+export interface IngestMessage {
+  readonly type: typeof INGEST_TYPE;
+  readonly event: IngestEvent;
+}
+
+const MAX_NUM = Number.MAX_SAFE_INTEGER;
+
+function safeCount(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_NUM ? Math.floor(v) : undefined;
+}
+
+/**
+ * Parse + SAFEGUARD a progress event for the wire (FR-55). The phase is validated
+ * against the single-source core guard; counts are coerced to safe non-negative
+ * integers (dropped when invalid); the optional `file`/`message` are kept only
+ * when strings and length-clamped. Returns null when the phase is missing/bad, so
+ * a malformed tick is dropped at the boundary rather than driving the UI. Used by
+ * the host to build a clean message AND mirrored frontend-side as a defensive
+ * guard on inbound data.
+ */
+export function parseIngestEvent(raw: unknown): IngestEvent | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (!isIngestPhase(r.phase)) return null;
+  const file = typeof r.file === "string" ? r.file.slice(0, MAX_FILE_LEN) : undefined;
+  const message = typeof r.message === "string" ? r.message.slice(0, MAX_FILE_LEN) : undefined;
+  const found = safeCount(r.found);
+  const parsed = safeCount(r.parsed);
+  const failed = safeCount(r.failed);
+  const nodes = safeCount(r.nodes);
+  const edges = safeCount(r.edges);
+  return {
+    phase: r.phase,
+    ...(found !== undefined ? { found } : {}),
+    ...(parsed !== undefined ? { parsed } : {}),
+    ...(failed !== undefined ? { failed } : {}),
+    ...(nodes !== undefined ? { nodes } : {}),
+    ...(edges !== undefined ? { edges } : {}),
+    ...(file !== undefined ? { file } : {}),
+    ...(message !== undefined ? { message } : {}),
+  };
+}
+
+/** Wrap a progress event in its host → webview envelope (drops a malformed event). */
+export function ingestMessage(event: IngestEvent): IngestMessage | null {
+  const safe = parseIngestEvent(event);
+  return safe ? { type: INGEST_TYPE, event: safe } : null;
+}
+
+/** True when an inbound webview message is a "(re)index this workspace" request. */
+export function isIndexRequestMessage(msg: unknown): boolean {
+  return (
+    typeof msg === "object" && msg !== null && (msg as { type?: unknown }).type === INDEX_REQUEST_TYPE
+  );
 }

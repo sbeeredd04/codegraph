@@ -9,6 +9,7 @@ import {
   validatePresentationCommand,
   type PresentationCommand,
 } from "@core/presentation/command";
+import { isIngestPhase, type IngestEvent } from "@core/ingest/progress";
 
 /** Host → webview: the live graph to render. */
 export interface SnapshotMessage {
@@ -106,6 +107,72 @@ export function subscribeToPresentationCommands(
     if (typeof data !== "object" || data === null || data.type !== "codegraph:command") return;
     const command = validatePresentationCommand(data.command);
     if (command) onCommand(command);
+  };
+  window.addEventListener("message", onMessage);
+  return () => window.removeEventListener("message", onMessage);
+}
+
+/**
+ * Ask the host to (re)index the workspace (FR-55 user trigger). Carries no
+ * payload — the host owns the workspace root + scan options (AD-16) — and the
+ * scan streams progress back as `codegraph:ingest` ticks (see
+ * {@link subscribeToIngest}). No-op off the webview host: the source-blind cloud
+ * plane has no host files to scan (AD-14), so the board hides the trigger there.
+ */
+export function requestIndex(): void {
+  vscode()?.postMessage({ type: "codegraph:indexRepo" });
+}
+
+const MAX_NUM = Number.MAX_SAFE_INTEGER;
+const MAX_FILE_LEN = 4096;
+
+function count(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_NUM ? Math.floor(v) : undefined;
+}
+
+/**
+ * Re-validate an inbound ingest tick at the webview boundary (defense in depth —
+ * the host already sanitises via `parseIngestEvent`, but the frontend treats all
+ * inbound host data as untrusted). Drops a missing/bad phase; coerces counts to
+ * safe non-negative integers; clamps the repo-relative `file`/`message` strings.
+ * Returns null when the tick can't drive the UI.
+ */
+function parseIngest(data: unknown): IngestEvent | null {
+  if (typeof data !== "object" || data === null) return null;
+  const m = data as { type?: unknown; event?: unknown };
+  if (m.type !== "codegraph:ingest" || typeof m.event !== "object" || m.event === null) return null;
+  const r = m.event as Record<string, unknown>;
+  if (!isIngestPhase(r.phase)) return null;
+  const file = typeof r.file === "string" ? r.file.slice(0, MAX_FILE_LEN) : undefined;
+  const message = typeof r.message === "string" ? r.message.slice(0, MAX_FILE_LEN) : undefined;
+  const found = count(r.found);
+  const parsed = count(r.parsed);
+  const failed = count(r.failed);
+  const nodes = count(r.nodes);
+  const edges = count(r.edges);
+  return {
+    phase: r.phase,
+    ...(found !== undefined ? { found } : {}),
+    ...(parsed !== undefined ? { parsed } : {}),
+    ...(failed !== undefined ? { failed } : {}),
+    ...(nodes !== undefined ? { nodes } : {}),
+    ...(edges !== undefined ? { edges } : {}),
+    ...(file !== undefined ? { file } : {}),
+    ...(message !== undefined ? { message } : {}),
+  };
+}
+
+/**
+ * Subscribe to live repo-ingestion progress ticks from the host (FR-55). Each
+ * inbound tick is re-validated (untrusted host boundary) before it drives the
+ * live-progress UI. Returns an unsubscribe fn; safe to call outside a webview
+ * (the handler simply never fires). Ticks are ephemeral — counts + a repo-
+ * relative current file only, never source / an absolute path (AD-16 / AD-14).
+ */
+export function subscribeToIngest(onIngest: (event: IngestEvent) => void): () => void {
+  const onMessage = (e: MessageEvent): void => {
+    const event = parseIngest(e.data);
+    if (event) onIngest(event);
   };
   window.addEventListener("message", onMessage);
   return () => window.removeEventListener("message", onMessage);

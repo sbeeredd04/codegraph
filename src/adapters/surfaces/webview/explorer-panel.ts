@@ -8,11 +8,14 @@ import { readCommandsFrom } from "../../presentation/disk-sink.js";
 import { prepareExportHtml } from "./export-html.js";
 import {
   commandMessage,
+  ingestMessage,
+  isIndexRequestMessage,
   isReadyMessage,
   parseOpenFileMessage,
   snapshotMessage,
   withTrailingSlash,
 } from "./explorer-protocol.js";
+import type { IngestEvent } from "../../../core/ingest/progress.js";
 
 // Epic 7.4 — the unified-surface explorer panel. Unlike the bespoke GraphPanel
 // (which loads the hand-built media/webview.js), this hosts the SAME Next.js
@@ -37,6 +40,13 @@ export class ExplorerPanel {
   // serialized into a snapshot (AD-14), never touch source (FR-9).
   private static commandWatcher: fs.FSWatcher | undefined;
   private static commandOffset = 0;
+  // FR-55: the live-ingestion trigger. The board's "Index" button posts a
+  // `codegraph:indexRepo` request; the extension registers the actual scan here
+  // (it owns bootstrapRepo + the workspace root — AD-16). The scan streams coarse
+  // progress back via {@link postIngest}, which the export's live-progress UI
+  // binds to. Kept as a handler (not a direct import of bootstrapRepo) so this
+  // adapter never reaches across into the language/fs layer.
+  private static indexHandler: (() => void) | undefined;
 
   /** Where esbuild copies the Next export inside the extension distributable. */
   private static exportDir(context: vscode.ExtensionContext): vscode.Uri {
@@ -70,6 +80,7 @@ export class ExplorerPanel {
       this.panel.onDidDispose(() => {
         this.commandWatcher?.close();
         this.commandWatcher = undefined;
+        this.indexHandler = undefined;
         this.panel = undefined;
         this.snapshot = undefined;
       });
@@ -78,6 +89,13 @@ export class ExplorerPanel {
       this.panel.webview.onDidReceiveMessage((msg: unknown) => {
         if (isReadyMessage(msg)) {
           this.send();
+          return;
+        }
+        // FR-55 user trigger: the board asked to (re)index this workspace. The
+        // host owns the root + scan options, so the request carries no payload —
+        // we just run the registered scan, which streams progress back.
+        if (isIndexRequestMessage(msg)) {
+          this.indexHandler?.();
           return;
         }
         const open = parseOpenFileMessage(msg);
@@ -99,6 +117,28 @@ export class ExplorerPanel {
    */
   static postCommand(command: PresentationCommand): void {
     void this.panel?.webview.postMessage(commandMessage(command));
+  }
+
+  /**
+   * Stream one live repo-ingestion progress tick to the webview (FR-55). The
+   * envelope carries ONLY counts + a repo-relative current file — never source
+   * bytes / an absolute host path (AD-16 / AD-14) — so the export's live-progress
+   * UI renders without a host round-trip. A malformed event is dropped by
+   * `ingestMessage` rather than posted; a no-op when the panel is closed.
+   */
+  static postIngest(event: IngestEvent): void {
+    const msg = ingestMessage(event);
+    if (msg) void this.panel?.webview.postMessage(msg);
+  }
+
+  /**
+   * Register the scan the board's "Index" button triggers (FR-55 user trigger).
+   * The extension owns `bootstrapRepo` + the workspace root (AD-16), so it supplies
+   * the handler; it should stream progress back through {@link postIngest}. Holds a
+   * single handler — re-registering replaces it (the active workspace's scanner).
+   */
+  static onIndexRequest(handler: () => void): void {
+    this.indexHandler = handler;
   }
 
   /**

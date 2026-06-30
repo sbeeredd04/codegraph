@@ -190,6 +190,63 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(watcher);
   };
 
+  // FR-55 dual-trigger live index: scan the workspace while streaming coarse
+  // progress to the open Explorer panel (files discovered → parsed → edges
+  // resolved → done), then repaint. ONE path serves BOTH triggers — the board's
+  // "Index" button (webview → ExplorerPanel.onIndexRequest) and the agent/command
+  // (codegraph.indexRepo) — so the live-progress UI is identical either way.
+  // Only counts + a repo-relative current file cross to the webview (AD-16/AD-14);
+  // read-only (FR-9). Serialized through runScan's guard so it can't overlap a
+  // watcher re-scan. The progress stream + repaint are exercised in the Extension
+  // Development Host (a live webview), not headlessly — staged, not unit-verified.
+  const indexLive = async (): Promise<void> => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showWarningMessage("codegraph: open a folder/workspace first.");
+      return;
+    }
+    if (scanning) return; // a scan is already in flight; its progress is streaming
+    scanning = true;
+    try {
+      const options = current?.options ?? readOptions();
+      ExplorerPanel.postIngest({ phase: "discovering" });
+      const { graph, coverage } = await bootstrapRepo(
+        folder.uri.fsPath,
+        wasmDir(),
+        options,
+        (event) => ExplorerPanel.postIngest(event),
+      );
+      if (graph.order === 0) {
+        ExplorerPanel.postIngest({ phase: "error", message: "No source files found for the enabled languages." });
+        void vscode.window.showInformationMessage(
+          "codegraph: no source files found for the enabled languages in this workspace.",
+        );
+        return;
+      }
+      const prior = current?.graph;
+      const delta = prior ? diffGraphs(prior, graph) : undefined;
+      current = { folderPath: folder.uri.fsPath, graph, options };
+      const feed = prior && delta ? rankedChangeFeed(delta, prior, graph) : undefined;
+      await showGraph(context, folder.uri.fsPath, graph, delta, feed);
+      startWatching(folder.uri.fsPath);
+      void vscode.window.showInformationMessage(
+        `codegraph: indexed ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`,
+      );
+    } catch (err) {
+      ExplorerPanel.postIngest({ phase: "error", message: err instanceof Error ? err.message : "Indexing failed" });
+      void vscode.window.showErrorMessage("codegraph: indexing failed — see the board for details.");
+    } finally {
+      scanning = false;
+    }
+  };
+
+  // The board's "Index" button posts `codegraph:indexRepo`; route it to the live
+  // index above so the user can (re)scan the repo they're in from the surface.
+  ExplorerPanel.onIndexRequest(() => void indexLive());
+
+  // Command-surfaced twin of the board trigger (the agent / palette path).
+  const indexRepo = vscode.commands.registerCommand("codegraph.indexRepo", () => void indexLive());
+
   const open = vscode.commands.registerCommand("codegraph.open", async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || !/typescript|javascript/.test(editor.document.languageId)) {
@@ -430,7 +487,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ExplorerPanel.show(context, snapshot, presentationCommandsPath(active.folderPath));
   });
 
-  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, exportReport, openExplorer, {
+  context.subscriptions.push(open, openWorkspace, refresh, diffBaseline, copyMcpConfig, exportGraph, exportReport, openExplorer, indexRepo, {
     dispose: () => {
       watcher?.dispose();
       coalescer?.dispose();

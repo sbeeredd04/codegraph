@@ -48,6 +48,10 @@
       {
         "command": "codegraph.openExplorer",
         "title": "codegraph: Open Unified Explorer (preview)"
+      },
+      {
+        "command": "codegraph.indexRepo",
+        "title": "codegraph: Index Repository (live progress on the board)"
       }
     ],
     "configuration": {

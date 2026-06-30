@@ -346,3 +346,15 @@ export function Crosshair(p: IconProps) {
     </Icon>
   );
 }
+
+// FR-55 — repo ingestion / indexing: the canonical "build the index" glyph.
+// Lucide `database`.
+export function Database(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+      <path d="M3 12A9 3 0 0 0 21 12" />
+    </Icon>
+  );
+}
