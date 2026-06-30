@@ -57,8 +57,9 @@ export function buildEntryMarkers3D(THREE: typeof ThreeNS, input: EntryMarkersIn
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
+    opacity: 0.9,
     depthWrite: false, // a marker overlay: respect depth, don't occlude later draws
-    fog: false, // a wayfinding marker stays full-emerald regardless of depth cueing
+    fog: true, // depth-cue the rings so distant clusters recede instead of all blazing
   });
 
   for (const id of entries) {
@@ -68,8 +69,9 @@ export function buildEntryMarkers3D(THREE: typeof ThreeNS, input: EntryMarkersIn
     const sprite = new THREE.Sprite(material);
     sprite.position.set(p.x, p.y, p.z);
     // Sized to sit OUTSIDE the node sphere (which grows on focus/hover by up to
-    // ~0.9), so the ring never collides with the fill.
-    const s = (0.7 + input.meta[i].size * 0.16 + 1.1) * 3.0;
+    // ~0.9), so the ring never collides with the fill. Trimmed from ×3.0 so the
+    // rings mark without dominating the (now properly lit) spheres.
+    const s = (0.7 + input.meta[i].size * 0.16 + 1.1) * 2.5;
     sprite.scale.set(s, s, 1);
     group.add(sprite);
   }
@@ -93,16 +95,18 @@ function makeRingTexture(THREE: typeof ThreeNS): ThreeNS.Texture {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const c = size / 2;
-    // a soft outer glow so the ring reads against busy fog/depth, then the crisp ring
-    ctx.strokeStyle = "rgba(110, 231, 183, 0.28)";
-    ctx.lineWidth = 14;
+    // a soft outer glow so the ring reads against busy fog/depth, then the crisp ring.
+    // Both trimmed (was 0.28/14 + 7) so the marker is a clean thin outline, not a
+    // heavy emerald blob that stacks in dense clusters.
+    ctx.strokeStyle = "rgba(110, 231, 183, 0.16)";
+    ctx.lineWidth = 9;
     ctx.beginPath();
-    ctx.arc(c, c, c - 16, 0, Math.PI * 2);
+    ctx.arc(c, c, c - 14, 0, Math.PI * 2);
     ctx.stroke();
     ctx.strokeStyle = ENTRY_EMERALD;
-    ctx.lineWidth = 7;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(c, c, c - 16, 0, Math.PI * 2);
+    ctx.arc(c, c, c - 14, 0, Math.PI * 2);
     ctx.stroke();
   }
   const tex = new THREE.CanvasTexture(canvas);

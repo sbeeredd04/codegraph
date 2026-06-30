@@ -213,18 +213,34 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       });
       renderer.setPixelRatio(dpr);
       renderer.setSize(widthOf(), heightOf(), false);
+      // Filmic tone mapping + sRGB output so the dark palette renders with clean,
+      // graded contrast instead of muddy mid-tones — the spheres read as lit volumes,
+      // not flat discs. ColorManagement is on by default in three ≥ r152, so the
+      // sRGB hex node colours convert correctly through the pipeline.
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.12;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-      scene.add(new THREE.AmbientLight(0xffffff, 0.72));
-      const keyLight = new THREE.DirectionalLight(0xffffff, 0.85);
+      // Lighting: a LOW ambient floor so the directional key actually carves form
+      // (the old 0.72 ambient washed the spheres flat), a cool hemisphere fill for a
+      // natural top-lit gradient, a strong key for the specular highlight that reads
+      // as "sphere", and a cool back-rim to separate nodes from the dark void.
+      scene.add(new THREE.AmbientLight(0xffffff, 0.34));
+      const hemi = new THREE.HemisphereLight(0xc3d2ff, 0x0a0c10, 0.55);
+      scene.add(hemi);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.25);
       keyLight.position.set(0.6, 1, 0.8);
       scene.add(keyLight);
-      const rimLight = new THREE.DirectionalLight(0x8b9bff, 0.35);
+      const rimLight = new THREE.DirectionalLight(0x8ba0ff, 0.6);
       rimLight.position.set(-0.7, -0.4, -0.6);
       scene.add(rimLight);
 
       // Nodes as one instanced sphere mesh (per-instance position/scale + colour).
-      const sphereGeo = new THREE.SphereGeometry(1, 18, 14);
-      const nodeMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05 });
+      // Higher tessellation (was 18×14) so even big module spheres read smooth, not
+      // faceted; lower roughness gives each a crisp specular highlight (was a near-
+      // matte 0.5 that flattened them).
+      const sphereGeo = new THREE.SphereGeometry(1, 32, 24);
+      const nodeMat = new THREE.MeshStandardMaterial({ roughness: 0.34, metalness: 0.0 });
       const mesh = new THREE.InstancedMesh(sphereGeo, nodeMat, ids.length || 1);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
