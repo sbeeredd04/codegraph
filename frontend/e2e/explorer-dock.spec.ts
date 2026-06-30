@@ -283,6 +283,39 @@ test("FR-34: the detail panel floats, drags to a new spot, and persists it", asy
   expect(after.top).toBeCloseTo(moved.top, 0);
 });
 
+test("T7.2: a docked panel drags straight from its header — click doesn't pop it out", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+  await selectTopNode(page);
+
+  // The docked detail panel is showing; its header now doubles as the drag handle.
+  await expect(page.getByTestId("detail-body")).toBeVisible();
+  await expect(page.getByTestId("detail-floating")).toHaveCount(0);
+
+  const handle = page.getByRole("button", { name: "Move panel (arrow keys to nudge)" });
+  const box = await handle.boundingBox();
+  if (!box) throw new Error("docked header handle has no bounding box");
+
+  // A plain click on the header (no drag) must NOT float the panel — only a real
+  // drag does (the float is deferred to the first pointer move).
+  await page.mouse.click(box.x + 24, box.y + box.height / 2);
+  await expect(page.getByTestId("detail-floating")).toHaveCount(0);
+
+  // Now grab the header and drag — it lifts into a floating card and moves, with no
+  // "Float" click first.
+  await page.mouse.move(box.x + 24, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 24 - 200, box.y + box.height / 2 + 130, { steps: 10 });
+  await page.mouse.up();
+
+  await expect(page.getByTestId("detail-floating")).toBeVisible();
+  const pos = await readFloatPos(page);
+  expect(pos.left).toBeGreaterThanOrEqual(0);
+  expect(pos.top).toBeGreaterThan(0);
+});
+
 test("FR-34: Reset layout returns every dock and panel to its defaults", async ({
   page,
 }) => {

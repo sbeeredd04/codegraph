@@ -137,17 +137,31 @@ export function DetailPanel({
       railAccent={<span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: dot }} />}
     >
       <div className="p-4 text-sm" data-testid="detail-body">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="truncate font-semibold text-zinc-50" title={node.name}>
-              {title}
-            </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
-              <span className="inline-block size-2 rounded-full" style={{ backgroundColor: dot }} />
-              {node.kind}
+        {/* The header doubles as the drag handle: grab it to pull the panel off the
+            edge into a floating card (it lifts off from exactly where it sits — no
+            jump), or use the Float button. Arrow keys nudge once focused. */}
+        <div
+          {...drag.dragHandleProps}
+          title="Drag to move · Float to pop out · arrow keys to nudge"
+          className={`-mx-1 -mt-1 mb-1 flex items-start justify-between gap-2 rounded-md px-1 py-1 select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
+            drag.dragging ? "cursor-grabbing" : "cursor-grab"
+          }`}
+        >
+          <div className="flex min-w-0 items-start gap-1.5">
+            <span className="mt-0.5 shrink-0">
+              <Grip />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate font-semibold text-zinc-50" title={node.name}>
+                {title}
+              </div>
+              <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
+                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: dot }} />
+                {node.kind}
+              </div>
             </div>
           </div>
-          <span className="-mr-1 -mt-1 flex shrink-0 items-center gap-0.5">
+          <span className="flex shrink-0 items-center gap-0.5">
             <IconButton onClick={drag.float} label="Float panel" title="Pop out as a draggable panel">
               <FloatIcon />
             </IconButton>
@@ -398,6 +412,9 @@ function IconButton({
   return (
     <button
       onClick={onClick}
+      // Don't let a click on a header button start a panel drag (the button sits
+      // inside the drag-handle header).
+      onPointerDown={(e) => e.stopPropagation()}
       aria-label={label}
       title={title}
       className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"

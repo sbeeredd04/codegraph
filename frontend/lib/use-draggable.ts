@@ -20,9 +20,13 @@ export interface DragHandleProps {
   readonly role: "button";
   readonly tabIndex: 0;
   readonly "aria-label": string;
+  /** `touch-action: none` so a trackpad / touchscreen doesn't claim the gesture as
+   *  a scroll and fire pointercancel mid-drag (the panel would otherwise stick). */
+  readonly style: { readonly touchAction: "none" };
   readonly onPointerDown: (e: PointerEvent<HTMLElement>) => void;
   readonly onPointerMove: (e: PointerEvent<HTMLElement>) => void;
   readonly onPointerUp: (e: PointerEvent<HTMLElement>) => void;
+  readonly onPointerCancel: (e: PointerEvent<HTMLElement>) => void;
   readonly onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }
 
@@ -97,7 +101,29 @@ export function useDraggable(storageKey: string, defaultFloat: PanelOffset = DEF
     (e: PointerEvent<HTMLElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
-      startRef.current = { px: e.clientX, py: e.clientY, ox: offset?.x ?? 0, oy: offset?.y ?? 0 };
+      let ox = offset?.x ?? 0;
+      let oy = offset?.y ?? 0;
+      // Grabbing a panel that isn't yet floating (docked, or a card at its CSS
+      // default) should pick it up exactly where it sits — not teleport it to the
+      // origin. Measure the panel root (the nearest positioned ancestor of the
+      // handle = the absolute panel element) relative to its offset parent (the
+      // workspace) so the FIRST move floats it from that exact spot. We do NOT
+      // float on pointer-down: a plain click on a header must not pop the panel
+      // out — only a real drag (the first move) does.
+      if (!offset) {
+        const root = e.currentTarget.offsetParent as HTMLElement | null;
+        const parent = root?.offsetParent as HTMLElement | null;
+        if (root && parent) {
+          const r = root.getBoundingClientRect();
+          const pr = parent.getBoundingClientRect();
+          ox = r.left - pr.left;
+          oy = r.top - pr.top;
+        } else {
+          ox = DEFAULT_FLOAT.x;
+          oy = DEFAULT_FLOAT.y;
+        }
+      }
+      startRef.current = { px: e.clientX, py: e.clientY, ox, oy };
       setDragging(true);
     },
     [offset],
@@ -109,7 +135,7 @@ export function useDraggable(storageKey: string, defaultFloat: PanelOffset = DEF
     setOffset(clampOffset({ x: start.ox + (e.clientX - start.px), y: start.oy + (e.clientY - start.py) }));
   }, []);
 
-  const onPointerUp = useCallback((e: PointerEvent<HTMLElement>) => {
+  const endDrag = useCallback((e: PointerEvent<HTMLElement>) => {
     if (!startRef.current) return;
     startRef.current = null;
     setDragging(false);
@@ -135,9 +161,11 @@ export function useDraggable(storageKey: string, defaultFloat: PanelOffset = DEF
       role: "button",
       tabIndex: 0,
       "aria-label": "Move panel (arrow keys to nudge)",
+      style: { touchAction: "none" },
       onPointerDown,
       onPointerMove,
-      onPointerUp,
+      onPointerUp: endDrag,
+      onPointerCancel: endDrag,
       onKeyDown,
     },
   };
