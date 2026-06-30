@@ -5,27 +5,21 @@
 // host-LOCAL only (AD-16): here that means fetching the first-party sidecar a
 // local/static build ships. When no source is available (hosted plane, or a
 // third-party graph with no bundled source) it degrades to a clear card rather
-// than failing. Strictly passive — no textarea, no contentEditable, no edit
-// affordance of any kind (FR-9). Tokens render as escaped React spans, so
-// untrusted source can never inject markup.
+// than failing. The code surface is CodeMirror 6 (FR-70) — language-aware
+// highlighting, a line gutter, the def line marked + scrolled-to — mounted
+// view-only (FR-9): the canonical edit path is "Open in editor", never a silent
+// write. CM6 sets source as document content (never HTML), so untrusted source
+// can never inject markup, and it is eval-free so it boots under the strict CSP.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildSourceView } from "@core/source/source-view";
 import { buildEditorLink, editorById, DEFAULT_EDITOR } from "@core/links/editor-link";
-import { tokenizeLines, type Token, type TokenType } from "@/lib/highlight";
 import { isWebviewHost, revealInEditor } from "@/lib/webview-bridge";
 import { useDockState } from "@/lib/use-dock-state";
 import { useDraggable, type PanelOffset } from "@/lib/use-draggable";
 import { DockResizeHandle } from "./resizable-dock";
+import { CodeSurface } from "./code-surface";
 import { ShieldCheck, X } from "./icons";
-
-const TOKEN_CLASS: Record<TokenType, string> = {
-  plain: "text-zinc-300",
-  comment: "text-zinc-500 italic",
-  string: "text-emerald-300",
-  keyword: "text-violet-300",
-  number: "text-amber-300",
-};
 
 // Floating-mode geometry (FR-52). Width matches the dock's default so popping out
 // never jumps in size. The default landing offset is DISTINCT from the detail
@@ -34,7 +28,7 @@ const TOKEN_CLASS: Record<TokenType, string> = {
 const FLOAT_WIDTH = 640;
 const SOURCE_FLOAT_OFFSET: PanelOffset = { x: 64, y: 64 };
 
-type Loaded = { lines: Token[][]; anchor: number; lineCount: number };
+type Loaded = { text: string; anchor: number };
 type ViewState =
   | { status: "loading" }
   | { status: "ready"; data: Loaded }
@@ -79,7 +73,6 @@ export function NodeSourceViewer({
   const [state, setState] = useState<ViewState>(() =>
     sourceBase ? { status: "loading" } : { status: "unavailable" },
   );
-  const anchorRef = useRef<HTMLDivElement | null>(null);
 
   // The code pane is the panel that benefits most from a wider drag — a resize
   // handle on its inner edge, with the width persisted per-browser (FR-34). No
@@ -105,7 +98,7 @@ export function NodeSourceViewer({
       .then((text) => {
         if (cancelled) return;
         const view = buildSourceView(text, line);
-        setState({ status: "ready", data: { lines: tokenizeLines(text), anchor: view.anchor, lineCount: view.lineCount } });
+        setState({ status: "ready", data: { text, anchor: view.anchor } });
       })
       .catch(() => {
         if (!cancelled) setState({ status: "unavailable" });
@@ -115,11 +108,6 @@ export function NodeSourceViewer({
     };
   }, [sourceBase, file, line]);
 
-  // Center the def line once the code is in the DOM.
-  useEffect(() => {
-    if (state.status === "ready") anchorRef.current?.scrollIntoView({ block: "center" });
-  }, [state]);
-
   // Esc closes the viewer (returns to the detail panel).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -128,11 +116,6 @@ export function NodeSourceViewer({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  const gutterWidth = useMemo(
-    () => (state.status === "ready" ? String(state.data.lineCount).length : 2),
-    [state],
-  );
 
   // "Open in editor" deep link (FR-32). buildEditorLink returns null unless the
   // host gave us an absolute root, so this is naturally withheld on the
@@ -186,62 +169,37 @@ export function NodeSourceViewer({
   );
 
   const body = (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#0b0c10]">
+    <div className="flex min-h-0 flex-1 flex-col bg-[#0b0c10]">
       {state.status === "loading" && (
-        <div className="grid h-full place-items-center text-xs text-zinc-600">Loading source…</div>
+        <div className="grid flex-1 place-items-center text-xs text-zinc-600">Loading source…</div>
       )}
 
       {state.status === "unavailable" && (
-        <UnavailableCard
-          signature={signature}
-          editorLink={editorLink}
-          editorLabel={editorLabel}
-          onEditorOpen={onEditorOpen}
-        />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <UnavailableCard
+            signature={signature}
+            editorLink={editorLink}
+            editorLabel={editorLabel}
+            onEditorOpen={onEditorOpen}
+          />
+        </div>
       )}
 
       {state.status === "error" && (
-        <div className="grid h-full place-items-center px-6 text-center text-xs text-zinc-500">
+        <div className="grid flex-1 place-items-center px-6 text-center text-xs text-zinc-500">
           Couldn’t read this file.
         </div>
       )}
 
+      {/* FR-70 — the real CodeMirror 6 surface: language-aware highlighting, a line
+          gutter, the node's def line marked + scrolled to centre. View-only here
+          (FR-9): no plane grants in-webview editing — the canonical edit path stays
+          "Open in {editor}" above. CM6 is eval-free so it boots under the strict
+          no-eval webview CSP (proven by cm-csp-smoke). */}
       {state.status === "ready" && (
-        <pre className="m-0 font-mono text-[12px] leading-[1.55]">
-          <code className="block">
-            {state.data.lines.map((tokens, idx) => {
-              const isAnchor = idx === state.data.anchor;
-              return (
-                <div
-                  key={idx}
-                  ref={isAnchor ? anchorRef : undefined}
-                  className={`flex ${isAnchor ? "bg-violet-500/10" : ""}`}
-                >
-                  <span
-                    aria-hidden
-                    style={{ width: `${gutterWidth + 1}ch` }}
-                    className={`sticky left-0 select-none border-r border-zinc-800/80 bg-[#0b0c10] px-3 text-right ${
-                      isAnchor ? "text-violet-300" : "text-zinc-600"
-                    }`}
-                  >
-                    {idx + 1}
-                  </span>
-                  <span className="whitespace-pre px-3">
-                    {tokens.length === 0 ? (
-                      " "
-                    ) : (
-                      tokens.map((t, k) => (
-                        <span key={k} className={TOKEN_CLASS[t.type]}>
-                          {t.value}
-                        </span>
-                      ))
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </code>
-        </pre>
+        <div className="min-h-0 flex-1">
+          <CodeSurface text={state.data.text} anchorLine={state.data.anchor} fileName={file} />
+        </div>
       )}
     </div>
   );
