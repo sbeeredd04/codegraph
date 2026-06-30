@@ -154,17 +154,27 @@ export function ResizableDock({
   const frame = inset ? "rounded-2xl border border-zinc-800" : `${sideBorder} border-zinc-800`;
 
   if (collapsed) {
+    // A COMPACT tab hugging the edge, vertically centred — not a full-height bar
+    // (which read as an empty black column). Only as tall as its content; the
+    // board-facing corners round so it reads as a pull-tab. Inset → a free-floating
+    // pill set off the edge.
+    const railPos = inset
+      ? `${side === "right" ? "right-3" : "left-3"} top-1/2 -translate-y-1/2`
+      : `${edge} top-1/2 -translate-y-1/2`;
+    const railShape = inset
+      ? "rounded-xl border border-zinc-800 shadow-2xl"
+      : side === "right"
+        ? "rounded-l-xl border border-r-0 border-zinc-800"
+        : "rounded-r-xl border border-l-0 border-zinc-800";
     return (
-      <aside className={`absolute ${position} z-20`} role={role} aria-label={name}>
+      <aside className={`absolute ${railPos} z-20`} role={role} aria-label={name}>
         <button
           onClick={() => setCollapsed(false)}
           aria-label={`Expand ${label}`}
           aria-expanded={false}
           title={`Expand ${label}`}
           style={{ width: RAIL_W }}
-          className={`flex h-full flex-col items-center gap-3 ${frame} bg-zinc-900/95 py-3 text-zinc-400 backdrop-blur transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
-            inset ? "shadow-2xl" : ""
-          }`}
+          className={`flex flex-col items-center gap-2.5 ${railShape} bg-zinc-900/95 py-4 text-zinc-400 backdrop-blur transition-colors hover:bg-zinc-800/80 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500`}
         >
           <Chevron dir={side === "right" ? "left" : "right"} />
           <span

@@ -99,11 +99,23 @@ export function IngestPanel({ view, file, onIndex, onDismiss }: IngestPanelProps
         >
           <div
             data-testid="ingest-bar"
-            className={`h-full rounded-full transition-[width] duration-300 ease-out ${
-              view.active ? "animate-pulse" : ""
-            }`}
+            className="relative h-full overflow-hidden rounded-full transition-[width] duration-300 ease-out"
             style={{ width: `${view.percent}%`, backgroundColor: accent }}
-          />
+          >
+            {/* While the scan is live, a contained highlight sweeps the fill — a
+                calm "working" cue, not a breathing pulse (and stilled under
+                prefers-reduced-motion via the .ingest-sheen rule). */}
+            {view.active && (
+              <span
+                aria-hidden
+                className="ingest-sheen absolute inset-y-0 left-0 w-1/3"
+                style={{
+                  background:
+                    "linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)",
+                }}
+              />
+            )}
+          </div>
         </div>
 
         {/* Phase stepper — discover → parse → resolve → done. Each step shows its

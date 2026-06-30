@@ -13,8 +13,8 @@ const SHOT =
 
 // Must match lib/layer-palette.ts (depth → hue) + graph-canvas.tsx constants.
 const CENTER = "#c4b5fd"; // depth 0 (SELECTED_NODE)
-const DEPTH1 = "#a78bfa";
-const DEPTH2 = "#8f86e6";
+const DEPTH1 = "#a78bfa"; // violet-400
+const DEPTH2 = "#818cf8"; // indigo-400 — a DISTINCT hue from depth 1 (cool sweep)
 const DIM = "#39414f"; // ORPHAN_DIM_NODE — off-lens recede
 
 async function waitForGraph(page: Page): Promise<void> {
@@ -124,7 +124,7 @@ test("FR-72: layers light depth-by-depth, dimming outward, capped by the depth c
 
   await page.screenshot({ path: `${SHOT}/layers-depth-1.png` });
 
-  // Expand to depth 2 — the second shell lights, at a DIMMER hue than the first.
+  // Expand to depth 2 — the second shell lights, at a DISTINCT hue from the first.
   await page.getByRole("slider", { name: "Analysis depth" }).fill("2");
   await expect.poll(async () => (await displayFor(page, ids)).n2.color).toBe(DEPTH2);
 
@@ -132,7 +132,7 @@ test("FR-72: layers light depth-by-depth, dimming outward, capped by the depth c
   expect(d.n1.color).toBe(DEPTH1);
   expect(d.n2.color).toBe(DEPTH2);
   expect(d.n2.label).not.toBe("");
-  // Depth 2 is dimmer than depth 1 (lower perceived lightness on the violet ramp).
+  // Each shell is its own hue on the cool sweep — depth 2 differs from depth 1.
   expect(DEPTH2).not.toBe(DEPTH1);
 
   await page.screenshot({ path: `${SHOT}/layers-depth-2.png` });
@@ -221,12 +221,12 @@ test("FR-72b-2: the 3D surface paints the same depth shells, capped by the contr
 
   await page.screenshot({ path: `${SHOT}/layers-3d-depth-1.png` });
 
-  // Expand to depth 2 — the second shell now lights at the DIMMER layerColor(2),
+  // Expand to depth 2 — the second shell now lights at the DISTINCT layerColor(2),
   // while the first shell keeps layerColor(1).
   await page.getByRole("slider", { name: "Analysis depth" }).fill("2");
   await expect.poll(() => overlay3d(page, ids.n2)).toBe(DEPTH2);
   expect(await overlay3d(page, ids.n1)).toBe(DEPTH1);
-  expect(DEPTH2).not.toBe(DEPTH1); // depth dims outward on the violet ramp
+  expect(DEPTH2).not.toBe(DEPTH1); // each shell is its own hue on the cool sweep
 
   await page.screenshot({ path: `${SHOT}/layers-3d-depth-2.png` });
 });

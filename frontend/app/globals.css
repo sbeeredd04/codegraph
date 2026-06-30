@@ -24,6 +24,22 @@ body {
   font-family: var(--font-sans);
 }
 
+/* FR-55 ingest bar: a calm indeterminate sheen sweeps the filled portion to signal
+   an in-flight scan — replacing the old full-bar opacity pulse that read as
+   "breathing". A thin highlight travels left→right inside the fill; honoured only
+   when the user hasn't asked to reduce motion (the determinate fill already conveys
+   progress, so motion-sensitive users lose nothing). */
+@keyframes cg-ingest-sheen {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+.ingest-sheen {
+  animation: cg-ingest-sheen 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ingest-sheen { animation: none; }
+}
+
 /* FR-65 display density — the Settings "Display density" control writes a
    `data-density` attribute on the explorer root, and these rules retune Tailwind
    v4's `--spacing` token for that subtree. Every spacing utility in v4 resolves to

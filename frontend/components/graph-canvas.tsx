@@ -53,9 +53,6 @@ const EDGE_COLOR = "#333a4d";
 // The selected node pops in brand violet; its incident edges reuse PATH_EDGE so
 // the focus lens (FR-25) reads identically to the trace lens.
 const SELECTED_NODE = "#c4b5fd";
-// Above this in-focus node count the neighbours are no longer force-labelled — the
-// label grid thins a hub's dozens of neighbours instead of stacking them (FR-27).
-const FOCUS_LABEL_CAP = 16;
 
 // The 2D surface implements the shared render-surface contract (AD-15).
 export type GraphCanvasProps = GraphSurfaceProps;
@@ -341,9 +338,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           res.hidden = false;
           res.color = depth === 0 ? SELECTED_NODE : layerColor(depth);
           res.label = g.getNodeAttribute(node, "label") as string;
-          // Always label the centre; label the rest only when the lit set is small
-          // enough to read, else let the grid thin it (FR-27 declutter).
-          if (depth === 0 || layers.size <= FOCUS_LABEL_CAP) res.forceLabel = true;
+          // Force-label only the centre; let Sigma's de-colliding label grid decide
+          // which shells label, so physically-close nodes never stack their text
+          // (FR-27 declutter). Hover still reveals any node's name.
+          if (depth === 0) res.forceLabel = true;
         } else {
           res.color = ORPHAN_DIM_NODE;
           res.label = "";
@@ -357,7 +355,9 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           res.hidden = false;
           res.color = isCenter ? SELECTED_NODE : (g.getNodeAttribute(node, "color") as string);
           res.label = g.getNodeAttribute(node, "label") as string;
-          if (isCenter || focus.nodes.size <= FOCUS_LABEL_CAP) res.forceLabel = true;
+          // Force-label only the centre; neighbours go through Sigma's de-colliding
+          // grid so close names never overlap (FR-27). Hover reveals the rest.
+          if (isCenter) res.forceLabel = true;
         } else {
           res.color = ORPHAN_DIM_NODE;
           res.label = "";
