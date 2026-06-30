@@ -59,6 +59,14 @@ export interface LabelPass3DDeps {
  */
 export function buildLabelPass3D(deps: LabelPass3DDeps): () => void {
   const { labelLayer, indexOf, meta, positions, projectToScreen } = deps;
+  // Pool of label <div>s keyed by node address, reused across frames so an orbit
+  // REPOSITIONS existing elements instead of destroying + recreating every label
+  // each frame — the recreate churn was the source of the label flicker/pop during
+  // camera motion. Divs for nodes that drop out are removed lazily below.
+  const pool = new Map<string, HTMLDivElement>();
+  // Start from a clean overlay: if a prior pass (a heavy rebuild) left divs on this
+  // layer, drop them once here — the per-frame path no longer clears the layer.
+  labelLayer.replaceChildren();
 
   return function renderLabels(): void {
     const focus = deps.focus();
@@ -93,9 +101,6 @@ export function buildLabelPass3D(deps: LabelPass3DDeps): () => void {
     const trace = deps.trace();
     if (trace) for (const id of trace) bid(id, 4); // FR-61
 
-    labelLayer.replaceChildren();
-    if (prio.size === 0) return;
-
     // Project the candidates (drop ones behind the camera), then de-collide in screen
     // space so the high-priority label wins a crowded cluster.
     const candidates: LabelCandidate[] = [];
@@ -106,15 +111,31 @@ export function buildLabelPass3D(deps: LabelPass3DDeps): () => void {
       if (sp.z > 1) continue; // behind the camera
       candidates.push({ id, x: sp.x, y: sp.y, priority, text: meta[i].label });
     }
+
+    // Diff the surviving labels against the pool: reuse (reposition) an existing div,
+    // create one only for a newly-labelled node, and remove the divs for nodes that
+    // dropped out this frame. No replaceChildren → no per-frame flicker on orbit.
+    const live = new Set<string>();
     for (const lbl of layoutLabels3D(candidates, layoutOpts)) {
-      const el = document.createElement("div");
-      el.textContent = lbl.text;
-      el.className = "absolute -translate-y-1/2 whitespace-nowrap font-mono text-[11px] leading-none";
+      live.add(lbl.id);
+      let el = pool.get(lbl.id);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "absolute -translate-y-1/2 whitespace-nowrap font-mono text-[11px] leading-none";
+        el.style.textShadow = "0 1px 3px rgba(0,0,0,0.85)";
+        pool.set(lbl.id, el);
+        labelLayer.appendChild(el);
+      }
+      if (el.textContent !== lbl.text) el.textContent = lbl.text;
       el.style.left = `${lbl.x + 10}px`;
       el.style.top = `${lbl.y}px`;
       el.style.color = lbl.id === focus?.center ? SELECTED_HEX : LABEL_HEX;
-      el.style.textShadow = "0 1px 3px rgba(0,0,0,0.85)";
-      labelLayer.appendChild(el);
+    }
+    for (const [id, el] of pool) {
+      if (!live.has(id)) {
+        el.remove();
+        pool.delete(id);
+      }
     }
   };
 }
