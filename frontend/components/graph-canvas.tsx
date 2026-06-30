@@ -89,6 +89,74 @@ function topRegions(regions: readonly FolderRegion[]): FolderRegion[] {
     .slice(0, MAX_REGIONS);
 }
 
+// A small palette of muted, distinct hues so adjacent folder territories read as
+// SEPARATE regions instead of one undifferentiated grey wash. The hue is chosen by
+// a stable hash of the folder path, so a folder keeps its colour across pan/zoom.
+const FOLDER_HUES = [
+  "#60a5fa", // blue
+  "#a78bfa", // violet
+  "#34d399", // emerald
+  "#f59e0b", // amber
+  "#f472b6", // pink
+  "#22d3ee", // cyan
+  "#818cf8", // indigo
+  "#fbbf24", // gold
+] as const;
+
+function hashFolder(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/** The stable territory hue for a folder path. */
+function folderHue(folder: string): string {
+  return FOLDER_HUES[hashFolder(folder) % FOLDER_HUES.length];
+}
+
+/** `#rrggbb` + alpha → an `rgba(...)` string. */
+function withAlpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+/** A fuller folder label (last `segs` path segments) for disambiguation. */
+function folderLabelFull(folder: string, segs: number): string {
+  if (folder === "") return "(root)";
+  const parts = folder.split("/");
+  return parts.length <= segs ? folder : `…/${parts.slice(-segs).join("/")}`;
+}
+
+/** Label each region, expanding any whose short leaf label collides with another's
+ *  (e.g. two `…/internals`) to the MINIMAL number of trailing path segments that
+ *  tells the colliding territories apart (`…/client/src/internals` vs
+ *  `…/server/src/internals`) — never two regions reading as the same ambiguous name. */
+function disambiguateFolderLabels(regions: readonly FolderRegion[]): Map<string, string> {
+  const groups = new Map<string, string[]>();
+  for (const r of regions) {
+    const l = folderLabel(r.folder);
+    const g = groups.get(l);
+    if (g) g.push(r.folder);
+    else groups.set(l, [r.folder]);
+  }
+  const out = new Map<string, string>();
+  for (const [short, folders] of groups) {
+    if (folders.length === 1) {
+      out.set(folders[0], short);
+      continue;
+    }
+    for (const f of folders) {
+      let segs = 2;
+      let label = folderLabelFull(f, segs);
+      while (segs < 6 && folders.some((g) => g !== f && folderLabelFull(g, segs) === label)) {
+        label = folderLabelFull(f, ++segs);
+      }
+      out.set(f, label);
+    }
+  }
+  return out;
+}
+
 /** The manual trace (FR-61) as a path-highlight the reducers already understand,
  * filtered to nodes the current projection actually renders — a step the active
  * projection hides drops out (and its incident trail edge simply matches nothing),
@@ -562,7 +630,10 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
     function drawFolderOverlay(): void {
       while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
       if (!cbRef.current.folderClustered) return;
-      for (const region of topRegions(foldersRef.current)) {
+      const regions = topRegions(foldersRef.current);
+      const labels = disambiguateFolderLabels(regions);
+      for (const region of regions) {
+        const hue = folderHue(region.folder);
         const c = renderer.graphToViewport(region.centroid);
         const screen = region.hull.map((p) => renderer.graphToViewport(p));
         let labelY = c.y;
@@ -578,9 +649,11 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
           const path = document.createElementNS(SVG_NS, "path");
           path.setAttribute("class", "cg-folder-hull");
           path.setAttribute("d", polygonPath(padded));
-          path.setAttribute("fill", "rgba(148,163,184,0.06)");
-          path.setAttribute("stroke", "rgba(148,163,184,0.38)");
-          path.setAttribute("stroke-width", "1");
+          // Each territory gets its OWN tint (stable per folder) so neighbouring
+          // folders read as distinct regions, not one undifferentiated grey wash.
+          path.setAttribute("fill", withAlpha(hue, 0.09));
+          path.setAttribute("stroke", withAlpha(hue, 0.6));
+          path.setAttribute("stroke-width", "1.5");
           path.setAttribute("stroke-linejoin", "round");
           overlay.appendChild(path);
           labelY = Math.min(...padded.map((p) => p.y));
@@ -590,16 +663,17 @@ export function GraphCanvas(props: GraphCanvasProps): React.JSX.Element {
         text.setAttribute("x", c.x.toFixed(1));
         text.setAttribute("y", (labelY - 8).toFixed(1));
         text.setAttribute("text-anchor", "middle");
-        text.setAttribute("fill", "#cbd5e1");
+        // Colour the label to match its hull, tying name → territory; the dark halo
+        // below keeps it legible wherever it crosses nodes/edges.
+        text.setAttribute("fill", hue);
         text.setAttribute("font-size", "11");
+        text.setAttribute("font-weight", "600");
         text.setAttribute("font-family", "ui-monospace, Menlo, monospace");
-        // Paint a dark stroke first, under the fill, for a halo that keeps the label
-        // legible wherever it crosses nodes/edges on the dark canvas.
         text.setAttribute("paint-order", "stroke");
         text.setAttribute("stroke", "#0a0a0a");
-        text.setAttribute("stroke-width", "3");
+        text.setAttribute("stroke-width", "3.5");
         text.setAttribute("stroke-linejoin", "round");
-        text.textContent = folderLabel(region.folder);
+        text.textContent = labels.get(region.folder) ?? folderLabel(region.folder);
         overlay.appendChild(text);
       }
     }
