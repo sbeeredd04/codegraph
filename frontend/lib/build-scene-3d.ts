@@ -89,17 +89,20 @@ export function buildScene3D(input: Scene3DInput, forces: SceneForces): Scene3DM
   // True 3D force-directed layout (replaces the old kind-band z-projection).
   const simNodes: SimNode[] = ids.map((id) => ({ id }));
   const simLinks = edgePairs.map(([source, target]) => ({ source, target }));
+  // Stronger charge + a wider collide floor de-clump dense neighbourhoods so nodes
+  // spread into a legible cloud rather than a tight ball; the smaller render radius
+  // (graph-canvas-3d) then reads the extra spacing as real gaps between distinct nodes.
   const sim = forceSimulation<SimNode>(simNodes, 3)
-    .force("charge", forceManyBody<SimNode>().strength(-34).distanceMax(240))
+    .force("charge", forceManyBody<SimNode>().strength(-46).distanceMax(260))
     .force(
       "link",
       forceLink<SimNode, { source: string; target: string }>(simLinks)
         .id((d) => d.id)
-        .distance(26)
-        .strength(0.45),
+        .distance(30)
+        .strength(0.42),
     )
     .force("center", forceCenter<SimNode>(0, 0, 0))
-    .force("collide", forceCollide<SimNode>(2.2))
+    .force("collide", forceCollide<SimNode>(2.9))
     .stop();
   const iters = Math.min(320, 90 + simNodes.length);
   for (let i = 0; i < iters; i++) sim.tick();

@@ -254,17 +254,17 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       if (!disposed) setContextFailed(false);
       renderer.setSize(widthOf(), heightOf(), false);
 
-      // Lighting: a LOW ambient floor so the directional key actually carves form
-      // (the old 0.72 ambient washed the spheres flat), a cool hemisphere fill for a
-      // natural top-lit gradient, a strong key for the specular highlight that reads
-      // as "sphere", and a cool back-rim to separate nodes from the dark void.
-      scene.add(new THREE.AmbientLight(0xffffff, 0.34));
-      const hemi = new THREE.HemisphereLight(0xc3d2ff, 0x0a0c10, 0.55);
+      // Lighting: a soft, EVEN wash so the palette reads true and every node stays
+      // visible against the void — a lifted ambient floor + cool hemisphere fill, a
+      // GENTLER key (the old strong key on a low-roughness material made the spheres
+      // read as glossy plastic), and a cool back-rim to separate nodes from the dark.
+      scene.add(new THREE.AmbientLight(0xffffff, 0.54));
+      const hemi = new THREE.HemisphereLight(0xc9d6ff, 0x0c0f16, 0.76);
       scene.add(hemi);
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.25);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
       keyLight.position.set(0.6, 1, 0.8);
       scene.add(keyLight);
-      const rimLight = new THREE.DirectionalLight(0x8ba0ff, 0.6);
+      const rimLight = new THREE.DirectionalLight(0x9fb2ff, 0.72);
       rimLight.position.set(-0.7, -0.4, -0.6);
       scene.add(rimLight);
 
@@ -273,7 +273,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       // faceted; lower roughness gives each a crisp specular highlight (was a near-
       // matte 0.5 that flattened them).
       const sphereGeo = new THREE.SphereGeometry(1, 32, 24);
-      const nodeMat = new THREE.MeshStandardMaterial({ roughness: 0.34, metalness: 0.0 });
+      // Near-matte finish: the old 0.34 roughness gave a hard specular highlight that
+      // read as a "glossy bubble". Higher roughness + the softer key above reads as a
+      // solid, professional node whose kind colour stays true under the lifted fill.
+      const nodeMat = new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0.0 });
       const mesh = new THREE.InstancedMesh(sphereGeo, nodeMat, ids.length || 1);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
@@ -381,7 +384,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           else tmpColor.set(drawn);
           mesh.setColorAt(i, tmpColor);
 
-          let r = 0.7 + meta[i].size * 0.16;
+          // Smaller base radius than before (0.7 → 0.55) so nodes sit as distinct points
+          // with visible GAPS between them, not overlapping bubbles (owner: "too much like
+          // bubbles, need farther & better visible"). Emphasis bumps below stay additive.
+          let r = 0.55 + meta[i].size * 0.13;
           if (isCenter) r += 0.9;
           else if (hlColor) r += 0.8;
           else if (markColor || traceColor) r += 0.5;

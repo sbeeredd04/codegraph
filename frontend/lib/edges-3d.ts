@@ -9,7 +9,8 @@ import type * as ThreeNS from "three";
 import { pathEdgeKey } from "@core/graph/path";
 import type { FocusHighlight } from "@core/graph/focus";
 
-const EDGE_BASE = 0x5a6480; // recessive edge tone
+const EDGE_BASE = 0x94a1c8; // resting edge tone — lifted from a near-invisible slate so
+// connections actually read against the dark field (owner: "edges are not visible")
 const EDGE_FOCUS = 0xa78bfa; // brand-violet focus edge (FR-25)
 
 export interface Edges3D {
@@ -48,7 +49,7 @@ export function buildEdges3D(
   }
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62 });
+  const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
   const object = new THREE.LineSegments(geo, material);
   object.frustumCulled = false;
 
@@ -65,7 +66,10 @@ export function buildEdges3D(
       // the node precedence trace > group > kind.
       const isFocus = !isTrace && focus ? focus.edges.has(key) : false;
       const c = isTrace ? colTrace : isFocus ? colFocus : colBase;
-      const f = isTrace || isFocus ? 1 : lensActive ? 0.18 : 0.6;
+      // At rest edges sit bright enough to trace by eye (0.6 → 0.92); once a lens is
+      // armed the off-lens edges recede a touch harder (0.18 → 0.22) so the lit path
+      // still wins, but the whole field never goes invisible again.
+      const f = isTrace || isFocus ? 1 : lensActive ? 0.22 : 0.92;
       const o = i * 6;
       colors[o] = c.r * f;
       colors[o + 1] = c.g * f;
