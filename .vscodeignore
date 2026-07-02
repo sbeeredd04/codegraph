@@ -1,0 +1,59 @@
+# What NOT to ship in the .vsix. The extension runs from the pre-built bundles
+# (dist/ + media/); everything below is source, tests, tooling, or planning cruft
+# that the packaged extension never loads. vsce still auto-includes the PRODUCTION
+# node_modules the externals need at runtime (@vscode/tree-sitter-wasm, ts-morph,
+# pyright, vscode-jsonrpc) — do NOT ignore node_modules or the host would fail to
+# require them.
+
+# --- source (already bundled into dist/ + media/) ---
+src/**
+web/**
+webview/**
+frontend/**
+bench/**
+e2e/**
+
+# --- test fixtures / bench data / seed scripts / mcp artifacts (never loaded at runtime) ---
+fixtures/**
+benchmarks/**
+scripts/**
+.playwright-mcp/**
+
+# --- sourcemaps: big, and never needed at runtime ---
+dist/**/*.map
+media/**/*.map
+
+# --- tooling / config ---
+.dependency-cruiser.cjs
+tsconfig*.json
+esbuild.js
+vitest.config.ts
+playwright.config.ts
+.eslintrc*
+eslint.config.*
+.prettierrc*
+.editorconfig
+.nvmrc
+
+# --- tests colocated anywhere that slipped through ---
+**/*.test.ts
+**/*.test.js
+**/*.spec.ts
+
+# --- planning / agent / VCS cruft ---
+_bmad-output/**
+_bmad/**
+.bmad/**
+.claude/**
+.github/**
+.git/**
+.gitignore
+.vscode/**
+scratchpad/**
+**/.DS_Store
+
+# --- other packaged artifacts / lockfiles not needed in the vsix ---
+*.vsix
+package-lock.json
+CLAUDE.md
+AGENTS.md
