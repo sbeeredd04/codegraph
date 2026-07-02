@@ -89,20 +89,22 @@ export function buildScene3D(input: Scene3DInput, forces: SceneForces): Scene3DM
   // True 3D force-directed layout (replaces the old kind-band z-projection).
   const simNodes: SimNode[] = ids.map((id) => ({ id }));
   const simLinks = edgePairs.map(([source, target]) => ({ source, target }));
-  // Stronger charge + a wider collide floor de-clump dense neighbourhoods so nodes
-  // spread into a legible cloud rather than a tight ball; the smaller render radius
-  // (graph-canvas-3d) then reads the extra spacing as real gaps between distinct nodes.
+  // Spread the cloud MUCH wider (owner: "move the 3D objects a lot farther"). The key
+  // lever under the normalise-to-WORLD step is a big collide floor (a hard local
+  // minimum-separation that survives normalisation) plus long, loose links; charge is
+  // kept LOCAL (short distanceMax) so it de-clumps neighbours without flinging the
+  // disconnected satellite components far enough to shrink the main graph on screen.
   const sim = forceSimulation<SimNode>(simNodes, 3)
-    .force("charge", forceManyBody<SimNode>().strength(-46).distanceMax(260))
+    .force("charge", forceManyBody<SimNode>().strength(-58).distanceMax(150))
     .force(
       "link",
       forceLink<SimNode, { source: string; target: string }>(simLinks)
         .id((d) => d.id)
-        .distance(30)
-        .strength(0.42),
+        .distance(46)
+        .strength(0.3),
     )
     .force("center", forceCenter<SimNode>(0, 0, 0))
-    .force("collide", forceCollide<SimNode>(2.9))
+    .force("collide", forceCollide<SimNode>(6.6))
     .stop();
   const iters = Math.min(320, 90 + simNodes.length);
   for (let i = 0; i < iters; i++) sim.tick();
@@ -121,11 +123,18 @@ export function buildScene3D(input: Scene3DInput, forces: SceneForces): Scene3DM
   cx *= invN;
   cy *= invN;
   cz *= invN;
-  let maxR = 1;
-  for (const n of simNodes) {
-    maxR = Math.max(maxR, Math.hypot((n.x ?? 0) - cx, (n.y ?? 0) - cy, (n.z ?? 0) - cz));
-  }
-  const norm = input.world / maxR;
+  // Normalise by a PERCENTILE radius, not the single farthest node. Disconnected
+  // satellite components fling far out and, under a max-radius scale, they set the
+  // whole size — crushing the main cluster into a tiny dense ball at the centre
+  // (owner: "move the objects a lot farther"). Scaling by the 93rd-percentile radius
+  // lets the main body fill the WORLD sphere; the few true outliers simply extend a
+  // little past it (fog + orbit handle them), so the graph you actually read is spread.
+  const radii = simNodes
+    .map((n) => Math.hypot((n.x ?? 0) - cx, (n.y ?? 0) - cy, (n.z ?? 0) - cz))
+    .sort((a, b) => a - b);
+  const pIdx = Math.floor(0.93 * (radii.length - 1));
+  const scaleR = Math.max(1, radii[pIdx] ?? 1);
+  const norm = input.world / scaleR;
   const positions = simNodes.map((n) => ({
     x: ((n.x ?? 0) - cx) * norm,
     y: ((n.y ?? 0) - cy) * norm,

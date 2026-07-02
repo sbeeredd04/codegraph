@@ -29,8 +29,8 @@ export interface LabelPass3DDeps {
   readonly labelLayer: HTMLElement;
   /** address → layout index, for resolving a node to its position + meta. */
   readonly indexOf: ReadonlyMap<string, number>;
-  /** Per-index node meta — only the label text is read here. */
-  readonly meta: readonly { readonly label: string }[];
+  /** Per-index node meta — label text, plus id + size to rank the ambient base labels. */
+  readonly meta: readonly { readonly id: string; readonly size: number; readonly label: string }[];
   /** Per-index world positions (three Vector3). */
   readonly positions: readonly ThreeNS.Vector3[];
   /** Project a world position to screen px (+ z>1 == behind the camera). */
@@ -57,8 +57,20 @@ export interface LabelPass3DDeps {
  * important (placed first, never displaced): selected/center < hover < driver-
  * highlight < mark < trace < focus-neighbour / lit shell.
  */
+const BASE_HEX = "#7f8ba1"; // ambient base label — dimmer than an interactive one
+
 export function buildLabelPass3D(deps: LabelPass3DDeps): () => void {
   const { labelLayer, indexOf, meta, positions, projectToScreen } = deps;
+  // Ambient base labels (owner: "show the names of the objects without cluttering"):
+  // at rest — no focus/lens — label the most SIGNIFICANT nodes (biggest = most
+  // connected) so the field is readable without a click. Precomputed once (stable →
+  // no flicker); the screen-space de-collision pass then drops any that would overlap,
+  // so a dense area stays clean while the wider T8.11 layout lets more names survive.
+  const baseLabelIds = meta
+    .map((m, i) => ({ id: m.id, size: m.size, i }))
+    .sort((a, b) => b.size - a.size || a.id.localeCompare(b.id))
+    .slice(0, 18)
+    .map((e) => e.id);
   // Pool of label <div>s keyed by node address, reused across frames so an orbit
   // REPOSITIONS existing elements instead of destroying + recreating every label
   // each frame — the recreate churn was the source of the label flicker/pop during
@@ -101,6 +113,12 @@ export function buildLabelPass3D(deps: LabelPass3DDeps): () => void {
     const trace = deps.trace();
     if (trace) for (const id of trace) bid(id, 4); // FR-61
 
+    // Ambient base labels only at REST — a focus / layer lens should spotlight, not
+    // drown the view in every name. Lowest priority (6): any interactive label wins,
+    // and de-collision fills only the leftover screen space with these context names.
+    const restful = !focus && !(layers && layers.size > 0);
+    if (restful) for (const id of baseLabelIds) bid(id, 6);
+
     // Project the candidates (drop ones behind the camera), then de-collide in screen
     // space so the high-priority label wins a crowded cluster.
     const candidates: LabelCandidate[] = [];
@@ -129,7 +147,8 @@ export function buildLabelPass3D(deps: LabelPass3DDeps): () => void {
       if (el.textContent !== lbl.text) el.textContent = lbl.text;
       el.style.left = `${lbl.x + 10}px`;
       el.style.top = `${lbl.y}px`;
-      el.style.color = lbl.id === focus?.center ? SELECTED_HEX : LABEL_HEX;
+      el.style.color =
+        lbl.id === focus?.center ? SELECTED_HEX : prio.get(lbl.id) === 6 ? BASE_HEX : LABEL_HEX;
     }
     for (const [id, el] of pool) {
       if (!live.has(id)) {

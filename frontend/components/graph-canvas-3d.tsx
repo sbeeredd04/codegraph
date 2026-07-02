@@ -384,10 +384,10 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
           else tmpColor.set(drawn);
           mesh.setColorAt(i, tmpColor);
 
-          // Smaller base radius than before (0.7 → 0.55) so nodes sit as distinct points
-          // with visible GAPS between them, not overlapping bubbles (owner: "too much like
-          // bubbles, need farther & better visible"). Emphasis bumps below stay additive.
-          let r = 0.55 + meta[i].size * 0.13;
+          // Smaller base radius (0.55 → 0.44) so the wider layout reads as distinct points
+          // with generous gaps, not overlapping bubbles (owner: "farther & better visible").
+          // Emphasis bumps below stay additive so a selected/hovered node still pops.
+          let r = 0.44 + meta[i].size * 0.11;
           if (isCenter) r += 0.9;
           else if (hlColor) r += 0.8;
           else if (markColor || traceColor) r += 0.5;
