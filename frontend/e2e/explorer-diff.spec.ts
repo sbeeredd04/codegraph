@@ -235,3 +235,40 @@ test("FR-69: the 3D surface paints the same added/changed/moved diff hues", asyn
 
   await page.screenshot({ path: `${SHOT}/diff-3d.png` });
 });
+
+// T8.6 — "Diff needs to work" on the web plane. The website has no live re-index
+// channel, so the ONLY way a user could trigger a diff was switching to an unrelated
+// dataset, which reads as "everything added / everything removed" and looks broken.
+// The empty state now offers "Try a sample diff": a realistic synthetic earlier
+// version of THIS graph (lib/sample-diff), so the lens lights up a believable
+// added/removed/changed/moved mix the user can actually read.
+test("T8.6: 'Try a sample diff' shows a realistic same-repo delta of all four kinds", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  await page.getByRole("button", { name: "Diff" }).click();
+  await expect(page.getByTestId("diff-panel")).toBeVisible();
+  // The web plane surfaces the sample-diff affordance (withheld in the extension).
+  const sample = page.getByTestId("diff-sample");
+  await expect(sample).toBeVisible();
+  await sample.click();
+
+  // Every change kind fires — the whole point is a believable mix, not all-one-colour.
+  const rowsOf = (kind: string) => page.locator(`[data-testid="diff-row"][data-change="${kind}"]`);
+  await expect.poll(async () => rowsOf("added").count()).toBeGreaterThan(0);
+  expect(await rowsOf("removed").count()).toBeGreaterThan(0);
+  expect(await rowsOf("changed").count()).toBeGreaterThan(0);
+  expect(await rowsOf("moved").count()).toBeGreaterThan(0);
+
+  // The header total is a positive number (a real delta, not the empty state).
+  const total = Number(await page.getByTestId("diff-count").textContent());
+  expect(total).toBeGreaterThan(0);
+
+  // An added row jumps to a REAL node on the board (FR-25 focus) → detail opens.
+  await rowsOf("added").first().locator("button").click();
+  await expect(page.getByTestId("detail-body")).toBeVisible();
+
+  await page.screenshot({ path: `${SHOT}/diff-sample.png` });
+});

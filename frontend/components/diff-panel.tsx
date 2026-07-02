@@ -24,6 +24,10 @@ interface DiffPanelProps {
   readonly feed: readonly RankedChange[];
   /** Pin the current graph as the baseline to compare against. */
   readonly onSetBaseline: () => void;
+  /** Pin a realistic synthetic earlier version so the lens has something to show where
+   * there's no live re-index channel (web plane). Omitted in the extension, which
+   * re-scans for a real diff. */
+  readonly onSampleDiff?: () => void;
   /** Drop the baseline back to the empty state. */
   readonly onClearBaseline: () => void;
   /** Select + frame a changed node (added / changed / moved). */
@@ -43,6 +47,7 @@ export function DiffPanel({
   counts,
   feed,
   onSetBaseline,
+  onSampleDiff,
   onClearBaseline,
   onJump,
   onClose,
@@ -98,8 +103,8 @@ export function DiffPanel({
         // Empty state — guide the user to pin a reference point.
         <div className="flex flex-col gap-3 px-4 py-5">
           <p className="text-[11px] leading-relaxed text-zinc-500">
-            Pin the current graph as a baseline, then re-index your repo (or switch datasets) to see exactly
-            what was added, removed, changed, or moved — ranked by how much depends on it.
+            Pin the current graph as a baseline, then re-index your repo to see exactly what was added,
+            removed, changed, or moved — ranked by how much depends on it.
           </p>
           <button
             data-testid="diff-set-baseline"
@@ -108,6 +113,17 @@ export function DiffPanel({
           >
             <GitCompare size={13} /> Set baseline
           </button>
+          {onSampleDiff && (
+            // No live re-index channel here (web plane) — let the user see the lens work
+            // immediately against a realistic synthetic "previous version" of this graph.
+            <button
+              data-testid="diff-sample"
+              onClick={onSampleDiff}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-[11px] font-medium text-zinc-400 transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              Try a sample diff
+            </button>
+          )}
         </div>
       ) : (
         <>

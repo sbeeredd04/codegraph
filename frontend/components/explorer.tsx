@@ -706,6 +706,9 @@ export function Explorer({
             counts={diff.result?.counts ?? null}
             feed={diff.result?.feed ?? []}
             onSetBaseline={diff.captureBaseline}
+            // Web plane has no live re-index channel, so offer a realistic sample diff;
+            // the extension re-scans for a real one, so it's withheld there.
+            onSampleDiff={isWebviewHost() ? undefined : diff.applySampleBaseline}
             onClearBaseline={diff.clearBaseline}
             onJump={jumpTo}
             onClose={() => diff.setDiffMode(false)}

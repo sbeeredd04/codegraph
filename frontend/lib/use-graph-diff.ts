@@ -12,6 +12,7 @@ import {
   type GraphSnapshotInput,
   type GraphDiffResult,
 } from "./graph-diff";
+import { sampleBaseline } from "./sample-diff";
 
 export interface GraphDiffController {
   /** Diff lens armed (toolbar toggle). */
@@ -22,6 +23,9 @@ export interface GraphDiffController {
   readonly hasBaseline: boolean;
   /** Pin the current graph as the baseline (the panel's "Set baseline"). */
   readonly captureBaseline: () => void;
+  /** Pin a realistic synthetic "previous version" of the current graph so the lens
+   * shows a believable delta where there's no live re-index channel (web plane). */
+  readonly applySampleBaseline: () => void;
   /** Drop the baseline back to the empty state. */
   readonly clearBaseline: () => void;
   /** The computed delta (tint map + counts + ranked feed), or null when not armed
@@ -45,6 +49,13 @@ export function useGraphDiff(
   const toggleDiff = useCallback(() => setDiffModeState((v) => !v), []);
   const setDiffMode = useCallback((on: boolean) => setDiffModeState(on), []);
   const captureBaseline = useCallback(() => setBaseline({ nodes, edges }), [nodes, edges]);
+  // Arm the lens against a fabricated earlier snapshot of THIS graph (sample-diff),
+  // so the web plane (no live channel) can show a real added/removed/changed/moved mix
+  // instead of the meaningless all-added diff you get by switching to another dataset.
+  const applySampleBaseline = useCallback(() => {
+    setDiffModeState(true);
+    setBaseline(sampleBaseline({ nodes, edges }));
+  }, [nodes, edges]);
   const clearBaseline = useCallback(() => setBaseline(null), []);
 
   // E2E hook (dev only — `process.env.NODE_ENV` is statically "production" in the
@@ -73,6 +84,7 @@ export function useGraphDiff(
     setDiffMode,
     hasBaseline: baseline != null,
     captureBaseline,
+    applySampleBaseline,
     clearBaseline,
     result,
   };
