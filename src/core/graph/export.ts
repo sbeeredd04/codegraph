@@ -50,6 +50,14 @@ export interface ExportOptions {
   readonly overlays?: readonly Overlay[];
   readonly generatedAt?: string;
   readonly root?: string;
+  /**
+   * Keep host-local node fields (`doc`, `examples`) in the output. DEFAULT false —
+   * the portable/cloud-facing snapshot strips them (AD-14). Set true ONLY for the
+   * live LOCAL-plane message (the in-editor webview, `codegraph serve`), which runs
+   * on the host where the source already lives, so a node's docstring can drive the
+   * FR-60 fallback note. Never set on an exported-to-file or cloud snapshot.
+   */
+  readonly keepHostLocal?: boolean;
 }
 
 /**
@@ -72,10 +80,12 @@ export function exportGraphSnapshot(
     nodeCount: nodes.length,
     edgeCount: edges.length,
     // The portable snapshot is the cloud-facing artifact (AD-14: source-blind).
-    // `doc` is developer prose lifted from source — host-local only — so it is
-    // stripped here and rides only the live local-plane message, mirroring how
-    // the editor root never enters the snapshot. Structural fields pass through.
-    nodes: nodes.map(stripHostLocal),
+    // `doc`/`examples` are developer prose/values lifted from source — host-local
+    // only — so they are stripped here UNLESS this is the live local-plane message
+    // (keepHostLocal), which runs on the host and drives the FR-60 docstring note.
+    // Mirrors how the editor root never enters a portable snapshot. Structural fields
+    // always pass through.
+    nodes: opts.keepHostLocal ? [...nodes] : nodes.map(stripHostLocal),
     edges: [...edges],
     ...(enrichments ? { enrichments } : {}),
     ...(diagrams ? { diagrams } : {}),

@@ -14,6 +14,7 @@ const PY_CONFIG: LanguageConfig = {
   nameField: "name",
   bodyField: "body",
   unwrap: { type: "decorated_definition", field: "definition" },
+  doc: { kind: "body-docstring", stringType: "string" }, // FR-60: leading docstring
 };
 
 export function createPythonAdapter(wasmDir: string): Promise<LanguageAdapter> {

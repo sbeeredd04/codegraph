@@ -480,6 +480,9 @@ export function activate(context: vscode.ExtensionContext): void {
       overlays,
       generatedAt: new Date().toISOString(),
       root: active.folderPath,
+      // The webview is the LOCAL plane (runs on the host) — keep each node's docstring
+      // so the FR-60 fallback note renders; the file/report exports still strip it.
+      keepHostLocal: true,
     });
     // Pass the transient command-queue path so the panel tails the agent's live
     // presentation directives (FR-39) — the MCP server emits onto the same path

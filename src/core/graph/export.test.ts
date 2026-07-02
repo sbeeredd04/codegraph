@@ -59,6 +59,20 @@ describe("exportGraphSnapshot", () => {
     expect(snap.nodes[0]).toBe(nodes[0]);
   });
 
+  it("KEEPS host-local `doc`/`examples` for the live local-plane message (keepHostLocal, FR-60)", () => {
+    const withHostLocal: GraphNode[] = [
+      { ...node("ts:a.ts#fn", "function"), doc: "/** local docstring */", examples: ["fn() → 1"] },
+    ];
+    // The in-editor webview runs on the host, so its snapshot carries the docstring
+    // that drives the FR-60 fallback note — while the default (portable) export strips it.
+    const local = exportGraphSnapshot(withHostLocal, [], { keepHostLocal: true });
+    expect(local.nodes[0].doc).toBe("/** local docstring */");
+    expect(local.nodes[0].examples).toEqual(["fn() → 1"]);
+    const portable = exportGraphSnapshot(withHostLocal, []);
+    expect(portable.nodes[0]).not.toHaveProperty("doc");
+    expect(portable.nodes[0]).not.toHaveProperty("examples");
+  });
+
   it("includes the injected metadata without reaching for a clock itself (pure core)", () => {
     const snap = exportGraphSnapshot(nodes, edges, {
       generatedAt: "2026-06-27T00:00:00.000Z",

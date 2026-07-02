@@ -58,4 +58,23 @@ describe("TypeScriptAdapter (tree-sitter skeleton)", () => {
   it("declares its language", () => {
     expect(adapter.language).toBe("typescript");
   });
+
+  // FR-60: capture the leading JSDoc/comment into node.doc for the docstring-fallback
+  // note. The raw comment (delimiters intact) is stored; @core/docs/doc-note cleans it.
+  it("captures a leading JSDoc/comment as node.doc (FR-60)", () => {
+    const withDoc = [
+      "/** Signs a user in and returns them. */",
+      "export function login(u) { return u; }",
+      "function bare() {}",
+      "class Svc {",
+      "  // a plain leading comment",
+      "  run() {}",
+      "}",
+    ].join("\n");
+    const { nodes } = adapter.parseFile("src/svc.ts", withDoc);
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#login")?.doc).toContain("Signs a user in");
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#Svc.run")?.doc).toContain("a plain leading comment");
+    // A node with no leading comment carries no doc (the field is omitted, not empty).
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#bare")).not.toHaveProperty("doc");
+  });
 });

@@ -55,6 +55,28 @@ describe("PythonAdapter (tree-sitter skeleton)", () => {
     expect(contains).toContain("py:auth.py#Auth=>py:auth.py#Auth.sign_in");
   });
 
+  // FR-60: capture the leading docstring (first bare string in the body) into node.doc.
+  it("captures a leading docstring as node.doc (FR-60)", () => {
+    const withDoc = [
+      '"""Module: the auth service."""',
+      "def login(u):",
+      '    """Log the user in and return them."""',
+      "    return u",
+      "class Svc:",
+      '    """A service."""',
+      "    def run(self):",
+      "        return 1",
+      "def bare():",
+      "    return 2",
+    ].join("\n");
+    const { nodes } = adapter.parseFile("svc.py", withDoc);
+    expect(nodes.find((n) => n.kind === "module")?.doc).toContain("the auth service");
+    expect(nodes.find((n) => n.address === "py:svc.py#login")?.doc).toContain("Log the user in");
+    expect(nodes.find((n) => n.address === "py:svc.py#Svc")?.doc).toContain("A service");
+    expect(nodes.find((n) => n.address === "py:svc.py#Svc.run")).not.toHaveProperty("doc");
+    expect(nodes.find((n) => n.address === "py:svc.py#bare")).not.toHaveProperty("doc");
+  });
+
   it("declares its language", () => {
     expect(adapter.language).toBe("python");
   });

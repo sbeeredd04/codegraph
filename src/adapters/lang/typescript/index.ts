@@ -13,6 +13,7 @@ const TS_CONFIG: LanguageConfig = {
   nameField: "name",
   bodyField: "body",
   unwrap: { type: "export_statement", field: "declaration" },
+  doc: { kind: "preceding-comment", commentType: "comment" }, // FR-60: leading JSDoc/comment
 };
 
 export function createTypeScriptAdapter(wasmDir: string): Promise<LanguageAdapter> {
