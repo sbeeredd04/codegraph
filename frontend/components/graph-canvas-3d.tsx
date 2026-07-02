@@ -51,11 +51,24 @@ const MOVIE_CLOSE_RADIUS = WORLD * 1.2; // close-up orbit distance per movie sto
 // lives in lib/label-pass-3d; the surface just wires live getters to it.
 const SVG_NS = "http://www.w3.org/2000/svg"; // FR-57b region-overlay polygons
 
+/** Keep a lost GL context RESTORABLE. Without preventDefault a lost context is gone
+ *  for good and the canvas stays white forever. */
+function preventContextLoss(e: Event): void {
+  e.preventDefault();
+}
+
 export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const regionsRef = useRef<SVGSVGElement>(null); // FR-57b package-region overlay
+  // ONE persisted WebGL renderer, reused across dataset / projection / data rebuilds
+  // so we never churn GL contexts — recreating it on every change exhausted the
+  // browser's context pool and white-crashed the surface (`Cannot read null
+  // (precision)`). Disposed only on TRUE unmount (the mount effect below). If a
+  // context can't be created, `contextFailed` drives a graceful dark fallback.
+  const rendererRef = useRef<ThreeNS.WebGLRenderer | null>(null);
+  const [contextFailed, setContextFailed] = useState(false);
   const cbRef = useRef(props);
   // The current focus lens (FR-25) + a handle to the live frame's redraw, both set
   // by the heavy effect, read by the light selection effect below.
@@ -205,21 +218,41 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
       });
       const camera = cam.camera;
 
-      const renderer = new THREE.WebGLRenderer({
-        canvas,
-        antialias: true,
-        alpha: false,
-        powerPreference: "high-performance",
-      });
-      renderer.setPixelRatio(dpr);
+      // Reuse the persisted renderer, or lazily create ONE against the stable <canvas>.
+      // A failed/absent context degrades to the dark fallback instead of crashing.
+      let renderer: ThreeNS.WebGLRenderer;
+      if (rendererRef.current) {
+        renderer = rendererRef.current;
+      } else {
+        let created: ThreeNS.WebGLRenderer | null = null;
+        try {
+          created = new THREE.WebGLRenderer({
+            canvas,
+            antialias: true,
+            alpha: false,
+            powerPreference: "high-performance",
+          });
+        } catch {
+          created = null;
+        }
+        if (!created || !created.getContext()) {
+          created?.dispose();
+          if (!disposed) setContextFailed(true);
+          return;
+        }
+        created.setPixelRatio(dpr);
+        // Filmic tone mapping + sRGB output so the dark palette renders with clean,
+        // graded contrast instead of muddy mid-tones — the spheres read as lit
+        // volumes, not flat discs. ColorManagement is on by default in three ≥ r152.
+        created.toneMapping = THREE.ACESFilmicToneMapping;
+        created.toneMappingExposure = 1.12;
+        created.outputColorSpace = THREE.SRGBColorSpace;
+        canvas.addEventListener("webglcontextlost", preventContextLoss);
+        rendererRef.current = created;
+        renderer = created;
+      }
+      if (!disposed) setContextFailed(false);
       renderer.setSize(widthOf(), heightOf(), false);
-      // Filmic tone mapping + sRGB output so the dark palette renders with clean,
-      // graded contrast instead of muddy mid-tones — the spheres read as lit volumes,
-      // not flat discs. ColorManagement is on by default in three ≥ r152, so the
-      // sRGB hex node colours convert correctly through the pipeline.
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.12;
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
 
       // Lighting: a LOW ambient floor so the directional key actually carves form
       // (the old 0.72 ambient washed the spheres flat), a cool hemisphere fill for a
@@ -736,8 +769,8 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         edges.dispose();
         entryMarkers.dispose();
         mesh.dispose();
-        renderer.dispose();
-        renderer.forceContextLoss();
+        // NOTE: the renderer is NOT disposed here — it persists across data rebuilds
+        // (see rendererRef) and is torn down only on true unmount (mount effect below).
         labelLayer.replaceChildren();
         regionLayer.replaceChildren();
         highlightRef.current = null;
@@ -751,9 +784,42 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
     };
   }, [props.nodes, props.edges, props.projection]);
 
+  // Dispose the persisted WebGL renderer ONLY when the surface truly unmounts (e.g.
+  // switching to 2D), freeing its GL context — never on a data/projection rebuild.
+  // This is what keeps the context count bounded (one per live 3D mount).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    return () => {
+      canvas?.removeEventListener("webglcontextlost", preventContextLoss);
+      const r = rendererRef.current;
+      if (r) {
+        r.dispose();
+        r.forceContextLoss();
+        rendererRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <div ref={containerRef} data-surface="3d" className="absolute inset-0">
       <canvas ref={canvasRef} className="absolute inset-0 size-full cursor-grab active:cursor-grabbing" />
+
+      {/* Graceful fallback if a WebGL context can't be created (out of contexts /
+          WebGL off) — a calm dark card, never the white crash the owner hit. */}
+      {contextFailed && (
+        <div
+          data-testid="surface3d-fallback"
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#0e0f13] px-6 text-center"
+        >
+          <span className="grid size-11 place-items-center rounded-full bg-zinc-800/70 text-zinc-400">
+            <Orbit size={22} />
+          </span>
+          <p className="max-w-xs text-sm leading-relaxed text-zinc-300">
+            3D rendering is paused — the browser ran out of graphics contexts. Switch to{" "}
+            <span className="font-semibold text-zinc-100">2D</span>, or reload the page to restore it.
+          </p>
+        </div>
+      )}
       {/* FR-57b: package-region hulls — a recessive wash over the nodes, under the
           labels. Painted imperatively in the render loop (lib/package-regions-3d). */}
       <svg
