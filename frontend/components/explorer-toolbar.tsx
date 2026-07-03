@@ -162,6 +162,19 @@ export function ExplorerToolbar({
   traceStatus,
   hoveredLabel,
 }: ExplorerToolbarProps): React.JSX.Element {
+  // Why a 2D-only control is unavailable (T8.9). We render these as aria-disabled
+  // (not the native `disabled` attribute, which swallows hover so the reason can
+  // never surface) + a click guard, so the button stays hoverable, focusable, and
+  // screen-reader-announced — the user learns WHY, instead of a dead grey button.
+  const foldersDisabledReason =
+    renderMode === "3d" ? "Folders is a 2D-only view — switch to 2D to cluster by folder" : null;
+  const orphansDisabledReason =
+    renderMode === "3d"
+      ? "Orphans is a 2D-only view — switch to 2D to spotlight unreferenced nodes"
+      : orphanCount === 0
+        ? "No orphan (unreferenced) nodes in this graph"
+        : null;
+
   return (
     <header className="z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-800 bg-[#0e0f13]/90 px-4 py-2.5 backdrop-blur">
       <div className="flex items-center gap-2.5">
@@ -292,16 +305,21 @@ export function ExplorerToolbar({
         </button>
       )}
 
-      {/* Folder clustering (FR-26) — gather nodes into per-folder regions; 2D only */}
+      {/* Folder clustering (FR-26) — gather nodes into per-folder regions; 2D only.
+          aria-disabled (not native disabled) so the "why" tooltip stays reachable. */}
       <button
         aria-pressed={folderClustered}
-        disabled={renderMode === "3d"}
-        title="Gather nodes into per-folder regions"
-        onClick={onToggleFolders}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-          folderClustered
-            ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"
-            : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+        aria-disabled={foldersDisabledReason != null || undefined}
+        title={foldersDisabledReason ?? "Gather nodes into per-folder regions"}
+        onClick={() => {
+          if (!foldersDisabledReason) onToggleFolders();
+        }}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          foldersDisabledReason
+            ? "cursor-not-allowed border-zinc-800 bg-zinc-900/60 text-zinc-600 opacity-50"
+            : folderClustered
+              ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"
+              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
         }`}
       >
         <FolderIcon size={14} /> Folders
@@ -338,15 +356,21 @@ export function ExplorerToolbar({
         </div>
       )}
 
-      {/* Orphan overlay (FR-12) — 2D only for now */}
+      {/* Orphan overlay (FR-12) — 2D only for now. aria-disabled + click guard so a
+          dimmed button still explains WHY (no orphans, or 3D) instead of dead-ending. */}
       <button
         aria-pressed={orphanMode}
-        disabled={orphanCount === 0 || renderMode === "3d"}
-        onClick={onToggleOrphans}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-          orphanMode
-            ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
-            : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+        aria-disabled={orphansDisabledReason != null || undefined}
+        title={orphansDisabledReason ?? "Spotlight orphan (unreferenced) nodes"}
+        onClick={() => {
+          if (!orphansDisabledReason) onToggleOrphans();
+        }}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          orphansDisabledReason
+            ? "cursor-not-allowed border-zinc-800 bg-zinc-900/60 text-zinc-600 opacity-50"
+            : orphanMode
+              ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
+              : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
         }`}
       >
         <Ghost size={14} /> Orphans <span className="font-mono">{orphanCount}</span>

@@ -21,8 +21,11 @@ test("toggles between the 2D and 3D render surfaces", async ({ page }) => {
   await expect(to3d).toHaveAttribute("aria-pressed", "true");
   await expect(to2d).toHaveAttribute("aria-pressed", "false");
 
-  // Orphans stays 2D-only (disabled in 3D); Trace (FR-61) works on both surfaces.
-  await expect(page.getByRole("button", { name: /Orphans/ })).toBeDisabled();
+  // Orphans stays 2D-only in 3D — but as an aria-disabled control that still explains
+  // WHY on hover (T8.9), not a dead native-disabled button. Trace works on both.
+  const orphans = page.getByRole("button", { name: /Orphans/ });
+  await expect(orphans).toHaveAttribute("aria-disabled", "true");
+  await expect(orphans).toHaveAttribute("title", /2D-only/);
   await expect(page.getByRole("button", { name: "Trace" })).toBeEnabled();
 
   // Switch back — the 3D surface unmounts, the 2D canvas returns.
@@ -30,4 +33,24 @@ test("toggles between the 2D and 3D render surfaces", async ({ page }) => {
   await expect(page.locator('[data-surface="3d"]')).toHaveCount(0);
   await expect(to2d).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("canvas").first()).toBeVisible();
+});
+
+// T8.9 — a 2D-only control in 3D must read as intentionally disabled (a discoverable
+// reason on hover, kept reachable by aria-disabled instead of native `disabled`), and
+// clicking it must be an inert no-op — never a dead grey button with no explanation.
+test("2D-only controls stay reachable + explain themselves when disabled in 3D", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "3d", exact: true }).click();
+  await expect(page.locator('[data-surface="3d"] canvas')).toBeVisible();
+
+  const folders = page.getByRole("button", { name: "Folders" });
+  // aria-disabled (not native `disabled`) → the button still receives hover in the
+  // browser, so its reason tooltip is discoverable; the reason names the constraint.
+  await expect(folders).toHaveAttribute("aria-disabled", "true");
+  await expect(folders).toHaveAttribute("title", /Folders is a 2D-only view/);
+
+  // The onClick is guarded: even forcing a click past the aria-disabled state (which
+  // Playwright otherwise treats as un-actionable) never toggles it on.
+  await folders.click({ force: true });
+  await expect(folders).toHaveAttribute("aria-pressed", "false");
 });
