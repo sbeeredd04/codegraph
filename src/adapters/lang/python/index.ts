@@ -15,6 +15,9 @@ const PY_CONFIG: LanguageConfig = {
   bodyField: "body",
   unwrap: { type: "decorated_definition", field: "definition" },
   doc: { kind: "body-docstring", stringType: "string" }, // FR-60: leading docstring
+  // FR-82: Python's `return_type` field is the BARE type (e.g. `str`), so join it
+  // with the ` -> ` arrow to mirror the source `def f(a: int) -> str:` form.
+  signature: { paramsField: "parameters", returnField: "return_type", returnPrefix: " -> " },
 };
 
 export function createPythonAdapter(wasmDir: string): Promise<LanguageAdapter> {

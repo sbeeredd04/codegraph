@@ -38,6 +38,20 @@ export interface LanguageConfig {
   readonly doc?:
     | { readonly kind: "preceding-comment"; readonly commentType: string }
     | { readonly kind: "body-docstring"; readonly stringType: string };
+  /**
+   * How to capture a function/method's STRUCTURAL signature into `GraphNode.signature`
+   * (FR-82): the parameter list + return type read straight off the declaration's
+   * tree-sitter fields. `returnPrefix` joins the return type — "" for TS (its
+   * `return_type` field text already includes the leading `: `), " -> " for Python
+   * (its `return_type` field is the bare type). Types/annotations are structural API
+   * metadata, NOT source bytes, so the signature is cloud-safe (AD-14) and is fed to
+   * parseSignature (FR-59 I/O, T8.8 trace) and the lookup haystack. Omit to skip.
+   */
+  readonly signature?: {
+    readonly paramsField: string;
+    readonly returnField: string;
+    readonly returnPrefix: string;
+  };
 }
 
 function loc(node: TsNode, file: string) {
@@ -77,6 +91,18 @@ function extractDoc(decl: TsNode, prev: TsNode | null, config: LanguageConfig): 
   return body ? docFromStatements(body.namedChildren, d.stringType) : undefined;
 }
 
+/** Build a function/method's structural signature (FR-82): `name(params)` plus the
+ *  return type when the declaration has one. `undefined` when there's no signature
+ *  config or the declaration has no parameter list (e.g. a class has no params). */
+function extractSignature(decl: TsNode, name: string, config: LanguageConfig): string | undefined {
+  const sig = config.signature;
+  if (!sig) return undefined;
+  const params = decl.childForFieldName(sig.paramsField)?.text;
+  if (params === undefined) return undefined;
+  const ret = decl.childForFieldName(sig.returnField)?.text;
+  return `${name}${params}${ret ? sig.returnPrefix + ret : ""}`;
+}
+
 export function extractSkeleton(
   root: TsNode,
   filePath: string,
@@ -107,6 +133,17 @@ function withDoc(node: GraphNode, doc: string | undefined): GraphNode {
   return doc ? { ...node, doc } : node;
 }
 
+/** Attach doc + structural signature (FR-82) to a callable node, omitting each field
+ *  when absent. `signature` is structural (types, not source bytes) so — unlike `doc`
+ *  — it is NOT host-local and rides the portable snapshot (AD-14). */
+function callableNode(
+  node: GraphNode,
+  doc: string | undefined,
+  signature: string | undefined,
+): GraphNode {
+  return withDoc(signature ? { ...node, signature } : node, doc);
+}
+
 function collect(
   node: TsNode,
   prev: TsNode | null,
@@ -122,7 +159,7 @@ function collect(
   if (config.functionTypes.includes(decl.type)) {
     const name = decl.childForFieldName(config.nameField)?.text;
     if (!name) return;
-    nodes.push(withDoc({ address: addr(name), kind: "function", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config)));
+    nodes.push(callableNode({ address: addr(name), kind: "function", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config), extractSignature(decl, name, config)));
     edges.push({ from: moduleAddress, to: addr(name), type: "contains" });
     return;
   }
@@ -143,7 +180,7 @@ function collect(
       const methodName = m.childForFieldName(config.nameField)?.text;
       if (!methodName) continue;
       const methodAddress = `${classAddress}.${methodName}`;
-      nodes.push(withDoc({ address: methodAddress, kind: "method", name: methodName, location: loc(m, filePath) }, extractDoc(m, members[j - 1] ?? null, config)));
+      nodes.push(callableNode({ address: methodAddress, kind: "method", name: methodName, location: loc(m, filePath) }, extractDoc(m, members[j - 1] ?? null, config), extractSignature(m, methodName, config)));
       edges.push({ from: classAddress, to: methodAddress, type: "contains" });
     }
   }

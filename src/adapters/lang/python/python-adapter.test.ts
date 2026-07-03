@@ -77,6 +77,31 @@ describe("PythonAdapter (tree-sitter skeleton)", () => {
     expect(nodes.find((n) => n.address === "py:svc.py#bare")).not.toHaveProperty("doc");
   });
 
+  // FR-82: capture a compact structural signature. Python's return_type field is the
+  // BARE type, so the walker joins it with ` -> ` to mirror `def f(a: int) -> str:`.
+  it("captures an annotated signature with params and return type (FR-82)", () => {
+    const src = [
+      "def login(u: str, remember: bool = False) -> User:",
+      "    return u",
+      "def bare(x):",
+      "    return x",
+      "class Svc:",
+      "    def run(self, id: int) -> None:",
+      "        return None",
+      "    def plain(self, a, b):",
+      "        return a",
+    ].join("\n");
+    const { nodes } = adapter.parseFile("svc.py", src);
+    // Annotated params + return type, joined with the ` -> ` arrow.
+    expect(nodes.find((n) => n.address === "py:svc.py#login")?.signature).toBe(
+      "login(u: str, remember: bool = False) -> User",
+    );
+    expect(nodes.find((n) => n.address === "py:svc.py#Svc.run")?.signature).toBe("run(self, id: int) -> None");
+    // Unannotated: just the bare param list, no arrow (return_type field absent).
+    expect(nodes.find((n) => n.address === "py:svc.py#bare")?.signature).toBe("bare(x)");
+    expect(nodes.find((n) => n.address === "py:svc.py#Svc.plain")?.signature).toBe("plain(self, a, b)");
+  });
+
   it("declares its language", () => {
     expect(adapter.language).toBe("python");
   });

@@ -14,6 +14,9 @@ const TS_CONFIG: LanguageConfig = {
   bodyField: "body",
   unwrap: { type: "export_statement", field: "declaration" },
   doc: { kind: "preceding-comment", commentType: "comment" }, // FR-60: leading JSDoc/comment
+  // FR-82: TS's `return_type` field text already includes the leading `: ` (it's a
+  // `type_annotation`), so returnPrefix is empty — the raw fields compose directly.
+  signature: { paramsField: "parameters", returnField: "return_type", returnPrefix: "" },
 };
 
 export function createTypeScriptAdapter(wasmDir: string): Promise<LanguageAdapter> {

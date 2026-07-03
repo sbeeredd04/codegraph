@@ -77,4 +77,29 @@ describe("TypeScriptAdapter (tree-sitter skeleton)", () => {
     // A node with no leading comment carries no doc (the field is omitted, not empty).
     expect(nodes.find((n) => n.address === "ts:src/svc.ts#bare")).not.toHaveProperty("doc");
   });
+
+  // FR-82: capture a compact structural signature (typed params + return type) so
+  // parseSignature (FR-59 IO), the trace-step view (T8.8), and the lookup haystack
+  // all light up. It's STRUCTURAL (types, not source bytes), so it rides the portable
+  // snapshot (AD-14) — verified NOT stripped in export.test.ts.
+  it("captures a typed signature with params and return type (FR-82)", () => {
+    const src = [
+      "export function login(u: string, remember?: boolean): Promise<User> { return u; }",
+      "function bare(x) { return x; }",
+      "class Svc {",
+      "  run(id: number): void {}",
+      "  noAnnotations(a, b) {}",
+      "}",
+    ].join("\n");
+    const { nodes } = adapter.parseFile("src/svc.ts", src);
+    // Typed params + return type: TS's return_type field already carries the `: `.
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#login")?.signature).toBe(
+      "login(u: string, remember?: boolean): Promise<User>",
+    );
+    // A method with a typed param + return type.
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#Svc.run")?.signature).toBe("run(id: number): void");
+    // Untyped params, no return type: just the bare param list — still useful arity.
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#bare")?.signature).toBe("bare(x)");
+    expect(nodes.find((n) => n.address === "ts:src/svc.ts#Svc.noAnnotations")?.signature).toBe("noAnnotations(a, b)");
+  });
 });
