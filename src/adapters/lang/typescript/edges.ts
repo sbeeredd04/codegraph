@@ -59,7 +59,23 @@ function declarationAddress(node: Node | undefined, rootDir: string): string | u
     const className = node.getFirstAncestorByKind(SyntaxKind.ClassDeclaration)?.getName();
     return name && className ? `ts:${rel}#${className}.${name}` : undefined;
   }
+  // FR-83: `const App = () => …` / `const useThing = function…` — a VariableDeclaration
+  // whose initializer is an arrow/function expression. The tree-sitter skeleton emits
+  // it as `ts:rel#Name`, so mirror that here to make React/RN components + hooks first-
+  // class call endpoints (both caller and target).
+  if (Node.isVariableDeclaration(node) && isFunctionInitialized(node)) {
+    const name = node.getName();
+    return name ? `ts:${rel}#${name}` : undefined;
+  }
   return undefined;
+}
+
+/** Whether a variable is initialized with a function value (arrow or function
+ *  expression) — i.e. it defines a callable, not just holds data. */
+function isFunctionInitialized(decl: Node): boolean {
+  if (!Node.isVariableDeclaration(decl)) return false;
+  const init = decl.getInitializer();
+  return !!init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init));
 }
 
 /**
@@ -75,6 +91,8 @@ export function resolveCallEdges(project: Project, rootDir: string): GraphEdge[]
     const callers: Node[] = [
       ...sourceFile.getFunctions(),
       ...sourceFile.getClasses().flatMap((c) => c.getMethods()),
+      // FR-83: arrow/function-expression components + hooks (`const App = () => …`).
+      ...sourceFile.getVariableDeclarations().filter(isFunctionInitialized),
     ];
     for (const caller of callers) {
       const from = declarationAddress(caller, rootDir);

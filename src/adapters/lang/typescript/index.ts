@@ -17,8 +17,36 @@ const TS_CONFIG: LanguageConfig = {
   // FR-82: TS's `return_type` field text already includes the leading `: ` (it's a
   // `type_annotation`), so returnPrefix is empty — the raw fields compose directly.
   signature: { paramsField: "parameters", returnField: "return_type", returnPrefix: "" },
+  // FR-83: capture `const App = () => …` / `const useThing = function…` (React/RN
+  // components + hooks). `value` is the declarator's initializer field; the tsx/ts
+  // grammars name it `value` and the arrow/function-expression exposes the same
+  // `parameters`/`return_type` fields as a plain declaration, so signatures work too.
+  variableFunction: {
+    declarationTypes: ["lexical_declaration", "variable_declaration"],
+    declaratorType: "variable_declarator",
+    valueField: "value",
+    valueTypes: ["arrow_function", "function_expression"],
+  },
+};
+
+// FR-83: the TSX/JSX grammar (a superset of TS + JSX + plain JS) so `.tsx`, `.jsx`,
+// and `.js`/`.mjs`/`.cjs` files parse WITHOUT the JSX mis-parse the plain-TS grammar
+// produces on `<Component/>`. Same node vocabulary as TS (only the grammar wasm and
+// language label differ), so it reuses TS_CONFIG. Plain `.ts` stays on the TS grammar
+// (its `<T>value` type-assertion syntax would be mistaken for JSX under tsx.wasm).
+const TSX_CONFIG: LanguageConfig = {
+  ...TS_CONFIG,
+  language: "tsx",
+  grammarFile: "tree-sitter-tsx.wasm",
 };
 
 export function createTypeScriptAdapter(wasmDir: string): Promise<LanguageAdapter> {
   return createSkeletonAdapter(wasmDir, TS_CONFIG);
+}
+
+/** FR-83: adapter for JSX-bearing files (`.tsx`/`.jsx`/`.js`/`.mjs`/`.cjs`) — the tsx
+ *  grammar. Keeps the `ts:` address prefix so its nodes line up with the shared
+ *  ts-morph edge layer. */
+export function createTsxAdapter(wasmDir: string): Promise<LanguageAdapter> {
+  return createSkeletonAdapter(wasmDir, TSX_CONFIG);
 }

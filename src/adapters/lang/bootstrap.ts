@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { Project } from "ts-morph";
 import { CodeGraph } from "../../core/graph/graph.js";
 import type { LanguageAdapter } from "../../core/ports.js";
-import { createTypeScriptAdapter } from "./typescript/index.js";
+import { createTypeScriptAdapter, createTsxAdapter } from "./typescript/index.js";
 import { createPythonAdapter } from "./python/index.js";
 import { resolveImportEdges, resolveCallEdges } from "./typescript/edges.js";
 import { resolvePythonEdges } from "./python/pyright-edges.js";
@@ -38,11 +38,31 @@ export interface BootstrapOptions {
   readonly exclude?: readonly string[];
 }
 
+// FR-83: the TS/JS family we parse. `.tsx`/`.jsx`/`.js`/`.mjs`/`.cjs` were excluded
+// before, so React-Native apps (JSX-in-.js, arrow components) went almost entirely
+// unread. `.d.ts` (declarations) and test/spec files stay out — they aren't the app.
+const TS_JS_EXTENSIONS = [".ts", ".tsx", ".jsx", ".js", ".mjs", ".cjs"];
+const TEST_FILE = /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/;
+
 function isSourceFile(name: string, ts: boolean, py: boolean): boolean {
-  if (name.endsWith(".d.ts") || name.endsWith(".test.ts")) return false;
-  if (ts && (name.endsWith(".ts") || name.endsWith(".tsx"))) return true;
+  if (name.endsWith(".d.ts") || TEST_FILE.test(name)) return false;
+  if (ts && TS_JS_EXTENSIONS.some((ext) => name.endsWith(ext))) return true;
   if (py && name.endsWith(".py")) return true;
   return false;
+}
+
+/** FR-83: pick the grammar for a file. Plain `.ts` uses the TypeScript grammar (its
+ *  `<T>value` type-assertion syntax would mis-parse under tsx.wasm); every JSX-bearing
+ *  or plain-JS extension uses the tsx grammar (a JS+JSX+TS superset). */
+function adapterFor(
+  file: string,
+  ts: LanguageAdapter,
+  tsx: LanguageAdapter,
+  py: LanguageAdapter,
+): LanguageAdapter {
+  if (file.endsWith(".py")) return py;
+  if (file.endsWith(".ts")) return ts; // plain .ts only (.tsx does not end with .ts)
+  return tsx; // .tsx .jsx .js .mjs .cjs
 }
 
 const execFileAsync = promisify(execFile);
@@ -124,6 +144,7 @@ export async function bootstrapRepo(
   const skip = new Set([...SKIP_DIRS, ...(options.exclude ?? [])]);
   emit({ phase: "discovering" });
   const tsAdapter: LanguageAdapter = await createTypeScriptAdapter(wasmDir);
+  const tsxAdapter: LanguageAdapter = await createTsxAdapter(wasmDir);
   const pyAdapter: LanguageAdapter = await createPythonAdapter(wasmDir);
   const files = await filterGitIgnored(rootDir, findSourceFiles(rootDir, skip, useTs, usePy));
   const graph = new CodeGraph();
@@ -141,7 +162,7 @@ export async function bootstrapRepo(
     try {
       const source = fs.readFileSync(file, "utf8");
       const rel = path.relative(rootDir, file).split(path.sep).join("/");
-      const adapter = file.endsWith(".py") ? pyAdapter : tsAdapter;
+      const adapter = adapterFor(file, tsAdapter, tsxAdapter, pyAdapter);
       const { nodes, edges } = adapter.parseFile(rel, source);
       for (const node of nodes) graph.addNode(node);
       for (const edge of edges) graph.addEdge(edge);

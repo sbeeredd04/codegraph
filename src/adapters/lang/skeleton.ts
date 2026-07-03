@@ -52,6 +52,20 @@ export interface LanguageConfig {
     readonly returnField: string;
     readonly returnPrefix: string;
   };
+  /**
+   * How to capture a module-level `const Name = () => …` / `const Name = function…`
+   * as a function node (FR-83). This `const X = arrow` shape is the DOMINANT one in
+   * React / React-Native code (components + hooks), yet `functionTypes` only matches
+   * plain declarations, so without this most of an RN app is invisible. `valueTypes`
+   * are the initializer node types that count as a function (arrow/function
+   * expression). Omit to skip (Python has no equivalent shape).
+   */
+  readonly variableFunction?: {
+    readonly declarationTypes: readonly string[];
+    readonly declaratorType: string;
+    readonly valueField: string;
+    readonly valueTypes: readonly string[];
+  };
 }
 
 function loc(node: TsNode, file: string) {
@@ -161,6 +175,35 @@ function collect(
     if (!name) return;
     nodes.push(callableNode({ address: addr(name), kind: "function", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config), extractSignature(decl, name, config)));
     edges.push({ from: moduleAddress, to: addr(name), type: "contains" });
+    return;
+  }
+
+  // FR-83: `const App = () => …` / `const useThing = function…` — the React/RN
+  // component + hook shape that `functionTypes` (declarations only) misses.
+  const vf = config.variableFunction;
+  if (vf && vf.declarationTypes.includes(decl.type)) {
+    let first = true;
+    for (const declarator of decl.namedChildren) {
+      if (!declarator || declarator.type !== vf.declaratorType) continue;
+      const nameNode = declarator.childForFieldName(config.nameField);
+      const value = declarator.childForFieldName(vf.valueField);
+      // Only a simple `identifier = arrow/function` — skip destructuring patterns
+      // and non-function initializers (a call, object, etc.).
+      if (!nameNode || nameNode.type !== "identifier" || !value || !vf.valueTypes.includes(value.type)) {
+        first = false;
+        continue;
+      }
+      const name = nameNode.text;
+      // Only the first declarator can carry the declaration's leading doc-comment.
+      const doc = first ? extractDoc(decl, prev, config) : undefined;
+      nodes.push(callableNode(
+        { address: addr(name), kind: "function", name, location: loc(declarator, filePath) },
+        doc,
+        extractSignature(value, name, config),
+      ));
+      edges.push({ from: moduleAddress, to: addr(name), type: "contains" });
+      first = false;
+    }
     return;
   }
 

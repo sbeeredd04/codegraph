@@ -70,6 +70,59 @@ describe("bootstrapRepo (polyglot integration)", () => {
   });
 });
 
+// FR-83: React-Native P0. Before this, `.jsx`/`.js` were excluded from the scan and
+// `.tsx` mis-parsed under the plain-TS grammar, so arrow-function components + hooks
+// (the bulk of an RN app) were invisible. This asserts the whole family is scanned,
+// JSX parses cleanly, arrow components become nodes, and an arrow component that calls
+// an arrow hook gets a real `calls` edge (ts-morph FR-83 endpoints).
+describe("bootstrapRepo scans the JS/JSX family (FR-83)", () => {
+  let rnDir: string;
+
+  beforeAll(() => {
+    rnDir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-rn-"));
+    // A .tsx screen whose arrow component calls an arrow hook in the same file.
+    fs.writeFileSync(
+      path.join(rnDir, "App.tsx"),
+      [
+        "export const useLabel = (t: string): string => t.toUpperCase();",
+        "export const App = (): string => {",
+        "  return useLabel('hi');",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    // JSX living in a plain .js file — the classic RN gotcha the old scan skipped.
+    fs.writeFileSync(path.join(rnDir, "Badge.js"), "export const Badge = () => 'badge';\n");
+    // A .jsx file.
+    fs.writeFileSync(path.join(rnDir, "Screen.jsx"), "export const Screen = () => null;\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(rnDir, { recursive: true, force: true });
+  });
+
+  it("scans .tsx/.jsx/.js and parses them without failure", async () => {
+    const { coverage } = await bootstrapRepo(rnDir, wasmDir, { python: false });
+    expect(coverage.found).toBe(3); // App.tsx, Badge.js, Screen.jsx
+    expect(coverage.parsed).toBe(3);
+    expect(coverage.failed).toBe(0);
+  });
+
+  it("captures arrow-function components + hooks across the family", async () => {
+    const { graph } = await bootstrapRepo(rnDir, wasmDir, { python: false });
+    expect(graph.getNode("ts:App.tsx#App")?.kind).toBe("function");
+    expect(graph.getNode("ts:App.tsx#useLabel")?.kind).toBe("function");
+    expect(graph.getNode("ts:Badge.js#Badge")?.kind).toBe("function");
+    expect(graph.getNode("ts:Screen.jsx#Screen")?.kind).toBe("function");
+  });
+
+  it("resolves a calls edge from an arrow component to the arrow hook it calls", async () => {
+    const { graph } = await bootstrapRepo(rnDir, wasmDir, { python: false });
+    // App -> useLabel is only found if arrow functions are both callers AND targets.
+    expect(graph.neighbors("ts:App.tsx#App")).toContain("ts:App.tsx#useLabel");
+  });
+});
+
 describe("bootstrapRepo honors .gitignore", () => {
   let gitDir: string;
 
