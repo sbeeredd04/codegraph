@@ -64,6 +64,10 @@ const LAYOUT_KEYS = [
   "codegraph:dock:source",
   "codegraph:dock:diagrams",
   "codegraph:dock:docs",
+  // Collapsed-rail placements (T8.7) — each dock's rail can be dragged off its edge.
+  "codegraph:dock:detail:rail",
+  "codegraph:dock:diagrams:rail",
+  "codegraph:dock:docs:rail",
   "codegraph:panel:detail",
   "codegraph:panel:source",
   "codegraph:panel:onboard",

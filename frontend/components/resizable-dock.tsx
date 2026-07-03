@@ -100,6 +100,10 @@ export function ResizableDock({
   // FR-52: optional free-floating placement. The hook is called unconditionally
   // (a constant fallback key that's never floated when floatKey is absent).
   const drag = useDraggable(floatKey ?? "codegraph:nofloat");
+  // T8.7: the COLLAPSED rail is independently draggable so two rails sharing an
+  // edge can be pulled apart and organised. Its own persisted offset (distinct
+  // from the expanded float above) — per-browser localStorage, never the snapshot.
+  const railDrag = useDraggable(`${storageKey}:rail`);
   const floatable = floatKey != null;
   const name = ariaLabel ?? label;
 
@@ -156,35 +160,74 @@ export function ResizableDock({
   if (collapsed) {
     // A COMPACT tab hugging the edge, vertically centred — not a full-height bar
     // (which read as an empty black column). Only as tall as its content; the
-    // board-facing corners round so it reads as a pull-tab. Inset → a free-floating
-    // pill set off the edge.
-    const railPos = inset
-      ? `${side === "right" ? "right-3" : "left-3"} top-1/2 -translate-y-1/2`
-      : `${edge} top-1/2 -translate-y-1/2`;
+    // board-facing corners round so it reads as a pull-tab. A grip lets the user
+    // drag the rail anywhere from there (T8.7); a persisted offset frees it from
+    // the edge so it can be placed off to the side rather than stuck at centre.
+    const edgeClass = inset ? (side === "right" ? "right-3" : "left-3") : edge;
+    const railPos = railDrag.offset != null ? "" : `${edgeClass} top-1/2 -translate-y-1/2`;
+    const railStyle = railDrag.offset != null
+      ? { left: railDrag.offset.x, top: railDrag.offset.y }
+      : undefined;
     const railShape = inset
       ? "rounded-xl border border-zinc-800 shadow-2xl"
       : side === "right"
         ? "rounded-l-xl border border-r-0 border-zinc-800"
         : "rounded-r-xl border border-l-0 border-zinc-800";
     return (
-      <aside className={`absolute ${railPos} z-20`} role={role} aria-label={name}>
-        <button
-          onClick={() => setCollapsed(false)}
-          aria-label={`Expand ${label}`}
-          aria-expanded={false}
-          title={`Expand ${label}`}
+      <aside
+        className={`absolute ${railPos} z-20`}
+        style={railStyle}
+        role={role}
+        aria-label={name}
+        data-testid={`rail-${storageKey}`}
+      >
+        <div
           style={{ width: RAIL_W }}
-          className={`flex flex-col items-center gap-2.5 ${railShape} bg-zinc-900/95 py-4 text-zinc-400 backdrop-blur transition-colors hover:bg-zinc-800/80 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500`}
+          className={`flex flex-col items-center overflow-hidden ${railShape} bg-zinc-900/95 backdrop-blur`}
         >
-          <Chevron dir={side === "right" ? "left" : "right"} />
-          <span
-            className="text-[11px] font-medium tracking-wide text-zinc-400"
-            style={{ writingMode: "vertical-rl" }}
+          {/* Drag grip — repositions the rail so stacked rails can be pulled apart.
+              A plain click on the Expand button below still opens the panel; the
+              grip is a separate target that only moves, so there's no click/drag
+              ambiguity. Arrow keys nudge it once focused. */}
+          <div
+            {...railDrag.dragHandleProps}
+            aria-label={`Move ${label} rail (arrow keys to nudge)`}
+            title={`Drag to move the ${label} rail`}
+            className={`flex w-full justify-center pt-1.5 pb-1 text-zinc-600 transition-colors hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
+              railDrag.dragging ? "cursor-grabbing" : "cursor-grab"
+            }`}
           >
-            {label}
-          </span>
-          {railAccent}
-        </button>
+            <GripVertical size={13} />
+          </div>
+          <button
+            onClick={() => setCollapsed(false)}
+            aria-label={`Expand ${label}`}
+            aria-expanded={false}
+            title={`Expand ${label}`}
+            className="flex w-full flex-col items-center gap-2.5 px-0 pt-1 pb-3 text-zinc-400 transition-colors hover:bg-zinc-800/80 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500"
+          >
+            <Chevron dir={side === "right" ? "left" : "right"} />
+            <span
+              className="text-[11px] font-medium tracking-wide text-zinc-400"
+              style={{ writingMode: "vertical-rl" }}
+            >
+              {label}
+            </span>
+            {railAccent}
+          </button>
+          {/* Snap a moved rail back to its edge anchor. */}
+          {railDrag.offset != null && (
+            <button
+              onClick={railDrag.dock}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label={`Return ${label} rail to the edge`}
+              title={`Snap the ${label} rail back to the edge`}
+              className="mb-1.5 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              <PanelDock size={13} />
+            </button>
+          )}
+        </div>
       </aside>
     );
   }
