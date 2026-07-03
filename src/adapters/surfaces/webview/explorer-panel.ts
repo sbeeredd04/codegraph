@@ -167,12 +167,28 @@ export class ExplorerPanel {
     }
   }
 
-  /** Drain any whole commands appended since the last offset and forward them. */
+  /** Drain any whole commands appended since the last offset. A `reveal` (FR-78)
+   *  drives the real EDITOR, so the host handles it here (resolve address → file:line
+   *  → showTextDocument) and never forwards it to the board; every other command is
+   *  a view directive forwarded to the webview. */
   private static drainCommands(commandsPath: string): void {
     if (!this.panel) return;
     const { commands, offset } = readCommandsFrom(commandsPath, this.commandOffset);
     this.commandOffset = offset;
-    for (const command of commands) this.postCommand(command);
+    for (const command of commands) {
+      if (command.kind === "reveal") this.revealNode(command.address);
+      else this.postCommand(command);
+    }
+  }
+
+  /** FR-78: resolve a node address to its repo-relative location in the current
+   *  snapshot and reveal it in the editor (same guarded path as the FR-31 request).
+   *  Unknown address → no-op. The address→location lookup is source-blind (identity
+   *  + relative path only); the reveal itself runs only in the live Dev Host. */
+  private static revealNode(address: string): void {
+    const node = this.snapshot?.nodes.find((n) => n.address === address);
+    if (!node) return;
+    this.revealInEditor(node.location.file, node.location.line, node.location.character);
   }
 
   private static send(): void {

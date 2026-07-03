@@ -608,6 +608,21 @@ export function graphTools(getGraph: () => CodeGraph, deps: GraphToolDeps = {}):
         handler: (args) => drive({ kind: "toggle_affordance", affordance: args.affordance, on: args.on }),
       },
       {
+        name: "reveal_in_editor",
+        title: "Reveal in editor",
+        description:
+          "Open a node in the human's REAL editor, jumping to its file and line — the " +
+          "'now look at the actual code' verb. Pair it with find_symbol / find_nodes: " +
+          "locate the node, then reveal it so the human lands right on it. The host " +
+          "resolves the address to its file:line and opens it read-only; no source or " +
+          "path travels through the command. Requires the human to have the codegraph " +
+          "editor extension running (it is a no-op on the web board).",
+        inputSchema: {
+          address: ADDRESS.describe("The node address to open in the editor."),
+        },
+        handler: (args) => drive({ kind: "reveal", address: String(args.address) }),
+      },
+      {
         name: "guided_tour",
         title: "Guided tour",
         description:

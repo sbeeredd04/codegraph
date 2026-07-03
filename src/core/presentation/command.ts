@@ -82,6 +82,18 @@ export interface ReplayCommand {
   /** per-step dwell in ms; clamped + defaulted by the pure sequencer (replay.ts). */
   readonly dwellMs?: number;
 }
+/**
+ * Open a node in the user's REAL editor (FR-78): the "point the human at code"
+ * verb. Addressed purely by graph identity — the HOST resolves the address to its
+ * repo-relative file:line and reveals it (showTextDocument) with the same
+ * resolve-within-root guard as FR-31, so no source byte and no absolute path ride
+ * the command (AD-14/AD-16). Unlike the other commands this one drives the EDITOR,
+ * not the webview: the host intercepts it and never forwards it to the board.
+ */
+export interface RevealCommand {
+  readonly kind: "reveal";
+  readonly address: string;
+}
 
 export type PresentationCommand =
   | HighlightNodesCommand
@@ -90,7 +102,8 @@ export type PresentationCommand =
   | SetProjectionCommand
   | OpenPanelCommand
   | ToggleAffordanceCommand
-  | ReplayCommand;
+  | ReplayCommand
+  | RevealCommand;
 
 export const PRESENTATION_COMMAND_KINDS = [
   "highlight_nodes",
@@ -100,6 +113,7 @@ export const PRESENTATION_COMMAND_KINDS = [
   "open_panel",
   "toggle_affordance",
   "replay",
+  "reveal",
 ] as const;
 
 /**
@@ -199,6 +213,10 @@ export function validatePresentationCommand(raw: unknown): PresentationCommand |
         addresses,
         ...(typeof r.dwellMs === "number" ? { dwellMs: r.dwellMs } : {}),
       };
+    }
+    case "reveal": {
+      if (!isAddress(r.address)) return null;
+      return { kind: "reveal", address: r.address };
     }
     default:
       return null;

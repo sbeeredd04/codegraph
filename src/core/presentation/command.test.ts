@@ -90,6 +90,16 @@ describe("validatePresentationCommand", () => {
     expect(validatePresentationCommand({ kind: "replay", addresses: ["a"], dwellMs: Number.NaN })).toBeNull();
   });
 
+  it("validates reveal: a non-empty address is required (FR-78)", () => {
+    expect(validatePresentationCommand({ kind: "reveal", address: "ts:src/a.ts#foo" })).toEqual({
+      kind: "reveal",
+      address: "ts:src/a.ts#foo",
+    });
+    expect(validatePresentationCommand({ kind: "reveal", address: "" })).toBeNull();
+    expect(validatePresentationCommand({ kind: "reveal" })).toBeNull();
+    expect(validatePresentationCommand({ kind: "reveal", address: 42 })).toBeNull();
+  });
+
   it("drops malformed / unknown shapes rather than throwing", () => {
     expect(validatePresentationCommand(null)).toBeNull();
     expect(validatePresentationCommand("highlight_nodes")).toBeNull();
@@ -106,6 +116,7 @@ describe("validatePresentationCommand", () => {
       { kind: "open_panel", panel: "diagrams" },
       { kind: "toggle_affordance", affordance: "folders" },
       { kind: "replay", addresses: ["a", "b"] },
+      { kind: "reveal", address: "ts:src/a.ts#foo" },
     ];
     expect(samples.map((s) => s.kind).sort()).toEqual([...PRESENTATION_COMMAND_KINDS].sort());
     for (const s of samples) expect(validatePresentationCommand(s)).toEqual(s);

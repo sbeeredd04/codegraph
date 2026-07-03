@@ -615,8 +615,16 @@ describe("MCP driving tools (FR-39 live presentation commands)", () => {
         "toggle_affordance",
         "guided_tour",
         "replay_trace",
+        "reveal_in_editor",
       ]),
     );
+  });
+
+  it("reveal_in_editor emits a reveal command carrying the address (FR-78)", async () => {
+    const { sink, emitted } = memSink();
+    const r = await driveTools(fixture(), sink).get("reveal_in_editor")!.handler({ address: "ts:m.ts#util" });
+    expect(parse(r.content[0].text).presented).toEqual({ kind: "reveal", address: "ts:m.ts#util" });
+    expect(emitted).toEqual([{ kind: "reveal", address: "ts:m.ts#util" }]);
   });
 
   it("highlight_nodes emits a validated command carrying the style", async () => {
