@@ -80,13 +80,17 @@ describe("bootstrapRepo scans the JS/JSX family (FR-83)", () => {
 
   beforeAll(() => {
     rnDir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-rn-"));
-    // A .tsx screen whose arrow component calls an arrow hook in the same file.
+    // A .tsx screen whose arrow component calls an arrow hook AND renders a child
+    // component (both in the same file, so ts-morph resolves without cross-file .js
+    // module resolution).
     fs.writeFileSync(
       path.join(rnDir, "App.tsx"),
       [
         "export const useLabel = (t: string): string => t.toUpperCase();",
-        "export const App = (): string => {",
-        "  return useLabel('hi');",
+        "export const Label = () => null;",
+        "export const App = () => {",
+        "  useLabel('hi');",
+        "  return <Label />;",
         "};",
         "",
       ].join("\n"),
@@ -120,6 +124,16 @@ describe("bootstrapRepo scans the JS/JSX family (FR-83)", () => {
     const { graph } = await bootstrapRepo(rnDir, wasmDir, { python: false });
     // App -> useLabel is only found if arrow functions are both callers AND targets.
     expect(graph.neighbors("ts:App.tsx#App")).toContain("ts:App.tsx#useLabel");
+  });
+
+  it("resolves a JSX render edge from a component to the child it renders (FR-84)", async () => {
+    const { graph } = await bootstrapRepo(rnDir, wasmDir, { python: false });
+    // App renders <Label /> — a `renders` edge, distinct from the useLabel call edge.
+    expect(graph.neighbors("ts:App.tsx#App")).toContain("ts:App.tsx#Label");
+    const render = graph
+      .allEdges()
+      .find((e) => e.from === "ts:App.tsx#App" && e.to === "ts:App.tsx#Label");
+    expect(render?.call).toBe("render");
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Project } from "ts-morph";
-import { resolveImportEdges, resolveCallEdges } from "./edges.js";
+import { resolveImportEdges, resolveCallEdges, resolveRenderEdges } from "./edges.js";
 
 function projectWith(files: Record<string, string>): Project {
   const project = new Project({ useInMemoryFileSystem: true });
@@ -80,5 +80,45 @@ describe("resolveCallEdges", () => {
   it("skips calls to external/library functions", () => {
     const project = projectWith({ "a.ts": "export function f() { console.log('x'); }" });
     expect(resolveCallEdges(project, "/")).toEqual([]);
+  });
+});
+
+describe("resolveRenderEdges (FR-84)", () => {
+  it("resolves a render edge to an imported component, skipping host elements", () => {
+    const project = projectWith({
+      "card.tsx": "export const Card = ({ t }: { t: string }) => t;",
+      "screen.tsx": [
+        "import { Card } from './card';",
+        "export const Screen = () => {",
+        "  return <View><Card t='hi' /><Text>x</Text></View>;",
+        "};",
+      ].join("\n"),
+    });
+    const edges = resolveRenderEdges(project, "/");
+    // Screen renders the first-party Card; View/Text are unresolved host elements.
+    expect(edges).toContainEqual({
+      from: "ts:screen.tsx#Screen",
+      to: "ts:card.tsx#Card",
+      type: "calls",
+      call: "render",
+    });
+    expect(edges).toHaveLength(1);
+  });
+
+  it("resolves a same-file render edge (function component renders an arrow component)", () => {
+    const project = projectWith({
+      "app.tsx": ["const Row = () => null;", "export function List() { return <Row />; }"].join("\n"),
+    });
+    expect(resolveRenderEdges(project, "/")).toContainEqual({
+      from: "ts:app.tsx#List",
+      to: "ts:app.tsx#Row",
+      type: "calls",
+      call: "render",
+    });
+  });
+
+  it("emits nothing when a component renders only lowercase host elements", () => {
+    const project = projectWith({ "h.tsx": "export const H = () => <div><span/></div>;" });
+    expect(resolveRenderEdges(project, "/")).toEqual([]);
   });
 });

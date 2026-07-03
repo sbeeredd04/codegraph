@@ -67,6 +67,12 @@ const CALL: Record<EdgeCallKind, EdgeCall> = {
     inverseLabel: "receives from",
     description: "Hands off to the next step in a workflow.",
   },
+  render: {
+    kind: "render",
+    label: "renders",
+    inverseLabel: "rendered by",
+    description: "Renders the target component in JSX.",
+  },
 };
 
 /**

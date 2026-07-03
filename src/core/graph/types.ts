@@ -16,7 +16,12 @@ export type EdgeCallKind =
   | "import"
   | "depend"
   | "contain"
-  | "handoff";
+  | "handoff"
+  // FR-84: a `calls` edge that is a JSX render (`<Card/>` → the Card component). JSX
+  // compiles to a `React.createElement(Card)` call, so it stays a `calls` edge; this
+  // sub-kind just lets the surface say "renders" instead of "calls". Structural, so
+  // cloud-safe like the rest of the vocabulary.
+  | "render";
 
 /** Stable string address for a node, e.g. `ts:src/auth.ts#login`. Overload-disambiguated (AD-10). */
 export type NodeAddress = string;

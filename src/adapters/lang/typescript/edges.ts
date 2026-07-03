@@ -119,3 +119,56 @@ export function resolveCallEdges(project: Project, rootDir: string): GraphEdge[]
   }
   return edges;
 }
+
+/**
+ * FR-84: resolve JSX `renders` edges (component -> the component it renders in JSX).
+ * A `<Card/>` element isn't a CallExpression, so resolveCallEdges misses it; this pass
+ * walks each component's JSX and resolves the tag's symbol via the type checker, so it
+ * catches both same-file and imported components. Host elements (`<div>`, `<View>`)
+ * resolve to lib/node_modules/.d.ts and are dropped by isFirstParty, so only real
+ * first-party components become edges. The edge stays `type: "calls"` (JSX compiles to
+ * `React.createElement`) with a `render` sub-kind for the nicer "renders" label.
+ */
+export function resolveRenderEdges(project: Project, rootDir: string): GraphEdge[] {
+  const edges: GraphEdge[] = [];
+  const seen = new Set<string>();
+
+  for (const sourceFile of project.getSourceFiles()) {
+    const components: Node[] = [
+      ...sourceFile.getFunctions(),
+      // Arrow/function-expression components (`const App = () => <…>`), per FR-83.
+      ...sourceFile.getVariableDeclarations().filter(isFunctionInitialized),
+    ];
+    for (const component of components) {
+      const from = declarationAddress(component, rootDir);
+      if (!from) continue;
+      const elements = [
+        ...component.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+        ...component.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+      ];
+      for (const element of elements) {
+        const tag = element.getTagNameNode();
+        // Only Capitalized tags are components — `<div>`/`<view>` are host elements.
+        // (`<Nav.Item>` → check the trailing member.)
+        const leaf = tag.getText().replace(/^.*\./, "");
+        if (!/^[A-Z]/.test(leaf)) continue;
+        const symbol = tag.getSymbol();
+        if (!symbol) continue;
+        const targets = [
+          ...symbol.getDeclarations(),
+          ...(symbol.getAliasedSymbol()?.getDeclarations() ?? []),
+        ];
+        for (const target of targets) {
+          const to = declarationAddress(target, rootDir);
+          if (!to || to === from) continue;
+          const key = `${from}->${to}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          edges.push({ from, to, type: "calls", call: "render" });
+          break;
+        }
+      }
+    }
+  }
+  return edges;
+}

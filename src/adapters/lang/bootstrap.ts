@@ -7,7 +7,7 @@ import { CodeGraph } from "../../core/graph/graph.js";
 import type { LanguageAdapter } from "../../core/ports.js";
 import { createTypeScriptAdapter, createTsxAdapter } from "./typescript/index.js";
 import { createPythonAdapter } from "./python/index.js";
-import { resolveImportEdges, resolveCallEdges } from "./typescript/edges.js";
+import { resolveImportEdges, resolveCallEdges, resolveRenderEdges } from "./typescript/edges.js";
 import { resolvePythonEdges } from "./python/pyright-edges.js";
 import type { IngestEvent } from "../../core/ingest/progress.js";
 
@@ -193,6 +193,9 @@ export async function bootstrapRepo(
     for (const file of tsFiles) project.addSourceFileAtPath(file);
     for (const edge of resolveImportEdges(project, rootDir)) graph.addEdge(edge);
     for (const edge of resolveCallEdges(project, rootDir)) graph.addEdge(edge);
+    // FR-84: JSX `renders` edges (component -> child component) — first-class in
+    // React/RN where the render tree, not the call tree, is how the app is structured.
+    for (const edge of resolveRenderEdges(project, rootDir)) graph.addEdge(edge);
   } catch {
     // Edge resolution is best-effort; the skeleton still stands.
   }

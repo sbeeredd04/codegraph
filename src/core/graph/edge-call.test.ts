@@ -60,6 +60,15 @@ describe("describeEdgeCall", () => {
     expect(describeEdgeCall(edge("depends-on")).kind).toBe("depend");
   });
 
+  it("labels a JSX render edge via the explicit `render` sub-kind (FR-84)", () => {
+    // A render edge stays `type: "calls"` (JSX compiles to React.createElement) but
+    // pins `call: "render"` so the surface says "renders" instead of "calls".
+    const c = describeEdgeCall(edge("calls", "render"), node("b", "function"));
+    expect(c.kind).toBe("render");
+    expect(c.label).toBe("renders");
+    expect(c.inverseLabel).toBe("rendered by");
+  });
+
   it("honors an explicit `edge.call` override even against the derived kind", () => {
     // The edge points at a function (would derive `call`), but the indexer pinned `construct`.
     const c = describeEdgeCall(edge("calls", "construct"), node("b", "function"));
@@ -76,6 +85,7 @@ describe("describeEdgeCall", () => {
       edge("depends-on", "depend"),
       edge("contains", "contain"),
       edge("hands-off-to", "handoff"),
+      edge("calls", "render"),
     ];
     for (const e of samples) {
       const c = describeEdgeCall(e);
