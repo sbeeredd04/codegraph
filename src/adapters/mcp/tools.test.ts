@@ -50,12 +50,31 @@ describe("MCP graph tools", () => {
       "blast_radius",
       "dependencies",
       "describe_node",
+      "entry_points",
+      "find_file",
       "find_nodes",
       "find_path",
+      "find_symbol",
       "graph_stats",
       "list_orphans",
+      "list_packages",
       "neighborhood",
     ]);
+  });
+
+  it("find_symbol returns ranked symbols with their edges (FR-77)", () => {
+    const r = toolMap(fixture()).get("find_symbol")!.handler({ query: "util" });
+    const hits = parse(r.content[0].text);
+    expect(hits[0].node.address).toBe("ts:m.ts#util");
+    // foo calls util → util's dependents include foo (location + wiring in one call).
+    expect(hits[0].dependents).toContain("ts:m.ts#foo");
+  });
+
+  it("find_file matches a module by path (FR-77)", () => {
+    const r = toolMap(fixture()).get("find_file")!.handler({ query: "m.ts" });
+    const hits = parse(r.content[0].text);
+    expect(hits[0].address).toBe("ts:m.ts");
+    expect(hits.every((h: { kind: string }) => h.kind === "module")).toBe(true);
   });
 
   it("find_path traces the directed dependency chain between two nodes", () => {

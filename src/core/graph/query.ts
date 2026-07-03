@@ -1,12 +1,21 @@
 import type { CodeGraph } from "./graph.js";
 import type { EdgeType, GraphNode, NodeAddress, NodeKind } from "./types.js";
 import { forwardAdjacency, reverseAdjacency, transitiveClosure, DEPENDENCY_EDGES } from "./reachability.js";
+import { searchNodes, type SearchableNode } from "../search/node-search.js";
+import { partitionByPackage, type PackageInfo } from "./package.js";
+import { detectEntryPoints } from "./entry-point.js";
 
 // Pure graph-query layer (Epic 3 / FR-13): the read-only questions an AI agent
 // asks of the graph through MCP — find a node, describe its edges, trace blast
 // radius and dependencies. No I/O, no SDK (AD-1); the MCP adapter wraps these.
+//
+// FR-77 (the agent bridge): lookup is RANKED (the shared fzf-style core scorer,
+// identical to the human ⌘K) and returns exact `file:line` PLUS relationships —
+// a superset of grep, which can only give locations.
 
 const NODE_KINDS: readonly NodeKind[] = ["module", "class", "function", "method", "workflow"];
+/** The declaration kinds a "symbol" lookup targets (everything but a whole file). */
+const SYMBOL_KINDS: readonly NodeKind[] = ["function", "method", "class", "workflow"];
 const DEFAULT_LIMIT = 50;
 
 export interface NodeSummary {
@@ -49,26 +58,96 @@ function summarize(node: GraphNode): NodeSummary {
   };
 }
 
-/** Substring match on name or address (case-insensitive); optional kind filter and limit. */
+/**
+ * Rank the graph's nodes against `query` with the shared fzf-style scorer (the
+ * same one behind the human ⌘K), returning the matched GraphNodes in rank order.
+ * `nameOf` picks what the query scores against (the node name by default; the file
+ * path for a file lookup). Restrict to `kinds` and cap at `limit`. An empty query
+ * returns the first `limit` (kind-filtered) nodes so an open lookup shows something.
+ */
+function rankNodes(
+  graph: CodeGraph,
+  query: string,
+  opts: { kinds?: readonly NodeKind[]; limit?: number; nameOf?: (n: GraphNode) => string } = {},
+): GraphNode[] {
+  const nameOf = opts.nameOf ?? ((n: GraphNode) => n.name);
+  const searchable: SearchableNode[] = [];
+  for (const n of graph.allNodes()) searchable.push({ address: n.address, name: nameOf(n), kind: n.kind });
+  const ranked = searchNodes(searchable, query, { kinds: opts.kinds, limit: opts.limit ?? DEFAULT_LIMIT });
+  const out: GraphNode[] = [];
+  for (const r of ranked) {
+    const n = graph.getNode(r.address);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+/** Ranked fuzzy match on a node's name (falling back to its address); optional
+ *  kind filter and limit. Upgraded from an unranked substring scan (FR-77). */
 export function findNodes(
   graph: CodeGraph,
   query: string,
   opts: { kind?: NodeKind; limit?: number } = {},
 ): NodeSummary[] {
-  const needle = query.trim().toLowerCase();
-  const limit = opts.limit ?? DEFAULT_LIMIT;
-  const out: NodeSummary[] = [];
-  for (const node of graph.allNodes()) {
-    if (opts.kind && node.kind !== opts.kind) continue;
-    if (
-      needle &&
-      !node.name.toLowerCase().includes(needle) &&
-      !node.address.toLowerCase().includes(needle)
-    ) {
-      continue;
-    }
-    out.push(summarize(node));
-    if (out.length >= limit) break;
+  return rankNodes(graph, query, {
+    kinds: opts.kind ? [opts.kind] : undefined,
+    limit: opts.limit ?? DEFAULT_LIMIT,
+  }).map(summarize);
+}
+
+/** Ranked file lookup (FR-77): match against the module PATH, so `client/index`
+ *  finds `packages/client/src/index.ts`. Modules only. */
+export function findFiles(
+  graph: CodeGraph,
+  query: string,
+  opts: { limit?: number } = {},
+): NodeSummary[] {
+  return rankNodes(graph, query, {
+    kinds: ["module"],
+    limit: opts.limit ?? DEFAULT_LIMIT,
+    nameOf: (n) => n.location.file,
+  }).map(summarize);
+}
+
+/**
+ * Ranked SYMBOL lookup (FR-77) — the superset-of-grep. Fuzzy-match functions /
+ * methods / classes and return each with its immediate relationships (outbound
+ * edges by relation + direct dependents), so the agent gets the exact location
+ * AND the call/import wiring in one call — what grep structurally cannot.
+ */
+export function findSymbols(
+  graph: CodeGraph,
+  query: string,
+  opts: { limit?: number } = {},
+): NodeDetail[] {
+  const nodes = rankNodes(graph, query, { kinds: SYMBOL_KINDS, limit: opts.limit ?? 10 });
+  const out: NodeDetail[] = [];
+  for (const n of nodes) {
+    const detail = describeNode(graph, n.address);
+    if (detail) out.push(detail);
+  }
+  return out;
+}
+
+/** The monorepo package partition (FR-57) — id, human label, node count, most
+ *  populated first. Lets the agent see the subsystem layout before drilling in. */
+export function listPackages(graph: CodeGraph): readonly PackageInfo[] {
+  return partitionByPackage(graph.allNodes()).packages;
+}
+
+/** An entry point with its ranked reason (FR-56) — "where does execution start?". */
+export interface EntryPointSummary extends NodeSummary {
+  readonly reason: string;
+  readonly score: number;
+}
+
+/** The graph's likely entry points (FR-56), strongest first, capped at `limit`. */
+export function entryPoints(graph: CodeGraph, limit = 20): EntryPointSummary[] {
+  const ranked = detectEntryPoints(graph.allNodes(), graph.allEdges());
+  const out: EntryPointSummary[] = [];
+  for (const ep of ranked.slice(0, limit)) {
+    const node = graph.getNode(ep.address);
+    if (node) out.push({ ...summarize(node), reason: ep.reason, score: ep.score });
   }
   return out;
 }

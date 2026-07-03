@@ -25,6 +25,10 @@ import { traceToAddresses } from "../../core/presentation/log-trace.js";
 import { buildOnboardPlaybook } from "../../core/onboard/playbook.js";
 import {
   findNodes,
+  findSymbols,
+  findFiles,
+  listPackages,
+  entryPoints,
   describeNode,
   blastRadius,
   dependencies,
@@ -104,10 +108,11 @@ export function graphTools(getGraph: () => CodeGraph, deps: GraphToolDeps = {}):
       name: "find_nodes",
       title: "Find nodes",
       description:
-        "Search the code graph for nodes whose name or address matches a substring. " +
-        "Optionally filter by kind. Returns address, kind, name, and file location.",
+        "Fuzzy-search the code graph for nodes by name (fzf-style ranking, best first; " +
+        "falls back to the address). Optionally filter by kind. Returns address, kind, " +
+        "name, and file:line — prefer this over grep to locate a symbol.",
       inputSchema: {
-        query: z.string().describe("Case-insensitive substring to match on name or address."),
+        query: z.string().describe("Fuzzy query matched on the node name (then address)."),
         kind: KIND.optional().describe("Restrict to one node kind."),
         limit: z.number().int().positive().max(500).optional().describe("Max results (default 50)."),
       },
@@ -118,6 +123,56 @@ export function graphTools(getGraph: () => CodeGraph, deps: GraphToolDeps = {}):
             limit: args.limit as number | undefined,
           }),
         ),
+    },
+    {
+      name: "find_symbol",
+      title: "Find symbol (with edges)",
+      description:
+        "Fuzzy-search functions, methods and classes and return each match WITH its " +
+        "immediate wiring — outbound edges grouped by relation (calls, depends-on, …) " +
+        "and its direct dependents (callers/importers). One call gives the exact " +
+        "location AND the call graph around it — a superset of what grep can find.",
+      inputSchema: {
+        query: z.string().describe("Fuzzy query matched on the symbol name."),
+        limit: z.number().int().positive().max(50).optional().describe("Max symbols (default 10)."),
+      },
+      handler: (args) =>
+        ok(findSymbols(getGraph(), String(args.query ?? ""), { limit: args.limit as number | undefined })),
+    },
+    {
+      name: "find_file",
+      title: "Find file",
+      description:
+        "Fuzzy-search module/file nodes by their PATH — 'client/index' finds " +
+        "packages/client/src/index.ts. Returns address, name and file:line.",
+      inputSchema: {
+        query: z.string().describe("Fuzzy query matched on the file path."),
+        limit: z.number().int().positive().max(200).optional().describe("Max results (default 50)."),
+      },
+      handler: (args) =>
+        ok(findFiles(getGraph(), String(args.query ?? ""), { limit: args.limit as number | undefined })),
+    },
+    {
+      name: "list_packages",
+      title: "List packages",
+      description:
+        "List the monorepo packages / workspaces the codebase partitions into " +
+        "(id, label, node count), most populated first — the subsystem map to " +
+        "orient before drilling in.",
+      inputSchema: {},
+      handler: () => ok(listPackages(getGraph())),
+    },
+    {
+      name: "entry_points",
+      title: "Entry points",
+      description:
+        "Where does execution start? Returns the graph's likely entry points " +
+        "(main.*, CLIs, web-app modules, dependency roots, a main() function), " +
+        "ranked with a reason — the best place to begin reading the codebase.",
+      inputSchema: {
+        limit: z.number().int().positive().max(100).optional().describe("Max entry points (default 20)."),
+      },
+      handler: (args) => ok(entryPoints(getGraph(), (args.limit as number | undefined) ?? 20)),
     },
     {
       name: "describe_node",

@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { CodeGraph } from "./graph.js";
 import {
   findNodes,
+  findFiles,
+  findSymbols,
+  listPackages,
+  entryPoints,
   describeNode,
   blastRadius,
   dependencies,
@@ -101,5 +105,65 @@ describe("graph query layer", () => {
 
   it("neighborhood returns undefined for an unknown address", () => {
     expect(neighborhood(g, "ts:nope#ghost")).toBeUndefined();
+  });
+});
+
+// FR-77 — the ranked, superset-of-grep lookup surface for the agent.
+const g2 = new CodeGraph();
+[
+  node("ts:packages/web/src/app.ts", "module", "app.ts"),
+  node("ts:packages/web/src/app.ts#render", "function", "render"),
+  node("ts:packages/web/src/app.ts#App", "class", "App"),
+  node("ts:packages/api/src/main.ts", "module", "main.ts"),
+  node("ts:packages/api/src/route.ts", "module", "route.ts"),
+  node("ts:packages/api/src/route.ts#handler", "function", "handler"),
+].forEach((n) => g2.addNode(n));
+[
+  edge("ts:packages/web/src/app.ts", "ts:packages/web/src/app.ts#render", "contains"),
+  edge("ts:packages/web/src/app.ts", "ts:packages/web/src/app.ts#App", "contains"),
+  edge("ts:packages/api/src/main.ts", "ts:packages/api/src/route.ts", "depends-on"),
+  edge("ts:packages/api/src/main.ts", "ts:packages/web/src/app.ts", "depends-on"),
+  edge("ts:packages/api/src/main.ts", "ts:packages/api/src/route.ts#handler", "depends-on"),
+  edge("ts:packages/api/src/route.ts#handler", "ts:packages/web/src/app.ts#render", "calls"),
+].forEach((e) => g2.addEdge(e));
+
+describe("ranked lookup (FR-77)", () => {
+  it("findNodes ranks an exact name match above a prefix match", () => {
+    // Both "App" (class) and "app.ts" (module) match "app"; the exact name wins.
+    expect(findNodes(g2, "app")[0].name).toBe("App");
+  });
+
+  it("findFiles matches on the PATH and returns modules only", () => {
+    const r = findFiles(g2, "route");
+    expect(r[0].address).toBe("ts:packages/api/src/route.ts");
+    expect(r.every((n) => n.kind === "module")).toBe(true);
+    // client/index-style nested path fragments still resolve.
+    expect(findFiles(g2, "web/src/app").map((n) => n.address)).toContain("ts:packages/web/src/app.ts");
+  });
+
+  it("findSymbols returns symbol matches WITH their edges (location + wiring)", () => {
+    const r = findSymbols(g2, "render");
+    expect(r[0].node.name).toBe("render");
+    expect(r[0].node.file).toBe("packages/web/src/app.ts");
+    // handler calls render → render's dependents include handler (the grep-beating bit).
+    expect(r[0].dependents).toContain("ts:packages/api/src/route.ts#handler");
+  });
+
+  it("findSymbols excludes whole-file module nodes", () => {
+    const r = findSymbols(g2, "app");
+    expect(r.some((d) => d.node.name === "App")).toBe(true); // the class
+    expect(r.every((d) => d.node.kind !== "module")).toBe(true); // never app.ts itself
+  });
+
+  it("listPackages returns the partition (id, label, count)", () => {
+    expect(listPackages(g2).map((p) => p.id)).toEqual(["packages/api", "packages/web"]);
+  });
+
+  it("entryPoints finds and ranks a main.ts dependency root with a reason", () => {
+    const eps = entryPoints(g2);
+    expect(eps[0].name).toBe("main.ts");
+    expect(eps[0].file).toBe("packages/api/src/main.ts");
+    expect(eps[0].reason).toContain("main.ts");
+    expect(eps[0].score).toBeGreaterThan(40);
   });
 });
