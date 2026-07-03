@@ -23,6 +23,7 @@ import {
   Workflow,
   FileText,
   ListChecks,
+  ListTree,
   Package,
   Database,
   SlidersHorizontal as SettingsIcon,
@@ -76,6 +77,9 @@ interface ExplorerToolbarProps {
    * Works on both surfaces. */
   readonly diffMode: boolean;
   readonly onToggleDiff: () => void;
+  /** FR-75 — the package→file→symbol tree dock toggle. */
+  readonly symbolsOpen: boolean;
+  readonly onToggleSymbols: () => void;
   readonly diagramsOpen: boolean;
   readonly diagramCount: number;
   readonly onToggleDiagrams: () => void;
@@ -140,6 +144,8 @@ export function ExplorerToolbar({
   onToggleLayers,
   diffMode,
   onToggleDiff,
+  symbolsOpen,
+  onToggleSymbols,
   diagramsOpen,
   diagramCount,
   onToggleDiagrams,
@@ -423,6 +429,22 @@ export function ExplorerToolbar({
         <GitCompareIcon size={14} /> Diff
       </button>
 
+      {/* Symbols tree (FR-75) — browse packages → files → functions/classes, the
+          structural counterpart to the ⌘K fuzzy jump. */}
+      <button
+        aria-pressed={symbolsOpen}
+        aria-haspopup="dialog"
+        title="Browse packages, files and symbols"
+        onClick={onToggleSymbols}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+          symbolsOpen
+            ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
+            : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200"
+        }`}
+      >
+        <ListTree size={14} /> Symbols
+      </button>
+
       {/* Knowledge diagrams drawer (FR-28) — agent-authored Mermaid narratives */}
       <button
         aria-pressed={diagramsOpen}
@@ -483,12 +505,12 @@ export function ExplorerToolbar({
         {onIndex && (
           <button
             onClick={onIndex}
-            aria-label="Index repository"
+            aria-label="Rescan repository"
             aria-busy={indexing}
-            title="Scan this workspace and rebuild the graph (live progress)"
+            title="Re-scan this workspace and rebuild the graph (live progress)"
             className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 font-medium text-cyan-200 transition-colors hover:bg-cyan-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
           >
-            <Database size={14} /> {indexing ? "Indexing…" : "Index"}
+            <Database size={14} /> {indexing ? "Scanning…" : "Rescan"}
           </button>
         )}
         {/* AI-assist "Ask" (FR-30) — local-plane only (withheld on cloud) */}

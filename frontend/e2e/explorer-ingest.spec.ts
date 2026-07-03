@@ -88,11 +88,11 @@ test("streams a scan through its phases: bar climbs, counts + steps update, done
   await expect(page.getByTestId("ingest-reindex")).toBeVisible();
 });
 
-test("the toolbar Index button triggers a scan and shows the live panel", async ({ page }) => {
+test("the toolbar Rescan button triggers a scan and shows the live panel", async ({ page }) => {
   // The user trigger (FR-55a). On the web plane requestIndex() is a no-op (no host),
   // but the optimistic `discovering` tick shows the panel the instant it's clicked.
   await expect(page.getByTestId("ingest-panel")).toHaveCount(0);
-  await page.getByRole("button", { name: "Index repository" }).click();
+  await page.getByRole("button", { name: "Rescan repository" }).click();
   await expect(page.getByTestId("ingest-panel")).toBeVisible();
   await expect(page.getByTestId("ingest-steps")).toBeVisible();
 });

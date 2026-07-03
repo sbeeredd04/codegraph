@@ -30,6 +30,7 @@ import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
 import { PresentingBanner } from "./presenting-banner";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
+import { SymbolTreePanel } from "./symbol-tree";
 import { ExplorerDialogs } from "./explorer-dialogs";
 import { useLauncherShortcuts } from "@/lib/use-launcher-shortcuts";
 import { useExplorerSettings } from "@/lib/use-explorer-settings";
@@ -64,10 +65,12 @@ const LAYOUT_KEYS = [
   "codegraph:dock:source",
   "codegraph:dock:diagrams",
   "codegraph:dock:docs",
+  "codegraph:dock:symbols",
   // Collapsed-rail placements (T8.7) — each dock's rail can be dragged off its edge.
   "codegraph:dock:detail:rail",
   "codegraph:dock:diagrams:rail",
   "codegraph:dock:docs:rail",
+  "codegraph:dock:symbols:rail",
   "codegraph:panel:detail",
   "codegraph:panel:source",
   "codegraph:panel:onboard",
@@ -75,6 +78,7 @@ const LAYOUT_KEYS = [
   "codegraph:panel:diff",
   "codegraph:panel:diagrams",
   "codegraph:panel:docs",
+  "codegraph:panel:symbols",
 ];
 
 interface ExplorerProps {
@@ -160,6 +164,9 @@ export function Explorer({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  // FR-75: the package→file→symbol tree dock (a left panel, so it shares the
+  // one-left-drawer-at-a-time rule with diagrams/docs).
+  const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   // FR-57: the monorepo package the board is focused on, or null for "all".
@@ -597,16 +604,24 @@ export function Explorer({
         onToggleLayers={() => setLayersMode((v) => !v)}
         diffMode={diff.diffMode}
         onToggleDiff={diff.toggleDiff}
+        symbolsOpen={symbolsOpen}
+        onToggleSymbols={() => {
+          setDiagramsOpen(false);
+          setDocsOpen(false);
+          setSymbolsOpen((v) => !v);
+        }}
         diagramsOpen={diagramsOpen}
         diagramCount={diagramList.length}
         onToggleDiagrams={() => {
           setDocsOpen(false);
+          setSymbolsOpen(false);
           setDiagramsOpen((v) => !v);
         }}
         docsOpen={docsOpen}
         docCount={docList.length}
         onToggleDocs={() => {
           setDiagramsOpen(false);
+          setSymbolsOpen(false);
           setDocsOpen((v) => !v);
         }}
         onboardOpen={onboardOpen}
@@ -730,6 +745,19 @@ export function Explorer({
           packagedCount={partition.of.size}
           totalCount={byAddress.size}
         />
+
+        {/* Symbol tree (FR-75) — package→file→symbol outline, left dock. Keyed on
+            layoutVersion so Reset Layout remounts it to defaults. */}
+        {symbolsOpen && (
+          <SymbolTreePanel
+            key={layoutVersion}
+            nodes={nodes}
+            activePackage={activePackage}
+            onJump={jumpTo}
+            onFocusPackage={onPackage}
+            onClose={() => setSymbolsOpen(false)}
+          />
+        )}
 
         {/* Node detail inspector (FR-15 content, FR-34 workspace frame) — docks
             right (collapsible + resizable) or floats as a draggable card; hidden
