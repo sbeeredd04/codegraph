@@ -9,7 +9,9 @@
 // no view state lives here. Drawer instances are keyed on `layoutVersion` so Reset
 // Layout remounts them to defaults, exactly as before the extraction.
 
+import { useMemo } from "react";
 import type { GraphNode } from "@core/graph/types";
+import type { SearchableNode } from "@core/search/node-search";
 import type { Diagram } from "@core/diagrams/diagram";
 import type { Doc } from "@core/docs/doc";
 import type { AskFocus } from "@core/assist/ask";
@@ -92,17 +94,25 @@ export function ExplorerDialogs({
   onCloseAsk,
   ingest,
 }: ExplorerDialogsProps): React.JSX.Element {
+  // FR-74: the searchable view carries each node's file PATH so the launchers can
+  // show it as a secondary line (distinguishes same-named symbols) and the kind so
+  // the `fn:`/`file:`/`class:` scopes work. Path metadata only — safe on the
+  // source-blind plane (AD-14). Memoised so it rebuilds only when the graph does.
+  const searchableNodes: readonly SearchableNode[] = useMemo(
+    () => nodes.map((n) => ({ address: n.address, name: n.name, kind: n.kind, path: n.location.file })),
+    [nodes],
+  );
   return (
     <>
       {/* ⌘K command palette (Story 8.4) — fuzzy jump-to-node */}
-      {paletteOpen && <CommandPalette nodes={nodes} onClose={closePalette} onSelect={jumpTo} />}
+      {paletteOpen && <CommandPalette nodes={searchableNodes} onClose={closePalette} onSelect={jumpTo} />}
 
       {/* ⌘⇧P action palette (FR-50) — fuzzy run-an-action, distinct from ⌘K */}
       {actionsOpen && <ActionPalette build={buildActions} onClose={closeActions} />}
 
       {/* ⌘Space command center (FR-49) — unified node + action launcher */}
       {centerOpen && (
-        <CommandCenter nodes={nodes} buildActions={buildActions} onSelectNode={jumpTo} onClose={closeCenter} />
+        <CommandCenter nodes={searchableNodes} buildActions={buildActions} onSelectNode={jumpTo} onClose={closeCenter} />
       )}
 
       {/* Settings (FR-51) — persisted board preferences, applied live */}

@@ -13,12 +13,18 @@ export interface SearchableNode {
   readonly address: string;
   readonly name: string;
   readonly kind: string;
+  /** The node's file path (module/file location). Shown as a secondary line so
+   * same-named symbols are distinguishable at a glance (FR-74). Optional — callers
+   * that only rank by name/address need not supply it. Path metadata only, never a
+   * source byte, so it is safe on the source-blind plane too (AD-14). */
+  readonly path?: string;
 }
 
 export interface NodeSearchResult {
   readonly address: string;
   readonly name: string;
   readonly kind: string;
+  readonly path?: string;
   readonly score: number;
   /** Indices into `name` that the query matched, for highlighting (empty when the
    * match was on the address only, or for an empty query). */
@@ -28,6 +34,47 @@ export interface NodeSearchResult {
 export interface SearchOptions {
   /** Maximum results to return (default 50). */
   readonly limit?: number;
+  /** Restrict to these node kinds (case-insensitive). Omit / empty = all kinds.
+   * Drives the kind-scoped `fn:` / `file:` / `class:` prefixes (FR-74). */
+  readonly kinds?: readonly string[];
+}
+
+/** A query scoped by a leading `prefix:` — the recognised kinds, the friendly
+ * scope label for a UI chip, and the query text with the prefix stripped. */
+export interface ScopedQuery {
+  readonly kinds: readonly string[] | null;
+  readonly scopeLabel: string | null;
+  readonly text: string;
+}
+
+// The kind-scope prefixes. Aliases share one def object so the map stays terse.
+const FN = { kinds: ["function"] as const, label: "functions" };
+const FILE = { kinds: ["module"] as const, label: "files" };
+const CLASS = { kinds: ["class"] as const, label: "classes" };
+const METHOD = { kinds: ["method"] as const, label: "methods" };
+const FLOW = { kinds: ["workflow"] as const, label: "workflows" };
+const SCOPES: Record<string, { kinds: readonly string[]; label: string }> = {
+  fn: FN, func: FN, function: FN,
+  file: FILE, mod: FILE, module: FILE,
+  class: CLASS, cls: CLASS,
+  method: METHOD,
+  flow: FLOW, workflow: FLOW,
+};
+
+/**
+ * Split a leading `prefix:` scope off a query. `"fn:parse"` → restrict to
+ * functions, text `"parse"`; `"fn:"` → all functions (empty text); an unknown or
+ * absent prefix → `{ kinds: null, text: raw }` unchanged (so `http://x` or a plain
+ * query is never mangled). Pure and case-insensitive; the caller feeds `text` +
+ * `kinds` into `searchNodes` and shows `scopeLabel` as a removable chip.
+ */
+export function parseScopedQuery(raw: string): ScopedQuery {
+  const m = /^([a-zA-Z]+):(.*)$/.exec(raw);
+  if (m) {
+    const scope = SCOPES[m[1].toLowerCase()];
+    if (scope) return { kinds: scope.kinds, scopeLabel: scope.label, text: m[2].replace(/^\s+/, "") };
+  }
+  return { kinds: null, scopeLabel: null, text: raw };
 }
 
 // Scoring weights — tuned for ordering, not absolute meaning. Tests assert order.
@@ -135,12 +182,18 @@ export function searchNodes(
   opts: SearchOptions = {},
 ): NodeSearchResult[] {
   const limit = opts.limit ?? 50;
+  const kindSet =
+    opts.kinds && opts.kinds.length ? new Set(opts.kinds.map((k) => k.toLowerCase())) : null;
+  const inKind = (node: SearchableNode): boolean => !kindSet || kindSet.has(node.kind.toLowerCase());
   const trimmed = query.trim();
   if (trimmed.length === 0) {
-    return nodes.slice(0, limit).map((node) => ({ ...node, score: 0, nameMatches: [] }));
+    // A bare scope (e.g. `fn:`) with no text lists that kind; no scope lists all.
+    const base = kindSet ? nodes.filter(inKind) : nodes;
+    return base.slice(0, limit).map((node) => ({ ...node, score: 0, nameMatches: [] }));
   }
   const scored: NodeSearchResult[] = [];
   for (const node of nodes) {
+    if (!inKind(node)) continue;
     const hit = scoreNode(node, trimmed);
     if (hit) scored.push({ ...node, score: hit.score, nameMatches: hit.nameMatches });
   }

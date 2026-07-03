@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { searchNodes, type SearchableNode } from "./node-search.js";
+import { searchNodes, parseScopedQuery, type SearchableNode } from "./node-search.js";
 
 const n = (address: string, name: string, kind = "function"): SearchableNode => ({ address, name, kind });
 
@@ -95,5 +95,51 @@ describe("searchNodes — ordering", () => {
   it("returns scores in non-increasing order", () => {
     const r = searchNodes(nodes, "re").map((x) => x.score);
     for (let i = 1; i < r.length; i++) expect(r[i]).toBeLessThanOrEqual(r[i - 1]);
+  });
+});
+
+describe("searchNodes — kind filter (FR-74)", () => {
+  it("restricts scored results to the requested kinds", () => {
+    // "report" matches report.ts (module) and buildMarkdownReport (function); a
+    // file: scope keeps only the module.
+    const r = searchNodes(nodes, "report", { kinds: ["module"] }).map((x) => x.name);
+    expect(r).toEqual(["report.ts"]);
+  });
+
+  it("lists a whole kind for a bare scope (empty query + kinds)", () => {
+    const r = searchNodes(nodes, "", { kinds: ["class"] }).map((x) => x.name);
+    expect(r).toEqual(["CodeGraph"]);
+  });
+
+  it("is case-insensitive on the kind and ignores an empty kinds array", () => {
+    expect(searchNodes(nodes, "", { kinds: ["MODULE"] }).map((x) => x.name)).toEqual(["report.ts"]);
+    expect(searchNodes(nodes, "", { kinds: [] }).length).toBe(nodes.length);
+  });
+
+  it("carries an optional path field through to results", () => {
+    const withPath: SearchableNode = { address: "x#run", name: "run", kind: "function", path: "src/a.ts" };
+    expect(searchNodes([withPath], "run")[0].path).toBe("src/a.ts");
+  });
+});
+
+describe("parseScopedQuery (FR-74)", () => {
+  it("splits a known prefix into kinds + stripped text + label", () => {
+    expect(parseScopedQuery("fn:parse")).toEqual({ kinds: ["function"], scopeLabel: "functions", text: "parse" });
+    expect(parseScopedQuery("file:report")).toEqual({ kinds: ["module"], scopeLabel: "files", text: "report" });
+    expect(parseScopedQuery("class:Graph")).toEqual({ kinds: ["class"], scopeLabel: "classes", text: "Graph" });
+  });
+
+  it("treats a bare prefix as scope with empty text", () => {
+    expect(parseScopedQuery("fn:")).toEqual({ kinds: ["function"], scopeLabel: "functions", text: "" });
+  });
+
+  it("is case-insensitive on the prefix and trims leading space in the text", () => {
+    expect(parseScopedQuery("FN: parse").text).toBe("parse");
+    expect(parseScopedQuery("Method:run").kinds).toEqual(["method"]);
+  });
+
+  it("leaves an unknown or absent prefix untouched (never mangles a plain query or URL)", () => {
+    expect(parseScopedQuery("parse")).toEqual({ kinds: null, scopeLabel: null, text: "parse" });
+    expect(parseScopedQuery("http://x")).toEqual({ kinds: null, scopeLabel: null, text: "http://x" });
   });
 });

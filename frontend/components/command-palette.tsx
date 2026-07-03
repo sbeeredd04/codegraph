@@ -14,7 +14,7 @@
 // an untrusted node name can never inject markup.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { searchNodes, type SearchableNode } from "@core/search/node-search";
+import { searchNodes, parseScopedQuery, type SearchableNode } from "@core/search/node-search";
 
 const LIMIT = 50;
 
@@ -53,7 +53,18 @@ export function CommandPalette({ nodes, onClose, onSelect }: CommandPaletteProps
     };
   }, [onClose]);
 
-  const results = useMemo(() => searchNodes(nodes, query, { limit: LIMIT }), [nodes, query]);
+  // FR-74: a leading `fn:` / `file:` / `class:` / `method:` / `flow:` prefix scopes
+  // the search to that kind (and is stripped from the ranked text). The scope shows
+  // as a removable chip so it never silently swallows characters.
+  const scoped = useMemo(() => parseScopedQuery(query), [query]);
+  const results = useMemo(
+    () => searchNodes(nodes, scoped.text, { limit: LIMIT, kinds: scoped.kinds ?? undefined }),
+    [nodes, scoped],
+  );
+
+  // Backspace at the very start of a scoped query clears the scope (drops back to
+  // an unscoped search) rather than deleting into the empty text.
+  const clearScope = useCallback(() => setQuery(scoped.text), [scoped.text]);
 
   // Keep the active row in range as results change, and scroll it into view.
   const clampedActive = results.length === 0 ? 0 : Math.min(active, results.length - 1);
@@ -103,7 +114,7 @@ export function CommandPalette({ nodes, onClose, onSelect }: CommandPaletteProps
           aria-autocomplete="list"
           aria-activedescendant={results.length ? optionId(clampedActive) : undefined}
           aria-label="Search nodes by name"
-          placeholder="Jump to a node…"
+          placeholder="Jump to a node…  (try fn: file: class:)"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -127,6 +138,14 @@ export function CommandPalette({ nodes, onClose, onSelect }: CommandPaletteProps
                 e.preventDefault();
                 onClose();
                 break;
+              case "Backspace":
+                // Backspace on a bare scope (`fn:` with no text yet) removes the
+                // whole scope in one press instead of deleting into nothing.
+                if (scoped.kinds && scoped.text === "") {
+                  e.preventDefault();
+                  setQuery("");
+                }
+                break;
               case "Tab":
                 e.preventDefault();
                 break;
@@ -134,6 +153,26 @@ export function CommandPalette({ nodes, onClose, onSelect }: CommandPaletteProps
           }}
           className="border-b border-zinc-800 bg-transparent px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
         />
+
+        {/* FR-74: active kind scope — a removable chip so the filter is visible and
+            never silently eats keystrokes. */}
+        {scoped.kinds && (
+          <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-1.5" data-testid="palette-scope">
+            <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-violet-300">
+              {scoped.scopeLabel}
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={clearScope}
+                aria-label={`Clear ${scoped.scopeLabel} filter`}
+                className="ml-0.5 leading-none text-violet-300/70 hover:text-violet-100"
+              >
+                ×
+              </button>
+            </span>
+            <span className="text-[10px] text-zinc-600">scoped to {scoped.scopeLabel}</span>
+          </div>
+        )}
 
         {results.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-zinc-600">No matching nodes</div>
@@ -150,12 +189,21 @@ export function CommandPalette({ nodes, onClose, onSelect }: CommandPaletteProps
                       if (!on) setActive(i);
                     }}
                     onClick={() => choose(i)}
-                    className={`flex w-full items-center gap-2 px-4 py-1.5 text-left text-sm ${on ? "bg-violet-500/15" : ""}`}
+                    className={`flex w-full flex-col gap-0.5 px-4 py-1.5 text-left ${on ? "bg-violet-500/15" : ""}`}
                   >
-                    <span className="min-w-0 flex-1 truncate text-zinc-200">
-                      <HighlightedName name={r.name} matches={r.nameMatches} />
+                    <span className="flex w-full items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
+                        <HighlightedName name={r.name} matches={r.nameMatches} />
+                      </span>
+                      <span data-testid="result-kind" className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-zinc-600">{r.kind}</span>
                     </span>
-                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-zinc-600">{r.kind}</span>
+                    {/* FR-74: the file path — so same-named symbols are distinguishable
+                        and you can see WHERE a function/class lives without opening it. */}
+                    {r.path && (
+                      <span data-testid="result-path" className="w-full truncate font-mono text-[10px] text-zinc-500" title={r.path}>
+                        {r.path}
+                      </span>
+                    )}
                   </button>
                 </li>
               );
