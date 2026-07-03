@@ -672,6 +672,7 @@ export function Explorer({
           <TracePanel
             steps={trace.steps}
             labelFor={labelFor}
+            nodeFor={(address) => byAddress.get(address)}
             onJump={jumpTo}
             onUndo={undoTraceStep}
             onClear={clearTraceAll}

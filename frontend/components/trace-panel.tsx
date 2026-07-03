@@ -8,6 +8,8 @@
 // Sigma canvas and the 3D surface, both of which paint the trail themselves.
 
 import { useDraggable } from "@/lib/use-draggable";
+import { parseSignature } from "@core/graph/signature";
+import type { GraphNode } from "@core/graph/types";
 import { Route, Play, RotateCcw, X } from "./icons";
 
 interface TracePanelProps {
@@ -15,6 +17,10 @@ interface TracePanelProps {
   readonly steps: readonly string[];
   /** A short, legible label for an address. */
   readonly labelFor: (address: string) => string;
+  /** Resolve a step's full node, so each step can show its signature + I/O (FR-59)
+   *  while tracing — the structural params→returns (cloud-safe), plus host-local
+   *  sample I/O in the extension. Returns undefined for an unknown address. */
+  readonly nodeFor: (address: string) => GraphNode | undefined;
   /** Select + frame a step's node — "go to this point in the trace". */
   readonly onJump: (address: string) => void;
   /** Drop the last hop. */
@@ -27,9 +33,53 @@ interface TracePanelProps {
   readonly onClose: () => void;
 }
 
+/** Compact one-line signature for a step: `(a: number, b?: string) → void`, parsed
+ *  from the structural signature (cloud-safe). Falls back to the raw signature, or
+ *  null when the node has none (e.g. a module/class hop). */
+function signatureLine(node: GraphNode): string | null {
+  const shape = parseSignature(node.signature);
+  if (!shape) return node.signature ?? null;
+  const params = shape.params.map((p) => (p.type ? `${p.name}: ${p.type}` : p.name)).join(", ");
+  return `(${params})${shape.returns ? ` → ${shape.returns}` : ""}`;
+}
+
+/** A trace step's signature + I/O, shown inline so the route reads as a sequence of
+ *  function shapes (owner: "while tracing I should see the function signature, the
+ *  input/output"). Concrete `examples` are host-local (absent on the source-blind
+ *  web) — the structural signature always shows; examples enrich it in the extension.
+ *  All strings are escaped React children (agent/host content is untrusted). */
+function TraceStepIO({ node }: { node: GraphNode }): React.JSX.Element | null {
+  const sig = signatureLine(node);
+  const examples = node.examples ?? [];
+  if (!sig && examples.length === 0) return null;
+  return (
+    <div className="mb-1 flex flex-col gap-0.5 pl-[1.85rem] pr-2" data-testid="trace-step-io">
+      {sig && (
+        <code
+          title={node.signature ?? sig}
+          className="truncate font-mono text-[10.5px] leading-snug text-zinc-400"
+        >
+          {sig}
+        </code>
+      )}
+      {examples.slice(0, 2).map((ex, i) => (
+        <code
+          key={`${i}:${ex}`}
+          title={ex}
+          className="truncate font-mono text-[10.5px] leading-snug text-emerald-300/80"
+          data-testid="trace-step-example"
+        >
+          {ex}
+        </code>
+      ))}
+    </div>
+  );
+}
+
 export function TracePanel({
   steps,
   labelFor,
+  nodeFor,
   onJump,
   onUndo,
   onClear,
@@ -84,23 +134,27 @@ export function TracePanel({
       <div className="min-h-0 flex-1 overflow-auto">
         {hasSteps ? (
           <ol data-testid="trace-steps" className="flex flex-col gap-0.5 px-2 py-2">
-            {steps.map((address, i) => (
-              <li key={`${i}:${address}`}>
-                <button
-                  data-testid="trace-step"
-                  onClick={() => onJump(address)}
-                  title={address}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-zinc-800/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500"
-                >
-                  <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-500/15 font-mono text-[10px] tabular-nums text-emerald-300">
-                    {i + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-200">
-                    {labelFor(address)}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {steps.map((address, i) => {
+              const node = nodeFor(address);
+              return (
+                <li key={`${i}:${address}`}>
+                  <button
+                    data-testid="trace-step"
+                    onClick={() => onJump(address)}
+                    title={address}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-zinc-800/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500"
+                  >
+                    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-500/15 font-mono text-[10px] tabular-nums text-emerald-300">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-200">
+                      {labelFor(address)}
+                    </span>
+                  </button>
+                  {node && <TraceStepIO node={node} />}
+                </li>
+              );
+            })}
           </ol>
         ) : (
           <p className="px-4 py-6 text-center text-[11px] leading-relaxed text-zinc-500">

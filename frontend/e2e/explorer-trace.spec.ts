@@ -28,7 +28,7 @@ const SNAPSHOT = {
   ],
 };
 
-async function bootLiveSnapshot(page: Page): Promise<void> {
+async function bootLiveSnapshot(page: Page, snap: unknown = SNAPSHOT): Promise<void> {
   await page.addInitScript(() => {
     (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
       postMessage: () => {},
@@ -38,9 +38,9 @@ async function bootLiveSnapshot(page: Page): Promise<void> {
   });
   await page.goto("/");
   await expect(page.getByText(/Loading dataset/i)).toBeVisible();
-  await page.evaluate((snap) => {
-    window.postMessage({ type: "codegraph:snapshot", snapshot: snap }, "*");
-  }, SNAPSHOT);
+  await page.evaluate((s) => {
+    window.postMessage({ type: "codegraph:snapshot", snapshot: s }, "*");
+  }, snap);
   await expect
     .poll(
       async () =>
@@ -133,6 +133,71 @@ test("clicking nodes builds an ordered trace with spliced path hops, undo and cl
   await page.getByRole("button", { name: "Clear trace" }).click();
   await expect(page.getByTestId("trace-count")).toHaveText("0");
   await expect(page.getByTestId("trace-steps")).toHaveCount(0);
+});
+
+// T8.8 — while tracing, each step shows its function signature + input/output, so a
+// route reads as a sequence of function shapes (owner Image #13). The structural
+// signature (params → returns) is cloud-safe and always shows; concrete `examples`
+// are host-local (extension only) and enrich it when present.
+const FN_SNAPSHOT = {
+  version: 1,
+  root: "trace-io",
+  nodeCount: 3,
+  edgeCount: 2,
+  nodes: [
+    {
+      address: "ts:c.ts#parse",
+      kind: "function",
+      name: "parse",
+      location: { file: "src/c.ts", line: 1, character: 0 },
+      signature: "parse(input: string): Token[]",
+      examples: ['parse("a=1") → [Token(a), Token(1)]'],
+    },
+    {
+      address: "ts:c.ts#build",
+      kind: "function",
+      name: "build",
+      location: { file: "src/c.ts", line: 5, character: 0 },
+      signature: "build(tokens: Token[]): Ast",
+    },
+    {
+      address: "ts:c.ts#emit",
+      kind: "function",
+      name: "emit",
+      location: { file: "src/c.ts", line: 9, character: 0 },
+      signature: "emit(ast: Ast): string",
+    },
+  ],
+  edges: [
+    { from: "ts:c.ts#parse", to: "ts:c.ts#build", type: "calls" },
+    { from: "ts:c.ts#build", to: "ts:c.ts#emit", type: "calls" },
+  ],
+};
+
+test("T8.8: each trace step shows its function signature + I/O while tracing", async ({ page }) => {
+  await bootLiveSnapshot(page, FN_SNAPSHOT);
+
+  await page.getByRole("button", { name: "Trace" }).click();
+  // Click parse, then emit — the shortest path splices build, giving three steps.
+  await clickNode(page, "ts:c.ts#parse");
+  await clickNode(page, "ts:c.ts#emit");
+  await expect(page.getByTestId("trace-count")).toHaveText("3");
+
+  // Every step carries its signature line (structural params → returns, cloud-safe).
+  const io = page.getByTestId("trace-step-io");
+  await expect(io).toHaveCount(3);
+  await expect(io.nth(0)).toContainText("input: string");
+  await expect(io.nth(0)).toContainText("→ Token[]");
+  await expect(io.nth(1)).toContainText("tokens: Token[]");
+  await expect(io.nth(2)).toContainText("→ string");
+
+  // The host-local sample I/O shows on the step that has it (extension-plane data).
+  await expect(page.getByTestId("trace-step-example")).toHaveCount(1);
+  await expect(page.getByTestId("trace-step-example")).toContainText('parse("a=1")');
+
+  await page.screenshot({
+    path: "/private/tmp/claude-501/-Users-sriujjwal-github-codegraph/c61c1bf7-cdf8-4199-b01f-a9f9fd5c54c4/scratchpad/trace-io.png",
+  });
 });
 
 test("a trace built on 2D carries to the 3D surface as a green trail", async ({ page }) => {
