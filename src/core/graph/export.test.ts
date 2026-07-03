@@ -54,6 +54,16 @@ describe("exportGraphSnapshot", () => {
     expect(JSON.stringify(snap)).not.toContain("→ 5");
   });
 
+  it("keeps structural `decorators` (a route is API surface, not source) in the cloud snapshot (FR-85)", () => {
+    const withDecorators: GraphNode[] = [
+      { ...node("py:api.py#list_users", "function"), decorators: ["app.get('/users')"], doc: "host-local prose" },
+    ];
+    const snap = exportGraphSnapshot(withDecorators, []);
+    // doc is host-local and stripped; decorators are structural API surface and stay.
+    expect(snap.nodes[0]).not.toHaveProperty("doc");
+    expect(snap.nodes[0].decorators).toEqual(["app.get('/users')"]);
+  });
+
   it("leaves nodes untouched (same reference) when there is no host-local field to strip", () => {
     const snap = exportGraphSnapshot(nodes, edges);
     expect(snap.nodes[0]).toBe(nodes[0]);

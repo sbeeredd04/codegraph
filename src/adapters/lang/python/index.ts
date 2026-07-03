@@ -18,6 +18,11 @@ const PY_CONFIG: LanguageConfig = {
   // FR-82: Python's `return_type` field is the BARE type (e.g. `str`), so join it
   // with the ` -> ` arrow to mirror the source `def f(a: int) -> str:` form.
   signature: { paramsField: "parameters", returnField: "return_type", returnPrefix: " -> " },
+  // FR-85: Python depth — decorators (@app.get('/users'), @property), nested defs
+  // (closures / decorator inners), and dataclass/typed class fields → class signature.
+  decorator: { wrapperType: "decorated_definition", nodeType: "decorator" },
+  nestedFunctions: true,
+  classFields: { statementType: "expression_statement", assignmentType: "assignment" },
 };
 
 export function createPythonAdapter(wasmDir: string): Promise<LanguageAdapter> {

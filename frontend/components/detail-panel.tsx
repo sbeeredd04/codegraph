@@ -229,6 +229,21 @@ function DetailContent({
         <span aria-hidden>{"</>"}</span> View source
       </button>
 
+      {/* FR-85: decorators (a FastAPI route, @property, @dataclass) — structural API
+          surface that makes routes/handlers legible. Rendered as React children (escaped). */}
+      {node.decorators && node.decorators.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1" data-testid="node-decorators">
+          {node.decorators.map((d) => (
+            <span
+              key={d}
+              className="rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] leading-none text-violet-200"
+            >
+              @{d}
+            </span>
+          ))}
+        </div>
+      )}
+
       {node.signature && (
         <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-950/60 p-2 font-mono text-[11px] leading-relaxed text-zinc-300">
           {node.signature}

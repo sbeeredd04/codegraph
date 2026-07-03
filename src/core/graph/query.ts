@@ -25,6 +25,8 @@ export interface NodeSummary {
   readonly file: string;
   readonly line: number;
   readonly signature?: string;
+  /** Leading decorators (FR-85), e.g. a FastAPI route — structural, cloud-safe. */
+  readonly decorators?: readonly string[];
 }
 
 export interface NodeDetail {
@@ -55,6 +57,7 @@ function summarize(node: GraphNode): NodeSummary {
     file: node.location.file,
     line: node.location.line,
     ...(node.signature ? { signature: node.signature } : {}),
+    ...(node.decorators ? { decorators: node.decorators } : {}),
   };
 }
 

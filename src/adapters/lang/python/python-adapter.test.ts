@@ -102,6 +102,51 @@ describe("PythonAdapter (tree-sitter skeleton)", () => {
     expect(nodes.find((n) => n.address === "py:svc.py#Svc.plain")?.signature).toBe("plain(self, a, b)");
   });
 
+  // FR-85: Python depth — nested defs, decorators/routes, dataclass fields.
+  const DEPTH_SRC = [
+    "@app.get('/users')",
+    "async def list_users(limit: int = 10) -> list:",
+    "    def paginate(n):",
+    "        return n",
+    "    return paginate(limit)",
+    "",
+    "@dataclass",
+    "class Config:",
+    "    name: str",
+    "    count: int = 0",
+    "    untyped = 5",
+    "    def load(self) -> None:",
+    "        pass",
+    "",
+    "class Svc:",
+    "    @property",
+    "    def val(self) -> int:",
+    "        return 1",
+  ].join("\n");
+
+  it("captures a nested def as a #outer.inner function node (FR-85)", () => {
+    const { nodes, edges } = adapter.parseFile("api.py", DEPTH_SRC);
+    expect(nodes.find((n) => n.address === "py:api.py#list_users.paginate")?.kind).toBe("function");
+    // Contained by the outer function, not the module.
+    const contains = edges.map((e) => `${e.from}=>${e.to}`);
+    expect(contains).toContain("py:api.py#list_users=>py:api.py#list_users.paginate");
+  });
+
+  it("captures decorators AD-14-safe (route with its literal path, bare @property) (FR-85)", () => {
+    const { nodes } = adapter.parseFile("api.py", DEPTH_SRC);
+    expect(nodes.find((n) => n.address === "py:api.py#list_users")?.decorators).toEqual(["app.get('/users')"]);
+    expect(nodes.find((n) => n.address === "py:api.py#Config")?.decorators).toEqual(["dataclass"]);
+    expect(nodes.find((n) => n.address === "py:api.py#Svc.val")?.decorators).toEqual(["property"]);
+    // An undecorated function carries no decorators field.
+    expect(nodes.find((n) => n.address === "py:api.py#list_users.paginate")).not.toHaveProperty("decorators");
+  });
+
+  it("synthesizes a dataclass's typed fields into the class signature, skipping untyped (FR-85)", () => {
+    const { nodes } = adapter.parseFile("api.py", DEPTH_SRC);
+    // Only typed fields; `untyped = 5` (no annotation) is excluded.
+    expect(nodes.find((n) => n.address === "py:api.py#Config")?.signature).toBe("Config(name: str, count: int = 0)");
+  });
+
   it("declares its language", () => {
     expect(adapter.language).toBe("python");
   });

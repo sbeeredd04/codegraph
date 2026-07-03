@@ -66,6 +66,29 @@ export interface LanguageConfig {
     readonly valueField: string;
     readonly valueTypes: readonly string[];
   };
+  /**
+   * How to capture leading decorators (FR-85) into `node.decorators`, e.g. the
+   * `@app.get('/users')` FastAPI route or `@property`. `wrapperType` is the node that
+   * wraps a decorated declaration (`decorated_definition`), `nodeType` each decorator
+   * child. AD-14-safe: only the decorator's callee dotted-name + string/number LITERAL
+   * args are kept (arbitrary decorator expressions are elided), so no source logic
+   * reaches the cloud — a route path is API surface, like a signature type. Omit to skip.
+   */
+  readonly decorator?: { readonly wrapperType: string; readonly nodeType: string };
+  /**
+   * Recurse into function/method bodies to capture nested `def`s (FR-85) — closures and
+   * decorator/factory inners — as `#outer.inner` nodes. Direct body children only (a def
+   * inside an if/for is deferred), depth-bounded. Python-only for now. Omit to skip.
+   */
+  readonly nestedFunctions?: boolean;
+  /**
+   * Synthesize a class's typed field list into its `signature` (FR-85), e.g.
+   * `Config(name: str, count: int = 0)` for a @dataclass / pydantic / typed-attr class —
+   * so the class node reads like its generated constructor. `statementType` wraps each
+   * class-body field, `assignmentType` is the typed assignment. Structural (cloud-safe),
+   * reuses the existing signature field. Omit to skip.
+   */
+  readonly classFields?: { readonly statementType: string; readonly assignmentType: string };
 }
 
 function loc(node: TsNode, file: string) {
@@ -115,6 +138,70 @@ function extractSignature(decl: TsNode, name: string, config: LanguageConfig): s
   if (params === undefined) return undefined;
   const ret = decl.childForFieldName(sig.returnField)?.text;
   return `${name}${params}${ret ? sig.returnPrefix + ret : ""}`;
+}
+
+// AD-14-safe decorator arg literals: a route path / config constant is API surface,
+// like a signature default. Anything else (a call, name, lambda) is elided so a
+// decorator can't smuggle source logic to the cloud plane.
+const DECORATOR_LITERALS = new Set(["string", "integer", "float", "true", "false", "none"]);
+
+/** One decorator's AD-14-safe label (FR-85): the callee dotted-name, plus its args
+ *  ONLY when every arg is a literal (`app.get('/users')`, `field(default=…)`→`field`). */
+function decoratorLabel(decorator: TsNode): string | undefined {
+  const inner = decorator.namedChildren.find((c): c is TsNode => c != null);
+  if (!inner) return undefined;
+  if (inner.type === "call") {
+    const callee = inner.childForFieldName("function")?.text ?? inner.text;
+    const argList = inner.childForFieldName("arguments");
+    const args = argList?.namedChildren.filter((a): a is TsNode => a != null) ?? [];
+    if (args.length && args.every((a) => DECORATOR_LITERALS.has(a.type))) {
+      return `${callee}(${args.map((a) => a.text).join(", ")})`;
+    }
+    return callee; // non-literal args elided (may carry source expressions)
+  }
+  return inner.text; // bare @dataclass / @property / dotted @app.route
+}
+
+/** Capture a decorated declaration's leading decorators (FR-85). `node` is the raw
+ *  (pre-unwrap) node — decorators live on the wrapper, not the definition. */
+function extractDecorators(node: TsNode, config: LanguageConfig): string[] | undefined {
+  const d = config.decorator;
+  if (!d || node.type !== d.wrapperType) return undefined;
+  const labels: string[] = [];
+  for (const child of node.namedChildren) {
+    if (child?.type !== d.nodeType) continue;
+    const label = decoratorLabel(child);
+    if (label) labels.push(label);
+  }
+  return labels.length ? labels : undefined;
+}
+
+/** Synthesize a class's typed-field list into a constructor-style signature (FR-85):
+ *  `Config(name: str, count: int = 0)`. Only class-body assignments WITH a type
+ *  annotation count (dataclass / pydantic / typed attributes) — untyped class vars are
+ *  skipped. `undefined` when there's no field config or no typed fields. */
+function classFieldSignature(classDecl: TsNode, className: string, config: LanguageConfig): string | undefined {
+  const cf = config.classFields;
+  if (!cf) return undefined;
+  const body = classDecl.childForFieldName(config.bodyField);
+  if (!body) return undefined;
+  const fields: string[] = [];
+  for (const stmt of body.namedChildren) {
+    if (stmt?.type !== cf.statementType) continue;
+    const assign = stmt.namedChildren.find((c): c is TsNode => c?.type === cf.assignmentType);
+    if (!assign) continue;
+    const name = assign.childForFieldName("left")?.text;
+    const type = assign.childForFieldName("type")?.text;
+    if (!name || !type) continue; // only typed fields
+    const value = assign.childForFieldName("right")?.text;
+    fields.push(`${name}: ${type}${value ? ` = ${value}` : ""}`);
+  }
+  return fields.length ? `${className}(${fields.join(", ")})` : undefined;
+}
+
+/** Attach captured decorators (structural, cloud-safe — FR-85), omitting when none. */
+function withDecorators(node: GraphNode, decorators: string[] | undefined): GraphNode {
+  return decorators && decorators.length ? { ...node, decorators } : node;
 }
 
 export function extractSkeleton(
@@ -173,8 +260,13 @@ function collect(
   if (config.functionTypes.includes(decl.type)) {
     const name = decl.childForFieldName(config.nameField)?.text;
     if (!name) return;
-    nodes.push(callableNode({ address: addr(name), kind: "function", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config), extractSignature(decl, name, config)));
+    nodes.push(withDecorators(
+      callableNode({ address: addr(name), kind: "function", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config), extractSignature(decl, name, config)),
+      extractDecorators(node, config),
+    ));
     edges.push({ from: moduleAddress, to: addr(name), type: "contains" });
+    // FR-85: nested `def`s (closures / decorator inners) as `#name.inner` nodes.
+    collectNested(decl, addr(name), filePath, nodes, edges, config, 1);
     return;
   }
 
@@ -211,7 +303,11 @@ function collect(
     const name = decl.childForFieldName(config.nameField)?.text;
     if (!name) return;
     const classAddress = addr(name);
-    nodes.push(withDoc({ address: classAddress, kind: "class", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config)));
+    // FR-85: the class node carries its decorators + a synthesized typed-field signature.
+    nodes.push(withDecorators(
+      callableNode({ address: classAddress, kind: "class", name, location: loc(decl, filePath) }, extractDoc(decl, prev, config), classFieldSignature(decl, name, config)),
+      extractDecorators(node, config),
+    ));
     edges.push({ from: moduleAddress, to: classAddress, type: "contains" });
 
     const members = decl.childForFieldName(config.bodyField)?.namedChildren ?? [];
@@ -223,9 +319,45 @@ function collect(
       const methodName = m.childForFieldName(config.nameField)?.text;
       if (!methodName) continue;
       const methodAddress = `${classAddress}.${methodName}`;
-      nodes.push(callableNode({ address: methodAddress, kind: "method", name: methodName, location: loc(m, filePath) }, extractDoc(m, members[j - 1] ?? null, config), extractSignature(m, methodName, config)));
+      nodes.push(withDecorators(
+        callableNode({ address: methodAddress, kind: "method", name: methodName, location: loc(m, filePath) }, extractDoc(m, members[j - 1] ?? null, config), extractSignature(m, methodName, config)),
+        extractDecorators(member, config),
+      ));
       edges.push({ from: classAddress, to: methodAddress, type: "contains" });
+      // FR-85: nested `def`s inside a method body, too.
+      collectNested(m, methodAddress, filePath, nodes, edges, config, 1);
     }
+  }
+}
+
+/** FR-85: recurse a function/method body for nested `def`s, emitting each as a
+ *  `#parent.inner` function node + a contains edge from the parent. Direct body
+ *  children only; depth-bounded so pathological nesting can't run away. */
+function collectNested(
+  fnDecl: TsNode,
+  parentAddress: string,
+  filePath: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  config: LanguageConfig,
+  depth: number,
+): void {
+  if (!config.nestedFunctions || depth > 3) return;
+  const body = fnDecl.childForFieldName(config.bodyField);
+  if (!body) return;
+  for (const child of body.namedChildren) {
+    if (!child) continue;
+    const inner = unwrap(child, config);
+    if (!config.functionTypes.includes(inner.type)) continue;
+    const name = inner.childForFieldName(config.nameField)?.text;
+    if (!name) continue;
+    const address = `${parentAddress}.${name}`;
+    nodes.push(withDecorators(
+      callableNode({ address, kind: "function", name, location: loc(inner, filePath) }, extractDoc(inner, null, config), extractSignature(inner, name, config)),
+      extractDecorators(child, config),
+    ));
+    edges.push({ from: parentAddress, to: address, type: "contains" });
+    collectNested(inner, address, filePath, nodes, edges, config, depth + 1);
   }
 }
 

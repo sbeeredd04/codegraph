@@ -58,6 +58,15 @@ export interface GraphNode {
    * concrete value examples are host-local.
    */
   readonly examples?: readonly string[];
+  /**
+   * Leading decorators on the declaration (FR-85), captured AD-14-safe — the callee
+   * dotted-name + literal args only (e.g. `"app.get('/users')"`, `"property"`,
+   * `"dataclass"`). STRUCTURAL API surface, not source bytes: a route decorator is the
+   * app's public shape, like a `signature` type, so — unlike host-local `doc` — it
+   * rides the portable snapshot and reaches the cloud plane. Makes routes/handlers
+   * legible (endpoint discovery). Present only when the declaration is decorated.
+   */
+  readonly decorators?: readonly string[];
 }
 
 export interface GraphEdge {
