@@ -2,18 +2,21 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Project } from "ts-morph";
 import { CodeGraph } from "../../core/graph/graph.js";
-import type { LanguageAdapter } from "../../core/ports.js";
-import { createTypeScriptAdapter, createTsxAdapter } from "./typescript/index.js";
-import { createPythonAdapter } from "./python/index.js";
-import { resolveImportEdges, resolveCallEdges, resolveRenderEdges } from "./typescript/edges.js";
-import { resolvePythonEdges } from "./python/pyright-edges.js";
+import {
+  enabledFamilies,
+  grammarForFile,
+  isSourceFile,
+  createAdapters,
+  EDGE_RESOLVERS,
+  type LanguageFamily,
+} from "./registry.js";
 import type { IngestEvent } from "../../core/ingest/progress.js";
 
 // Polyglot whole-repo bootstrap (FR-1): tree-sitter skeletons for every TS/JS
-// and Python file + ts-morph accurate edges for the TS files. I/O lives here
-// (adapter), never the core (AD-1).
+// and Python file + accurate cross-file edges. Which extensions, which grammar,
+// and which edge resolver are all data now — see the FR-86 registry. I/O lives
+// here (adapter), never the core (AD-1).
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "out", "coverage", "fixtures", ".venv", "__pycache__"]);
 
@@ -36,33 +39,6 @@ export interface BootstrapOptions {
   readonly python?: boolean;
   /** Extra directory names to skip (from the watch-scope setting). */
   readonly exclude?: readonly string[];
-}
-
-// FR-83: the TS/JS family we parse. `.tsx`/`.jsx`/`.js`/`.mjs`/`.cjs` were excluded
-// before, so React-Native apps (JSX-in-.js, arrow components) went almost entirely
-// unread. `.d.ts` (declarations) and test/spec files stay out — they aren't the app.
-const TS_JS_EXTENSIONS = [".ts", ".tsx", ".jsx", ".js", ".mjs", ".cjs"];
-const TEST_FILE = /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/;
-
-function isSourceFile(name: string, ts: boolean, py: boolean): boolean {
-  if (name.endsWith(".d.ts") || TEST_FILE.test(name)) return false;
-  if (ts && TS_JS_EXTENSIONS.some((ext) => name.endsWith(ext))) return true;
-  if (py && name.endsWith(".py")) return true;
-  return false;
-}
-
-/** FR-83: pick the grammar for a file. Plain `.ts` uses the TypeScript grammar (its
- *  `<T>value` type-assertion syntax would mis-parse under tsx.wasm); every JSX-bearing
- *  or plain-JS extension uses the tsx grammar (a JS+JSX+TS superset). */
-function adapterFor(
-  file: string,
-  ts: LanguageAdapter,
-  tsx: LanguageAdapter,
-  py: LanguageAdapter,
-): LanguageAdapter {
-  if (file.endsWith(".py")) return py;
-  if (file.endsWith(".ts")) return ts; // plain .ts only (.tsx does not end with .ts)
-  return tsx; // .tsx .jsx .js .mjs .cjs
 }
 
 const execFileAsync = promisify(execFile);
@@ -94,8 +70,7 @@ async function filterGitIgnored(rootDir: string, files: string[]): Promise<strin
 export function findSourceFiles(
   root: string,
   skip: ReadonlySet<string>,
-  ts: boolean,
-  py: boolean,
+  enabled: ReadonlySet<LanguageFamily>,
   acc: string[] = [],
 ): string[] {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -105,8 +80,8 @@ export function findSourceFiles(
       // tooling, not the user's source, and scanning them pollutes the graph and
       // stalls the Python pass on unrelated scripts.
       if (entry.name.startsWith(".") || skip.has(entry.name)) continue;
-      findSourceFiles(full, skip, ts, py, acc);
-    } else if (isSourceFile(entry.name, ts, py)) {
+      findSourceFiles(full, skip, enabled, acc);
+    } else if (isSourceFile(entry.name, enabled)) {
       acc.push(full);
     }
   }
@@ -139,14 +114,11 @@ export async function bootstrapRepo(
     }
   };
 
-  const useTs = options.typescript !== false;
-  const usePy = options.python !== false;
+  const enabled = enabledFamilies(options);
   const skip = new Set([...SKIP_DIRS, ...(options.exclude ?? [])]);
   emit({ phase: "discovering" });
-  const tsAdapter: LanguageAdapter = await createTypeScriptAdapter(wasmDir);
-  const tsxAdapter: LanguageAdapter = await createTsxAdapter(wasmDir);
-  const pyAdapter: LanguageAdapter = await createPythonAdapter(wasmDir);
-  const files = await filterGitIgnored(rootDir, findSourceFiles(rootDir, skip, useTs, usePy));
+  const adapters = await createAdapters(wasmDir, enabled);
+  const files = await filterGitIgnored(rootDir, findSourceFiles(rootDir, skip, enabled));
   const graph = new CodeGraph();
   const skipped: string[] = [];
   let parsed = 0;
@@ -162,7 +134,9 @@ export async function bootstrapRepo(
     try {
       const source = fs.readFileSync(file, "utf8");
       const rel = path.relative(rootDir, file).split(path.sep).join("/");
-      const adapter = adapterFor(file, tsAdapter, tsxAdapter, pyAdapter);
+      const grammar = grammarForFile(file, enabled);
+      const adapter = grammar && adapters.get(grammar.id);
+      if (!adapter) continue; // not source under the enabled families (already filtered)
       const { nodes, edges } = adapter.parseFile(rel, source);
       for (const node of nodes) graph.addNode(node);
       for (const edge of edges) graph.addEdge(edge);
@@ -184,27 +158,20 @@ export async function bootstrapRepo(
     }
   }
 
-  // Accurate edges (ts-morph) over the TS/JS files: module `depends-on` plus
-  // function/method `calls`. Python accurate edges (Pyright over LSP) follow below.
+  // Accurate cross-file edges per family (FR-86 registry): ts-morph resolves the
+  // TS/JS family's imports/calls/JSX-renders over one shared Project; Pyright resolves
+  // Python imports/calls. Each runs over ONLY its family's files and is best-effort —
+  // a failing resolver leaves the tree-sitter skeleton standing.
   emit({ phase: "resolving", found: files.length, parsed, failed, nodes: graph.order, edges: graph.size });
-  try {
-    const tsFiles = files.filter((f) => !f.endsWith(".py"));
-    const project = new Project();
-    for (const file of tsFiles) project.addSourceFileAtPath(file);
-    for (const edge of resolveImportEdges(project, rootDir)) graph.addEdge(edge);
-    for (const edge of resolveCallEdges(project, rootDir)) graph.addEdge(edge);
-    // FR-84: JSX `renders` edges (component -> child component) — first-class in
-    // React/RN where the render tree, not the call tree, is how the app is structured.
-    for (const edge of resolveRenderEdges(project, rootDir)) graph.addEdge(edge);
-  } catch {
-    // Edge resolution is best-effort; the skeleton still stands.
-  }
-
-  // Accurate Python edges (Pyright over LSP) — imports + calls; no-op for TS-only.
-  try {
-    for (const edge of await resolvePythonEdges(rootDir, files, wasmDir)) graph.addEdge(edge);
-  } catch {
-    // best-effort
+  for (const resolver of EDGE_RESOLVERS) {
+    if (!enabled.has(resolver.family)) continue;
+    const familyFiles = files.filter((f) => grammarForFile(f, enabled)?.family === resolver.family);
+    if (familyFiles.length === 0) continue;
+    try {
+      for (const edge of await resolver.resolve(rootDir, familyFiles, wasmDir)) graph.addEdge(edge);
+    } catch {
+      // best-effort per family
+    }
   }
 
   emit({
