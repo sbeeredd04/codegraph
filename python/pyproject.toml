@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codegraph"
+version = "0.0.1"
+description = "Graph any codebase into a navigable knowledge surface for your AI agent — the Python installer for the Node-based codegraph CLI."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "sriujjwal" }]
+keywords = ["code-graph", "knowledge-graph", "ai-agent", "mcp", "codebase", "call-graph", "code-navigation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Documentation",
+]
+# NOTE: no `license` / no runtime dependencies. The wrapper is stdlib-only; it shells
+# out to the Node CLI. The license and PyPI publish are owner-gated (see README).
+
+[project.urls]
+Homepage = "https://github.com/sbeeredd04/codegraph"
+Repository = "https://github.com/sbeeredd04/codegraph"
+
+[project.scripts]
+codegraph = "codegraph_cli.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["codegraph_cli"]

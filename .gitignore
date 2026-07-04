@@ -16,3 +16,9 @@ _bmad-output/
 
 # codegraph graph artifact (FR-91)
 .codegraph/
+
+# python pip wrapper (FR-94) build/test artifacts
+__pycache__/
+*.egg-info/
+.pytest_cache/
+python/build/
