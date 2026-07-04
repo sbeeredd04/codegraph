@@ -59,7 +59,24 @@ describe("MCP graph tools", () => {
       "list_orphans",
       "list_packages",
       "neighborhood",
+      "query",
     ]);
+  });
+
+  it("query answers a natural-language question grounded in the graph (FR-95)", () => {
+    const r = toolMap(fixture()).get("query")!.handler({ question: "what calls util" });
+    const a = parse(r.content[0].text);
+    expect(a.found).toBe(true);
+    const util = a.matches.find((m: { node: { name: string } }) => m.node.name === "util");
+    expect(util.calledBy).toContain("ts:m.ts#foo"); // real caller, not invented
+    expect(util.node.file).toBe("m.ts");
+  });
+
+  it("query is honest (found:false + overview) when nothing matches", () => {
+    const r = toolMap(fixture()).get("query")!.handler({ question: "where is nonexistentThing" });
+    const a = parse(r.content[0].text);
+    expect(a.found).toBe(false);
+    expect(a.overview).toBeDefined();
   });
 
   it("find_symbol returns ranked symbols with their edges (FR-77)", () => {

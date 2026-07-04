@@ -4,9 +4,11 @@ import * as path from "node:path";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { bootstrapRepo, newestSourceMtimeMs } from "../adapters/lang/bootstrap.js";
+import { CodeGraph } from "../core/graph/graph.js";
 import { exportGraphSnapshot, type GraphSnapshot } from "../core/graph/export.js";
 import { buildGraphArtifact } from "../core/report/artifact.js";
 import { decideGraphSource } from "../core/report/artifact-source.js";
+import { answerQuestion, renderAnswer } from "../core/query/answer.js";
 import { buildAgentSkill, AGENT_SKILL_NAME } from "../core/skill/agent-skill.js";
 import { writeGraphArtifact } from "../adapters/artifact/write.js";
 import { readGraphArtifact } from "../adapters/artifact/read.js";
@@ -58,6 +60,8 @@ const HELP =
   "     --rescan             ignore any .codegraph/ artifact and scan fresh\n" +
   "  codegraph graph [dir]   scan [dir] and write a durable .codegraph/ artifact\n" +
   "                          (graph.json + GRAPH_REPORT.md) for the agent + website\n" +
+  "  codegraph query \"<q>\"   answer a question from .codegraph/graph.json, grounded\n" +
+  "                          (e.g. \"what calls login\") — run `codegraph graph .` first\n" +
   "  codegraph skill         print the codegraph agent skill (SKILL.md) to stdout\n" +
   "  codegraph skill --install   install it to ~/.claude/skills/codegraph/SKILL.md\n" +
   "  CODEGRAPH_PORT overrides the serve port (default 4319).\n";
@@ -76,6 +80,29 @@ function runSkill(install: boolean): void {
   const target = path.join(dir, "SKILL.md");
   fs.writeFileSync(target, markdown, "utf8");
   process.stderr.write(`codegraph: installed agent skill to ${target}\n`);
+}
+
+/** FR-95: answer a natural-language question from the persisted `.codegraph/graph.json`
+ *  — the single model-friendly entry (graphify's `query`). No scan: reads the artifact,
+ *  rebuilds the graph, and prints a grounded answer with file:line citations. */
+function runQuery(root: string, question: string): void {
+  if (!question.trim()) {
+    process.stderr.write('codegraph: usage: codegraph query "<question>"\n');
+    process.exitCode = 1;
+    return;
+  }
+  const loaded = readGraphArtifact(root);
+  if (!loaded) {
+    process.stderr.write(
+      "codegraph: no .codegraph/graph.json here — run `codegraph graph .` first to build it.\n",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const graph = new CodeGraph();
+  for (const node of loaded.snapshot.nodes) graph.addNode(node);
+  for (const edge of loaded.snapshot.edges) graph.addEdge(edge);
+  process.stdout.write(`${renderAnswer(answerQuestion(graph, question))}\n`);
 }
 
 /** FR-91: scan and persist the `.codegraph/` artifact — the agent + website handoff. */
@@ -155,13 +182,19 @@ async function runServe(root: string, opts: ServeOptions = {}): Promise<void> {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const flags = new Set(argv.filter((a) => a.startsWith("-")));
-  const [sub, maybeDir] = argv.filter((a) => !a.startsWith("-"));
+  const positionals = argv.filter((a) => !a.startsWith("-"));
+  const [sub, maybeDir] = positionals;
   if (flags.has("-h") || flags.has("--help")) {
     process.stderr.write(HELP);
     return;
   }
   if (sub === "skill") {
     runSkill(flags.has("--install"));
+    return;
+  }
+  if (sub === "query") {
+    // Everything after `query` is the question (so it works quoted or bare).
+    runQuery(path.resolve(process.cwd()), positionals.slice(1).join(" "));
     return;
   }
   // `graph`/`serve` are subcommands; anything else in the first slot is the dir.

@@ -23,6 +23,7 @@ export const AGENT_SKILL_DESCRIPTION =
 /** The read/traversal codegraph MCP tools the skill leans on (a subset of the full
  *  tool surface — the drive-the-board + authoring tools are documented in the body). */
 export const CODEGRAPH_QUERY_TOOLS = [
+  "query",
   "find_symbol",
   "find_file",
   "find_nodes",
@@ -75,6 +76,7 @@ If NO graph exists, build one (see "Setup"), then continue.
 
 | The question | Use |
 |---|---|
+| Any NL question about the code, in one call | \`query\` (start here) |
 | Where is \`login\` / the auth module? | \`find_symbol\` / \`find_file\` |
 | What calls X? Who depends on X? | \`dependencies\` (direction: dependents) / \`blast_radius\` |
 | What does X call / import? | \`dependencies\` (direction: dependencies) |
@@ -89,6 +91,13 @@ If NO graph exists, build one (see "Setup"), then continue.
 ## Query with the MCP (preferred)
 
 Read/traversal tools: ${CODEGRAPH_QUERY_TOOLS.join(", ")}.
+
+**\`query\` is the one-shot entry** — ask it a natural-language question
+(\`query({question: "what calls login"})\`) and it returns the matching nodes with
+their real call/depends-on/contains edges, their callers, and file:line citations,
+grounded in the graph. Reach for it first; drop to the specific tools below to drill
+in. (Without the MCP, the same answer comes from \`codegraph query "<q>"\` on the
+\`.codegraph/graph.json\` artifact.)
 
 Node addresses are stable: \`ts:src/auth.ts#login\`, \`py:app/api.py#Config.load\`.
 Start from \`find_symbol\`/\`find_file\` to resolve an address, then \`describe_node\`

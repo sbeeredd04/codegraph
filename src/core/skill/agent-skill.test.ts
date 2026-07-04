@@ -5,6 +5,7 @@ import { buildAgentSkill, AGENT_SKILL_NAME, AGENT_SKILL_DESCRIPTION, CODEGRAPH_Q
 // surface in src/adapters/mcp/tools.ts. If a tool is renamed there, this list (and
 // the skill) must follow, so the skill never points an agent at a tool that doesn't exist.
 const REAL_MCP_TOOLS = new Set([
+  "query",
   "find_nodes", "find_symbol", "find_file", "list_packages", "entry_points",
   "describe_node", "blast_radius", "dependencies", "find_path", "neighborhood",
   "list_orphans", "graph_stats", "recent_changes", "annotate_node", "save_diagram",

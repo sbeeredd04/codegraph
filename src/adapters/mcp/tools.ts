@@ -35,6 +35,7 @@ import {
   graphStats,
   neighborhood,
 } from "../../core/graph/query.js";
+import { answerQuestion } from "../../core/query/answer.js";
 import { findPath } from "../../core/graph/path.js";
 import type { EdgeType } from "../../core/graph/types.js";
 
@@ -104,6 +105,24 @@ const PROJECTION = z.enum(PROJECTION_KINDS as unknown as [string, ...string[]]);
 export function graphTools(getGraph: () => CodeGraph, deps: GraphToolDeps = {}): GraphTool[] {
   const { recentChanges, annotations, diagrams, docs, overlays, commands } = deps;
   const tools: GraphTool[] = [
+    {
+      name: "query",
+      title: "Ask the graph",
+      description:
+        "Ask a natural-language question about THIS codebase (\"what calls login\", " +
+        "\"what does the auth module depend on\", \"where is X defined\") and get a grounded " +
+        "answer in one call: the matching graph nodes with their real call / depends-on / " +
+        "contains edges, their callers, and file:line citations. Answered ONLY from the " +
+        "graph — never an invented edge or caller; if the graph lacks it, the answer says " +
+        "so. Prefer this over grep, and over chaining find_symbol + describe_node, for any " +
+        "structural question.",
+      inputSchema: {
+        question: z.string().min(1).describe("A natural-language question about the codebase."),
+        limit: z.number().int().positive().max(50).optional().describe("Max matched nodes (default 8)."),
+      },
+      handler: (args) =>
+        ok(answerQuestion(getGraph(), String(args.question), { limit: args.limit as number | undefined })),
+    },
     {
       name: "find_nodes",
       title: "Find nodes",
