@@ -89,6 +89,31 @@ export function findSourceFiles(
 }
 
 /**
+ * FR-93: the newest mtime (ms) among the repo's source files, or undefined when
+ * there are none. Used to tell whether a persisted `.codegraph/graph.json` is stale
+ * relative to the tree it was built from. Cheap — one `stat` per source file, no
+ * parsing — so `codegraph serve` can decide "load the artifact vs rescan" without
+ * paying for a scan. Best-effort: an unreadable file is skipped, never fatal.
+ */
+export function newestSourceMtimeMs(
+  rootDir: string,
+  options: { typescript?: boolean; python?: boolean; exclude?: readonly string[] } = {},
+): number | undefined {
+  const enabled = enabledFamilies(options);
+  const skip = new Set([...SKIP_DIRS, ...(options.exclude ?? [])]);
+  let newest: number | undefined;
+  for (const file of findSourceFiles(rootDir, skip, enabled)) {
+    try {
+      const { mtimeMs } = fs.statSync(file);
+      if (newest === undefined || mtimeMs > newest) newest = mtimeMs;
+    } catch {
+      /* a file that vanished mid-walk or can't be stat'd — skip it */
+    }
+  }
+  return newest;
+}
+
+/**
  * Optional progress sink (FR-55) — the live-progress UI's data source. Called as
  * the scan walks → parses → resolves edges; emits ONLY counts + a repo-relative
  * current file (AD-16/AD-14: never source bytes / an absolute host path). It is a

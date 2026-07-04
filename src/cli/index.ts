@@ -3,11 +3,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
-import { bootstrapRepo } from "../adapters/lang/bootstrap.js";
-import { exportGraphSnapshot } from "../core/graph/export.js";
+import { bootstrapRepo, newestSourceMtimeMs } from "../adapters/lang/bootstrap.js";
+import { exportGraphSnapshot, type GraphSnapshot } from "../core/graph/export.js";
 import { buildGraphArtifact } from "../core/report/artifact.js";
+import { decideGraphSource } from "../core/report/artifact-source.js";
 import { buildAgentSkill, AGENT_SKILL_NAME } from "../core/skill/agent-skill.js";
 import { writeGraphArtifact } from "../adapters/artifact/write.js";
+import { readGraphArtifact } from "../adapters/artifact/read.js";
 import { createBoardServer } from "../adapters/serve/server.js";
 
 // The `codegraph` CLI. Two subcommands, both host-local + read-only (AD-16 / FR-9):
@@ -52,6 +54,8 @@ const HELP =
   "Usage: codegraph [command] [dir]\n" +
   "  codegraph [dir]         scan [dir] (default: cwd) and open the graph board\n" +
   "  codegraph serve [dir]   same as above, explicit\n" +
+  "     --from-artifact      load .codegraph/graph.json without scanning (even if stale)\n" +
+  "     --rescan             ignore any .codegraph/ artifact and scan fresh\n" +
   "  codegraph graph [dir]   scan [dir] and write a durable .codegraph/ artifact\n" +
   "                          (graph.json + GRAPH_REPORT.md) for the agent + website\n" +
   "  codegraph skill         print the codegraph agent skill (SKILL.md) to stdout\n" +
@@ -89,15 +93,49 @@ async function runGraph(root: string): Promise<void> {
   );
 }
 
-/** FR-88: scan and serve the board with the live snapshot injected. */
-async function runServe(root: string): Promise<void> {
+interface ServeOptions {
+  /** `--from-artifact`: serve the persisted graph without scanning. */
+  readonly fromArtifact?: boolean;
+  /** `--rescan`: ignore any artifact and scan fresh. */
+  readonly rescan?: boolean;
+}
+
+/** FR-88 + FR-93: serve the board with a snapshot injected. Prefers a persisted
+ *  `.codegraph/graph.json` (the graph the agent already produced — no re-scan) and
+ *  auto-rescans when it's missing or stale, so both the agent and the board read the
+ *  same folder. Flags pin the choice. */
+async function runServe(root: string, opts: ServeOptions = {}): Promise<void> {
   const port = Number(process.env.CODEGRAPH_PORT ?? 4319);
-  process.stderr.write(`codegraph: scanning ${root} …\n`);
-  const { graph, coverage } = await bootstrapRepo(root, wasmDir());
-  const snapshot = exportGraphSnapshot(graph.allNodes(), graph.allEdges(), {
-    keepHostLocal: true,
-    root,
+
+  // FR-93: decide artifact-vs-scan before doing either. Reading the artifact is cheap;
+  // the freshness stat-walk only runs when an artifact is actually in play.
+  const loaded = opts.rescan ? null : readGraphArtifact(root);
+  const decision = decideGraphSource({
+    artifactAvailable: loaded !== null,
+    forceArtifact: opts.fromArtifact,
+    forceRescan: opts.rescan,
+    artifactMtimeMs: loaded?.mtimeMs,
+    newestSourceMtimeMs: loaded ? newestSourceMtimeMs(root) : undefined,
   });
+
+  let snapshot: GraphSnapshot;
+  let summary: string;
+  if (decision.mode === "artifact" && loaded) {
+    snapshot = loaded.snapshot;
+    summary = `${snapshot.nodeCount} nodes · ${snapshot.edgeCount} edges (.codegraph/graph.json)`;
+    process.stderr.write(`codegraph: ${decision.reason}\n`);
+  } else {
+    if (opts.fromArtifact && !loaded) {
+      process.stderr.write("codegraph: --from-artifact set but no readable .codegraph/graph.json\n");
+    }
+    process.stderr.write(`codegraph: ${decision.reason}\n`);
+    const { graph, coverage } = await bootstrapRepo(root, wasmDir());
+    snapshot = exportGraphSnapshot(graph.allNodes(), graph.allEdges(), {
+      keepHostLocal: true,
+      root,
+    });
+    summary = `${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`;
+  }
 
   const server = createBoardServer({ exportDir: exportDir(), snapshot, editorRoot: root });
   server.on("error", (err: NodeJS.ErrnoException) => {
@@ -108,29 +146,29 @@ async function runServe(root: string): Promise<void> {
   server.listen(port, () => {
     const url = `http://localhost:${port}/`;
     process.stderr.write(
-      `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges\n` +
-        `codegraph: board ready at ${url}  (Ctrl-C to stop)\n`,
+      `codegraph: ${summary}\n` + `codegraph: board ready at ${url}  (Ctrl-C to stop)\n`,
     );
     openBrowser(url);
   });
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const [sub, maybeDir] = args;
-  if (sub === "-h" || sub === "--help") {
+  const argv = process.argv.slice(2);
+  const flags = new Set(argv.filter((a) => a.startsWith("-")));
+  const [sub, maybeDir] = argv.filter((a) => !a.startsWith("-"));
+  if (flags.has("-h") || flags.has("--help")) {
     process.stderr.write(HELP);
     return;
   }
   if (sub === "skill") {
-    runSkill(args.includes("--install"));
+    runSkill(flags.has("--install"));
     return;
   }
   // `graph`/`serve` are subcommands; anything else in the first slot is the dir.
   const isSubcommand = sub === "graph" || sub === "serve";
   const root = path.resolve((isSubcommand ? maybeDir : sub) ?? process.cwd());
   if (sub === "graph") return runGraph(root);
-  return runServe(root);
+  return runServe(root, { fromArtifact: flags.has("--from-artifact"), rescan: flags.has("--rescan") });
 }
 
 main().catch((err: unknown) => {
