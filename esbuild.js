@@ -48,6 +48,21 @@ const builds = [
     logLevel: "info",
   },
   {
+    // FR-88 — the `npx codegraph` / `codegraph serve` CLI: scan cwd, serve the
+    // bundled board (media/explorer) with the live snapshot injected. Same native
+    // externals as the MCP server; shebang so the published `bin` runs directly.
+    entryPoints: ["src/cli/index.ts"],
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    target: "node20",
+    outfile: "dist/cli.js",
+    external: ["@vscode/tree-sitter-wasm", "ts-morph", "pyright", "vscode-jsonrpc"],
+    banner: { js: "#!/usr/bin/env node" },
+    sourcemap: true,
+    logLevel: "info",
+  },
+  {
     // Standalone web viewer (Epic 6): open dist/web/viewer.html, load a snapshot
     // exported from the panel. Self-contained IIFE so it runs from file:// — no
     // server, no editor.

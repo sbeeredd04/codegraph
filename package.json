@@ -18,6 +18,9 @@
     "url": "https://github.com/sbeeredd04/codegraph.git"
   },
   "main": "./dist/extension.js",
+  "bin": {
+    "codegraph": "./dist/cli.js"
+  },
   "activationEvents": [],
   "contributes": {
     "commands": [
@@ -94,6 +97,7 @@
     "package": "vsce package",
     "watch": "node esbuild.js --watch",
     "mcp": "node dist/mcp-server.js",
+    "serve": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
     "typecheck:webview": "tsc --project tsconfig.webview.json",
     "test": "vitest run",
