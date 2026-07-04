@@ -11,6 +11,7 @@
 // kind; absent that, we derive what is knowable from the endpoint kinds.
 
 import type { EdgeCallKind, GraphEdge, GraphNode } from "./types.js";
+import { assertNever } from "../util/assert-never.js";
 
 export type { EdgeCallKind };
 
@@ -99,5 +100,8 @@ function edgeCallKind(edge: GraphEdge, toNode?: GraphNode): EdgeCallKind {
       return "contain";
     case "hands-off-to":
       return "handoff";
+    default:
+      // A new EdgeType must be classified here — this line makes that a compile error.
+      return assertNever(edge.type);
   }
 }
