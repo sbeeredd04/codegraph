@@ -24,6 +24,10 @@ interface ServeOptions {
  *  same folder. Flags pin the choice. */
 async function runServe(root: string, opts: ServeOptions = {}): Promise<void> {
   const port = Number(process.env.CODEGRAPH_PORT ?? 4319);
+  // Bind to loopback by default: the board carries the user's private graph + host-local
+  // paths (AD-16), so it must not be reachable from the LAN. CODEGRAPH_HOST overrides
+  // (e.g. "0.0.0.0" for a container the user deliberately exposes).
+  const host = process.env.CODEGRAPH_HOST ?? "127.0.0.1";
 
   // FR-93: decide artifact-vs-scan before doing either. Reading the artifact is cheap;
   // the freshness stat-walk only runs when an artifact is actually in play.
@@ -61,7 +65,7 @@ async function runServe(root: string, opts: ServeOptions = {}): Promise<void> {
     process.stderr.write(`codegraph: server error${hint}: ${err.message}\n`);
     process.exit(1);
   });
-  server.listen(port, () => {
+  server.listen(port, host, () => {
     const url = `http://localhost:${port}/`;
     process.stderr.write(
       `codegraph: ${summary}\n` + `codegraph: board ready at ${url}  (Ctrl-C to stop)\n`,

@@ -44,6 +44,15 @@ describe("readGraphArtifact (FR-93)", () => {
     expect(readGraphArtifact(dir)).toBeNull();
   });
 
+  it("returns null when graph.json exceeds the size cap (no huge read/parse) (T11.3)", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-read-"));
+    writeGraphArtifact(dir, buildGraphArtifact(NODES, EDGES, { root: dir }));
+    // A tiny cap stands in for the real 256 MiB one — the written artifact is well over 8 bytes.
+    expect(readGraphArtifact(dir, { maxBytes: 8 })).toBeNull();
+    // Same file loads fine under the default cap — the guard is size-gated, not blanket.
+    expect(readGraphArtifact(dir)).not.toBeNull();
+  });
+
   it("the loaded snapshot serves to the board without a scan (inject round-trip)", () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-read-"));
     writeGraphArtifact(dir, buildGraphArtifact(NODES, EDGES, { root: dir }));

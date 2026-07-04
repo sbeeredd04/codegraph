@@ -9,16 +9,26 @@ import type { GraphSnapshot } from "../../core/graph/export.js";
 // explorer-panel.ts, but inline. Host-local + read-only: this runs on the user's
 // machine where the source already lives (AD-16), so keeping doc/examples is fine.
 
+// U+2028 / U+2029 built from code points so no raw line terminator sits in this source
+// file. Both are legal in JSON strings but are raw line breaks in a JS string literal.
+const JS_LINE_SEPARATORS = String.fromCharCode(0x2028, 0x2029);
+const JS_LINE_SEPARATOR_RE = new RegExp("[" + JS_LINE_SEPARATORS + "]", "g");
+
 /**
- * Serialize a value for embedding inside an inline `<script>`. Escapes `<`, `>`,
- * and `&` so a `</script>` or `<!--` inside string data (a node name, a path)
- * cannot break out of the script element — the standard JSON-in-HTML hardening.
+ * Serialize a value for embedding inside an inline `<script>`. Two hazards, both from
+ * string data that could carry arbitrary bytes (a node name, a path, a docstring):
+ *   - `<`, `>`, `&` — escaped so a `</script>` or `<!--` can't break out of the script
+ *     element (the standard JSON-in-HTML hardening);
+ *   - U+2028 / U+2029 — legal inside a JSON string but RAW LINE TERMINATORS in a JS
+ *     string literal, so an unescaped one would make the boot script a syntax error and
+ *     white-screen the board. `JSON.stringify` leaves them raw, so we escape them here.
  */
 function jsonForScript(value: unknown): string {
   return JSON.stringify(value)
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026");
+    .replace(/&/g, "\\u0026")
+    .replace(JS_LINE_SEPARATOR_RE, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 }
 
 /**

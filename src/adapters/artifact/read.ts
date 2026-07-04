@@ -18,18 +18,38 @@ export interface LoadedArtifact {
 }
 
 /**
- * Read + parse `<baseDir>/.codegraph/graph.json` if present. Returns null when the
- * artifact is absent, unreadable, or fails snapshot validation — the caller then
- * falls back to a fresh scan. Never throws (a missing/corrupt artifact is a normal,
- * expected state, not an error).
+ * Default cap on graph.json size (256 MiB). Generous — even a very large repo's snapshot
+ * is well under this — but it stops a hostile or corrupt giant file at `.codegraph/
+ * graph.json` from being slurped into memory (readFileSync) and `JSON.parse`d, which
+ * would OOM the process. Past the cap we return null and the caller rescans (the scan
+ * builds the real, correctly-sized graph incrementally).
  */
-export function readGraphArtifact(baseDir: string): LoadedArtifact | null {
+export const MAX_ARTIFACT_BYTES = 256 * 1024 * 1024;
+
+export interface ReadArtifactOptions {
+  /** Override the size cap (mainly for tests). */
+  readonly maxBytes?: number;
+}
+
+/**
+ * Read + parse `<baseDir>/.codegraph/graph.json` if present. Returns null when the
+ * artifact is absent, unreadable, larger than the size cap, or fails snapshot
+ * validation — the caller then falls back to a fresh scan. Never throws (a missing/
+ * corrupt/oversized artifact is a normal, expected state, not an error).
+ */
+export function readGraphArtifact(
+  baseDir: string,
+  opts: ReadArtifactOptions = {},
+): LoadedArtifact | null {
+  const maxBytes = opts.maxBytes ?? MAX_ARTIFACT_BYTES;
   const file = path.join(baseDir, ARTIFACT_DIR, "graph.json");
   let text: string;
   let mtimeMs: number;
   try {
     const stat = fs.statSync(file);
-    if (!stat.isFile()) return null;
+    // Guard the read itself: only a regular file, and not one so large that reading +
+    // parsing it would exhaust memory. Check BEFORE readFileSync.
+    if (!stat.isFile() || stat.size > maxBytes) return null;
     mtimeMs = stat.mtimeMs;
     text = fs.readFileSync(file, "utf8");
   } catch {

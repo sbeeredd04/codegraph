@@ -71,4 +71,31 @@ describe("createBoardServer (FR-88)", () => {
     const res = await get(server, "/../../etc/hosts");
     expect(res.status).toBe(403);
   });
+
+  it("refuses to follow a symlink that escapes the export dir (T11.3)", async () => {
+    // A secret file OUTSIDE the served dir, exposed via a symlink INSIDE it.
+    const secret = path.join(os.tmpdir(), `codegraph-secret-${process.pid}.txt`);
+    fs.writeFileSync(secret, "TOP SECRET");
+    const link = path.join(dir, "leak.txt");
+    try {
+      fs.symlinkSync(secret, link);
+    } catch {
+      return; // symlinks unavailable on this platform — skip
+    }
+    const res = await get(server, "/leak.txt");
+    fs.rmSync(link, { force: true });
+    fs.rmSync(secret, { force: true });
+    expect(res.status).toBe(403);
+    expect(res.body).not.toContain("TOP SECRET");
+  });
+
+  it("rejects an overlong request path (T11.3)", async () => {
+    const res = await get(server, `/${"a".repeat(5000)}`);
+    expect(res.status).toBe(414);
+  });
+
+  it("rejects a malformed percent-encoding (T11.3)", async () => {
+    const res = await get(server, "/%E0%A4%A"); // truncated escape → decode throws
+    expect(res.status).toBe(400);
+  });
 });

@@ -41,6 +41,16 @@ describe("injectSnapshot (FR-88)", () => {
     expect(out.match(/<\/script>/g)?.length).toBe(1);
   });
 
+  it("escapes U+2028/U+2029 so a line separator in data can't break the boot script (T11.3)", () => {
+    const ls = String.fromCharCode(0x2028); // legal in JSON, a raw newline in a JS string
+    const ps = String.fromCharCode(0x2029);
+    const out = injectSnapshot(HTML, snapshot(`na${ls}me${ps}x`));
+    expect(out).toContain("\\u2028"); // escaped in the emitted script
+    expect(out).toContain("\\u2029");
+    expect(out).not.toContain(ls); // no raw separator survives into the script text
+    expect(out).not.toContain(ps);
+  });
+
   it("falls back to prepending when there is no <head>", () => {
     const out = injectSnapshot("<body>x</body>", snapshot());
     expect(out.startsWith("<script>")).toBe(true);
