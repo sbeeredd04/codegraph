@@ -3,14 +3,17 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { bootstrapRepo } from "../adapters/lang/bootstrap.js";
 import { exportGraphSnapshot } from "../core/graph/export.js";
+import { buildGraphArtifact } from "../core/report/artifact.js";
+import { writeGraphArtifact } from "../adapters/artifact/write.js";
 import { createBoardServer } from "../adapters/serve/server.js";
 
-// FR-88 — the `npx codegraph` / `codegraph serve` one-liner. Scan the current
-// working dir, then open the SAME board the extension + website render, with the
-// live graph injected. The easy-distribution win: no VS Code, no install ceremony.
-// Host-local + read-only (AD-16 / FR-9) — the scan reads source in place and the
-// server hands the board a keepHostLocal snapshot (doc/examples are fine here: this
-// runs on the user's own machine, unlike the source-blind cloud plane, AD-14).
+// The `codegraph` CLI. Two subcommands, both host-local + read-only (AD-16 / FR-9):
+//   codegraph [dir]         scan + open the board (FR-88 — the easy-distribution win)
+//   codegraph serve [dir]   same, explicit
+//   codegraph graph [dir]   scan + write a durable .codegraph/ artifact (FR-91 —
+//                           graph.json + GRAPH_REPORT.md the agent + website both read)
+// The scan reads source in place and keeps host-local doc/examples: this runs on the
+// user's own machine, unlike the source-blind cloud plane (AD-14).
 
 const require = createRequire(__filename);
 
@@ -42,16 +45,32 @@ function openBrowser(url: string): void {
   }
 }
 
-async function main(): Promise<void> {
-  // Usage: `codegraph [dir]` (defaults to cwd). CODEGRAPH_PORT overrides the port.
-  const arg = process.argv[2];
-  if (arg === "-h" || arg === "--help") {
-    process.stderr.write("Usage: codegraph [dir]\n  Scans [dir] (default: cwd) and opens the graph board.\n");
-    return;
-  }
-  const root = path.resolve(arg && arg !== "serve" ? arg : process.cwd());
-  const port = Number(process.env.CODEGRAPH_PORT ?? 4319);
+const HELP =
+  "Usage: codegraph [command] [dir]\n" +
+  "  codegraph [dir]         scan [dir] (default: cwd) and open the graph board\n" +
+  "  codegraph serve [dir]   same as above, explicit\n" +
+  "  codegraph graph [dir]   scan [dir] and write a durable .codegraph/ artifact\n" +
+  "                          (graph.json + GRAPH_REPORT.md) for the agent + website\n" +
+  "  CODEGRAPH_PORT overrides the serve port (default 4319).\n";
 
+/** FR-91: scan and persist the `.codegraph/` artifact — the agent + website handoff. */
+async function runGraph(root: string): Promise<void> {
+  process.stderr.write(`codegraph: scanning ${root} …\n`);
+  const { graph, coverage } = await bootstrapRepo(root, wasmDir());
+  const artifact = buildGraphArtifact(graph.allNodes(), graph.allEdges(), {
+    root,
+    generatedAt: new Date().toISOString(),
+  });
+  const outDir = writeGraphArtifact(root, artifact);
+  process.stderr.write(
+    `codegraph: ${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges\n` +
+      `codegraph: wrote graph.json + GRAPH_REPORT.md to ${outDir}\n`,
+  );
+}
+
+/** FR-88: scan and serve the board with the live snapshot injected. */
+async function runServe(root: string): Promise<void> {
+  const port = Number(process.env.CODEGRAPH_PORT ?? 4319);
   process.stderr.write(`codegraph: scanning ${root} …\n`);
   const { graph, coverage } = await bootstrapRepo(root, wasmDir());
   const snapshot = exportGraphSnapshot(graph.allNodes(), graph.allEdges(), {
@@ -73,6 +92,19 @@ async function main(): Promise<void> {
     );
     openBrowser(url);
   });
+}
+
+async function main(): Promise<void> {
+  const [sub, maybeDir] = process.argv.slice(2);
+  if (sub === "-h" || sub === "--help") {
+    process.stderr.write(HELP);
+    return;
+  }
+  // `graph`/`serve` are subcommands; anything else in the first slot is the dir.
+  const isSubcommand = sub === "graph" || sub === "serve";
+  const root = path.resolve((isSubcommand ? maybeDir : sub) ?? process.cwd());
+  if (sub === "graph") return runGraph(root);
+  return runServe(root);
 }
 
 main().catch((err: unknown) => {

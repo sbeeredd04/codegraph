@@ -13,3 +13,6 @@ _bmad-output/
 
 # playwright verification artifacts
 .playwright-mcp/
+
+# codegraph graph artifact (FR-91)
+.codegraph/
