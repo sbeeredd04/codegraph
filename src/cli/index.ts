@@ -1,9 +1,12 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { bootstrapRepo } from "../adapters/lang/bootstrap.js";
 import { exportGraphSnapshot } from "../core/graph/export.js";
 import { buildGraphArtifact } from "../core/report/artifact.js";
+import { buildAgentSkill, AGENT_SKILL_NAME } from "../core/skill/agent-skill.js";
 import { writeGraphArtifact } from "../adapters/artifact/write.js";
 import { createBoardServer } from "../adapters/serve/server.js";
 
@@ -51,7 +54,25 @@ const HELP =
   "  codegraph serve [dir]   same as above, explicit\n" +
   "  codegraph graph [dir]   scan [dir] and write a durable .codegraph/ artifact\n" +
   "                          (graph.json + GRAPH_REPORT.md) for the agent + website\n" +
+  "  codegraph skill         print the codegraph agent skill (SKILL.md) to stdout\n" +
+  "  codegraph skill --install   install it to ~/.claude/skills/codegraph/SKILL.md\n" +
   "  CODEGRAPH_PORT overrides the serve port (default 4319).\n";
+
+/** FR-92: emit the codegraph agent skill so a connected agent reaches for the graph
+ *  before it greps. Prints to stdout by default (pipe it anywhere); `--install`
+ *  writes it under the user's ~/.claude/skills (they ran the command, so they consent). */
+function runSkill(install: boolean): void {
+  const markdown = buildAgentSkill();
+  if (!install) {
+    process.stdout.write(markdown);
+    return;
+  }
+  const dir = path.join(os.homedir(), ".claude", "skills", AGENT_SKILL_NAME);
+  fs.mkdirSync(dir, { recursive: true });
+  const target = path.join(dir, "SKILL.md");
+  fs.writeFileSync(target, markdown, "utf8");
+  process.stderr.write(`codegraph: installed agent skill to ${target}\n`);
+}
 
 /** FR-91: scan and persist the `.codegraph/` artifact — the agent + website handoff. */
 async function runGraph(root: string): Promise<void> {
@@ -95,9 +116,14 @@ async function runServe(root: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const [sub, maybeDir] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const [sub, maybeDir] = args;
   if (sub === "-h" || sub === "--help") {
     process.stderr.write(HELP);
+    return;
+  }
+  if (sub === "skill") {
+    runSkill(args.includes("--install"));
     return;
   }
   // `graph`/`serve` are subcommands; anything else in the first slot is the dir.
