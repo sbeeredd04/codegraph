@@ -36,6 +36,7 @@ import type { SurfaceController } from "@/lib/surface-controller";
 import { GROUP_TINT, HIGHLIGHT_STYLE_COLOR } from "@/lib/overlay-style";
 import { INACTIVE_MOVIE, type MovieState } from "@/lib/movie-player-3d";
 import { createSurfaceMovie, type MovieControlsApi } from "@/lib/surface-movie-3d";
+import { buildPointerControls3D } from "@/lib/surface-pointer-3d";
 import { installSurface3DDevHooks } from "@/lib/surface-dev-hooks-3d";
 import { Maximize, RotateCcw, Orbit } from "./icons";
 import { MovieControls3D } from "./movie-controls-3d";
@@ -533,112 +534,28 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         cam.resize(); // re-read aspect + update the projection matrix
       };
 
-      // Hit-testing: raycast the instanced spheres first, then a forgiving 14px
-      // screen-space nearest fallback so small distant nodes stay clickable.
-      const raycaster = new THREE.Raycaster();
-      const ndc = new THREE.Vector2();
-      const pickAt = (mx: number, my: number): string | null => {
-        ndc.set((mx / widthOf()) * 2 - 1, -(my / heightOf()) * 2 + 1);
-        raycaster.setFromCamera(ndc, camera);
-        const hits = raycaster.intersectObject(mesh);
-        if (hits.length && hits[0].instanceId != null) return ids[hits[0].instanceId];
-        let best: string | null = null;
-        let bestD2 = 14 * 14;
-        for (let i = 0; i < ids.length; i++) {
-          const sp = cam.projectToScreen(pos[i]);
-          if (sp.z > 1) continue;
-          const dx = sp.x - mx;
-          const dy = sp.y - my;
-          const d2 = dx * dx + dy * dy;
-          if (d2 <= bestD2) {
-            bestD2 = d2;
-            best = ids[i];
-          }
-        }
-        return best;
-      };
-
-      // --- Interaction: drag = orbit; shift/right/middle-drag = pan; wheel = zoom;
-      // click = select; hover = highlight. The owner's "enable everything" — full
-      // orbit/pan/zoom; the camera math itself lives in the FR-47 controller (cam.*).
-      let dragging = false;
-      let panning = false;
-      let lastX = 0;
-      let lastY = 0;
-      let moved = 0;
-      const localXY = (e: PointerEvent): { mx: number; my: number } => {
-        const rect = canvas.getBoundingClientRect();
-        return { mx: e.clientX - rect.left, my: e.clientY - rect.top };
-      };
-      const onDown = (e: PointerEvent): void => {
-        cam.cancelTween(); // manual control preempts an in-flight camera tween
-        moviePlayer.stop(); // grabbing the canvas (orbit/pan or a new pick) ends a movie
-        dragging = true;
-        panning = e.shiftKey || e.button === 1 || e.button === 2;
-        moved = 0;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        canvas.setPointerCapture(e.pointerId);
-      };
-      const onMove = (e: PointerEvent): void => {
-        if (dragging) {
-          const dx = e.clientX - lastX;
-          const dy = e.clientY - lastY;
-          lastX = e.clientX;
-          lastY = e.clientY;
-          moved += Math.abs(dx) + Math.abs(dy);
-          if (panning) cam.pan(dx, dy);
-          else cam.orbit(dx, dy);
-          requestRender();
-          return;
-        }
-        const { mx, my } = localXY(e);
-        const hit = pickAt(mx, my);
-        if (hit !== hoverId) {
-          hoverId = hit;
-          cbRef.current.onHoverNode(hit);
-          requestRender();
-        }
-      };
-      const onUp = (e: PointerEvent): void => {
-        if (dragging && moved < 4) {
-          const { mx, my } = localXY(e);
-          const hit = pickAt(mx, my);
-          // FR-61: a click while the trace tool is armed extends the manual trace
-          // (forwarded to the Explorer) instead of selecting — same as the 2D surface.
-          // FR-71: ctrl/⌘-click peeks the node's connections without selecting it —
-          // parity with the 2D surface's modifier-click.
-          if (hit) {
-            if (cbRef.current.traceArmed) cbRef.current.onTraceClick?.(hit);
-            else if (e.ctrlKey || e.metaKey) cbRef.current.onPeekNode?.(hit);
-            else cbRef.current.onSelectNode(hit);
-          } else cbRef.current.onClearSelection();
-        }
-        dragging = false;
-        panning = false;
-      };
-      const onLeave = (): void => {
-        if (hoverId) {
-          hoverId = null;
-          cbRef.current.onHoverNode(null);
-          requestRender();
-        }
-      };
-      const onWheel = (e: WheelEvent): void => {
-        e.preventDefault();
-        cam.cancelTween(); // manual zoom preempts an in-flight camera tween
-        moviePlayer.stop(); // manual zoom ends a movie
-        cam.zoom(e.deltaY);
-        requestRender();
-      };
-      const onContext = (e: Event): void => e.preventDefault();
-
-      canvas.addEventListener("pointerdown", onDown);
-      canvas.addEventListener("pointermove", onMove);
-      canvas.addEventListener("pointerup", onUp);
-      canvas.addEventListener("pointerleave", onLeave);
-      canvas.addEventListener("wheel", onWheel, { passive: false });
-      canvas.addEventListener("contextmenu", onContext);
+      // --- Interaction (lib/surface-pointer-3d): drag = orbit; shift/right/middle-drag
+      // = pan; wheel = zoom; click = select (peek on ctrl/⌘, extend the manual trace
+      // while armed); hover = highlight. Hit-testing + the pointer state machine live in
+      // the builder; `hoverId` is bridged so the draw loop keeps reading it live. The
+      // camera math itself lives in the FR-47 controller (cam.*).
+      const pointer = buildPointerControls3D(THREE, {
+        canvas,
+        cam,
+        mesh,
+        ids,
+        positions: pos,
+        widthOf,
+        heightOf,
+        requestRender: () => requestRender(),
+        stopMovie: () => moviePlayer.stop(),
+        getHover: () => hoverId,
+        setHover: (v) => {
+          hoverId = v;
+        },
+        cb: () => cbRef.current,
+      });
+      pointer.attach();
 
       // Pan the camera so a node set's centroid sits at the viewport centre (no
       // rotation, no zoom change) — resolves addresses to world positions, then
@@ -764,12 +681,7 @@ export function GraphCanvas3D(props: GraphSurfaceProps): React.JSX.Element {
         if (raf) cancelAnimationFrame(raf);
         drawRef.current = null;
         ro.disconnect();
-        canvas.removeEventListener("pointerdown", onDown);
-        canvas.removeEventListener("pointermove", onMove);
-        canvas.removeEventListener("pointerup", onUp);
-        canvas.removeEventListener("pointerleave", onLeave);
-        canvas.removeEventListener("wheel", onWheel);
-        canvas.removeEventListener("contextmenu", onContext);
+        pointer.detach();
         sphereGeo.dispose();
         nodeMat.dispose();
         edges.dispose();
