@@ -47,11 +47,34 @@ async function selectSourceBearingNode(page: Page): Promise<{ id: string; file: 
   });
 }
 
+/** Wait until the codegraph dataset has actually swapped in. The page boots on the
+ *  tRPC graph (which already has order>0), so `waitForGraph` alone can return before
+ *  the switch completes — leaving a tRPC node picked whose bytes aren't in the
+ *  codegraph source sidecar. Gate on a stable codegraph node (the same anchor the
+ *  onboarding spec uses) so the source-bearing pick is genuinely from this dataset. */
+async function waitForCodegraphDataset(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const el = document.querySelector("div.absolute.inset-0") as
+            | (HTMLElement & { __sigma?: { getGraph(): { hasNode(id: string): boolean } } })
+            | null;
+          return el?.__sigma
+            ? el.__sigma.getGraph().hasNode("ts:src/adapters/cache/repo-cache.ts#repoCacheFile")
+            : false;
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // Switch to the first-party sample that ships source (FR-15 needs real bytes).
   await page.getByLabel("Dataset").selectOption("codegraph");
   await waitForGraph(page);
+  await waitForCodegraphDataset(page);
 });
 
 test("FR-15: selecting a node opens a read-only, def-anchored source viewer", async ({ page }) => {
@@ -68,12 +91,18 @@ test("FR-15: selecting a node opens a read-only, def-anchored source viewer", as
   // Header path shows file:1-based-line.
   await expect(viewer.getByText(`${node.file}:${node.line + 1}`)).toBeVisible();
 
-  // Read-only badge present; the def line is rendered and highlighted.
+  // Read-only badge present.
   await expect(viewer.getByText("Read-only")).toBeVisible();
 
+  // FR-70: the source renders in the CodeMirror 6 surface (dynamic-imported). Wait
+  // for it to mount before asserting on its DOM — lines are `.cm-line`, the defining
+  // line carries `.cm-defline` (the old hand-rolled `<pre>` tokenizer these selectors
+  // once targeted was replaced by CM6).
+  await expect(viewer.locator(".cm-line").first()).toBeVisible();
+
   const facts = await viewer.evaluate((root) => {
-    const lines = root.querySelectorAll("pre code > div");
-    const anchor = root.querySelector("div.bg-violet-500\\/10");
+    const lines = root.querySelectorAll(".cm-line");
+    const anchor = root.querySelector(".cm-defline");
     const editable = root.querySelectorAll('textarea, [contenteditable="true"], input');
     return { lineCount: lines.length, hasAnchor: !!anchor, editableCount: editable.length };
   });
