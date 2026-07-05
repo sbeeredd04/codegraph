@@ -129,6 +129,20 @@ body {
 .doc-prose th { background: #18181b; font-weight: 600; color: #e4e4e7; }
 .doc-prose strong { color: #f4f4f5; font-weight: 600; }
 
+/* Compact variant for inline agent notes (detail-panel grounding note, T13.3): the
+   same dark prose system as .doc-prose, dialed down to sit inside a tight overlay
+   card. Applied as `doc-prose doc-prose-sm`, so these win by source order. */
+.doc-prose-sm { font-size: 0.78rem; line-height: 1.55; }
+.doc-prose-sm p,
+.doc-prose-sm ul,
+.doc-prose-sm ol,
+.doc-prose-sm blockquote,
+.doc-prose-sm pre,
+.doc-prose-sm table { margin: 0.45em 0; }
+.doc-prose-sm h1,
+.doc-prose-sm h2,
+.doc-prose-sm h3 { font-size: 0.85rem; margin: 0.7em 0 0.3em; }
+
 /* Page-scale prose for the /docs guide pages. Same dark system as .doc-prose but
    sized for comfortable full-width reading rather than the narrow drawer. The
    markup is first-party, rendered to HTML at build time (lib/docs-content.ts). */

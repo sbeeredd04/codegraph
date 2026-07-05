@@ -5,13 +5,12 @@
 // that rides on the GraphSnapshot; this lists docs by category and renders the
 // selected one as sanitized HTML.
 //
-// SECURITY: the doc Markdown is agent-written and therefore UNTRUSTED. It is
-// parsed with marked then SANITIZED with DOMPurify against a strict tag/attribute
-// allowlist (no script/style/iframe/img, no event handlers, no javascript: URLs)
-// before it ever reaches the DOM. The only non-web scheme permitted is our own
-// `codegraph://node/<address>` deep-link, which is intercepted in-app (never
-// navigated). marked + DOMPurify are dynamic-imported so they stay client-only
-// and off the boot path until the user opens the drawer.
+// SECURITY: the doc Markdown is agent-written and therefore UNTRUSTED. Rendering is
+// delegated to the shared <AgentMarkdown>, which parses with marked, SANITIZES with
+// DOMPurify against a strict allowlist, and lifts ```mermaid fences into separate
+// strict SVGs — the one security-critical Markdown path, shared with the detail
+// panel's grounding note. The only non-web scheme permitted is our own
+// `codegraph://node/<address>` deep-link, intercepted in-app (never navigated).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Doc } from "@core/docs/doc";
@@ -19,23 +18,7 @@ import { docsByCategory } from "@core/docs/doc";
 import type { GraphNode } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { ResizableDock } from "./resizable-dock";
-import { MermaidBlock } from "./mermaid-block";
-
-const NODE_LINK_PREFIX = "codegraph://node/";
-
-// Strict allowlist for sanitized doc Markdown — prose tags only.
-const ALLOWED_TAGS = [
-  "h1", "h2", "h3", "h4", "h5", "h6",
-  "p", "br", "hr", "blockquote",
-  "ul", "ol", "li",
-  "strong", "em", "del", "code", "pre",
-  "a", "span",
-  "table", "thead", "tbody", "tr", "th", "td",
-];
-const ALLOWED_ATTR = ["href", "title", "start", "align"];
-// Permit http(s)/mailto/tel, our internal node scheme, anchors and relative refs;
-// blocks javascript:, data:, vbscript:, etc.
-const ALLOWED_URI_REGEXP = /^(?:(?:https?|mailto|tel|codegraph):|[#/.])/i;
+import { AgentMarkdown } from "./agent-markdown";
 
 interface DocsDrawerProps {
   readonly docs: readonly Doc[];
@@ -133,9 +116,10 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
             {active && (
               <>
                 <h3 className="font-display text-lg font-semibold text-zinc-50">{active.title}</h3>
-                {/* Keyed by id so each doc mounts fresh in the "rendering" state —
-                    the effect only setStates in async continuations. */}
-                <DocRender key={active.id} markdown={active.markdown} onJump={jump} />
+                {/* Keyed by id so each doc mounts fresh in the "rendering" state. */}
+                <div className="mt-3">
+                  <AgentMarkdown key={active.id} markdown={active.markdown} onJump={jump} testId="doc-html" />
+                </div>
                 <RelatedChips related={active.related} byAddress={byAddress} onJump={jump} />
               </>
             )}
@@ -143,112 +127,6 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
         </div>
       )}
     </ResizableDock>
-  );
-}
-
-// A doc is rendered as an ordered list of blocks: prose runs (strictly sanitized)
-// and mermaid diagrams (rendered separately as strict SVGs, never through the prose
-// allowlist). Splitting at top-level ```mermaid fences is safe — a fenced code block
-// is always its own top-level token, so no Markdown construct spans the boundary.
-type Block = { readonly kind: "prose"; readonly html: string } | { readonly kind: "mermaid"; readonly source: string };
-type RenderState =
-  | { readonly status: "rendering" }
-  | { readonly status: "ok"; readonly blocks: readonly Block[] }
-  | { readonly status: "error"; readonly message: string };
-
-// Parses + sanitizes one doc's Markdown to HTML and renders it. Mounted fresh per
-// doc (keyed by id) so its initial state is "rendering" and the effect calls
-// setState only inside async continuations (the no-setState-in-effect rule).
-function DocRender({
-  markdown,
-  onJump,
-}: {
-  markdown: string;
-  onJump: (address: string) => void;
-}): React.JSX.Element {
-  const [state, setState] = useState<RenderState>({ status: "rendering" });
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [{ marked }, DOMPurifyMod] = await Promise.all([import("marked"), import("dompurify")]);
-        const DOMPurify = DOMPurifyMod.default;
-        const sanitizeProse = async (md: string): Promise<string> => {
-          const dirty = await marked.parse(md, { gfm: true, breaks: false });
-          return DOMPurify.sanitize(dirty, { ALLOWED_TAGS, ALLOWED_ATTR, ALLOWED_URI_REGEXP, ALLOW_DATA_ATTR: false });
-        };
-        // Walk top-level tokens, grouping consecutive non-mermaid tokens into a prose
-        // run (re-parsed + sanitized as one) and lifting each ```mermaid fence into
-        // its own diagram block. The prose path is byte-for-byte the old behaviour.
-        const tokens = marked.lexer(markdown, { gfm: true, breaks: false });
-        const blocks: Block[] = [];
-        let proseRaw = "";
-        const flushProse = async (): Promise<void> => {
-          if (!proseRaw) return;
-          blocks.push({ kind: "prose", html: await sanitizeProse(proseRaw) });
-          proseRaw = "";
-        };
-        for (const t of tokens) {
-          if (t.type === "code" && (t.lang ?? "").trim().toLowerCase() === "mermaid") {
-            await flushProse();
-            blocks.push({ kind: "mermaid", source: t.text });
-          } else {
-            proseRaw += t.raw;
-          }
-        }
-        await flushProse();
-        if (!cancelled) setState({ status: "ok", blocks });
-      } catch (e: unknown) {
-        if (!cancelled) setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [markdown]);
-
-  // Intercept clicks on internal node deep-links so they focus the node in the
-  // graph instead of navigating; external links keep their normal behaviour.
-  const onClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const anchor = (e.target as HTMLElement).closest("a");
-      const href = anchor?.getAttribute("href") ?? "";
-      if (href.startsWith(NODE_LINK_PREFIX)) {
-        e.preventDefault();
-        onJump(decodeURIComponent(href.slice(NODE_LINK_PREFIX.length)));
-      }
-    },
-    [onJump],
-  );
-
-  if (state.status === "rendering") {
-    return <p className="mt-3 text-xs text-zinc-500">Rendering…</p>;
-  }
-  if (state.status === "error") {
-    return (
-      <div className="mt-3">
-        <p className="text-xs text-red-300">Could not render this doc.</p>
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded bg-zinc-950 p-2 font-mono text-[11px] text-zinc-400">
-          {markdown}
-        </pre>
-      </div>
-    );
-  }
-  return (
-    // Prose runs are DOMPurify-sanitized against a strict allowlist (no scripts, no
-    // svg); mermaid blocks are strict, self-sanitized SVGs rendered separately. The
-    // container's onClick catches codegraph://node deep-links bubbling up from any
-    // prose block.
-    <div className="mt-3" data-testid="doc-html" onClick={onClick}>
-      {state.blocks.map((b, i) =>
-        b.kind === "prose" ? (
-          <div key={`p${i}`} className="doc-prose" dangerouslySetInnerHTML={{ __html: b.html }} />
-        ) : (
-          <MermaidBlock key={`m${i}`} source={b.source} />
-        ),
-      )}
-    </div>
   );
 }
 

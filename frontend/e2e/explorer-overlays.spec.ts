@@ -84,10 +84,16 @@ test("a seeded node surfaces its note and mark badges in the detail panel", asyn
   const body = page.getByTestId("detail-body");
   await expect(body).toBeVisible();
 
-  // The agent's note renders as escaped prose.
+  // T13.3: the agent's note renders as sanitized Markdown — bold + inline code and
+  // an inline mermaid diagram — not raw text, and stays passive (no scripts).
   const note = body.getByTestId("node-note");
   await expect(note).toBeVisible();
   await expect(note).toContainText("shared cache-path root");
+  const noteMd = note.getByTestId("node-note-md");
+  await expect(noteMd.locator("strong")).toBeVisible(); // **shared cache-path root**
+  await expect(noteMd.locator("code").first()).toBeVisible(); // `codegraphCacheBase`
+  await expect(noteMd.locator('[data-testid="doc-mermaid"] svg')).toBeVisible({ timeout: 15_000 });
+  expect(await noteMd.locator("script").count()).toBe(0);
 
   // Its typed marker shows as a badge, with the severity suffix.
   const marks = body.getByTestId("node-marks");

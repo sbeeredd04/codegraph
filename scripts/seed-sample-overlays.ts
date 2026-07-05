@@ -31,13 +31,24 @@ const CACHE_BASE = "ts:src/adapters/cache/repo-cache.ts#codegraphCacheBase";
 const EXPORT_MOD = "ts:src/core/graph/export.ts";
 const PANEL_MOD = "ts:src/adapters/surfaces/webview/panel.ts";
 
+// Agent grounding notes are Markdown (bold/code/links + inline Mermaid): the
+// detail panel renders them through the shared <AgentMarkdown> (T13.3).
 const noteBody = [
-  "The shared cache-path root. Every per-repo store — enrichment, diagrams, docs, " +
-    "and overlays — derives its file from here, so the MCP writer and the board reader " +
-    "meet at one place.",
-  "Home-anchored on purpose: the MCP launcher strips TMPDIR, so os.tmpdir() would " +
-    "split the two processes.",
-].join("\n\n");
+  "The **shared cache-path root**. Every per-repo store — enrichment, diagrams, docs,",
+  "and overlays — derives its file from `codegraphCacheBase`, so the MCP writer and the",
+  "board reader meet at one place.",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  '  base["codegraphCacheBase"] --> enrich["enrichment"]',
+  '  base --> diagrams["diagrams"]',
+  '  base --> docs["docs"]',
+  '  base --> overlays["overlays"]',
+  "```",
+  "",
+  "Home-anchored on purpose: the MCP launcher strips `TMPDIR`, so `os.tmpdir()` would",
+  "split the two processes.",
+].join("\n");
 
 function main(): void {
   const raw = fs.readFileSync(FIXTURE, "utf8");

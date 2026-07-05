@@ -19,6 +19,7 @@ import { KIND_COLORS } from "@/lib/graph-data";
 import { useDraggable } from "@/lib/use-draggable";
 import { LogIn, Package } from "./icons";
 import { ResizableDock } from "./resizable-dock";
+import { AgentMarkdown } from "./agent-markdown";
 
 interface DetailData {
   readonly node: GraphNode;
@@ -209,7 +210,7 @@ function DetailContent({
 
       {/* Agent overlays (FR-37) — typed markers, the node's note, group membership.
           Sits up top: it's the agent's "look here, this is what's going on". */}
-      <OverlaySection overlays={overlays} />
+      <OverlaySection overlays={overlays} onJump={onJump} />
 
       {/* Docstring fallback (FR-60) — only when there's no agent note. */}
       <DocFallbackNote note={fallbackNote} />
@@ -270,9 +271,17 @@ const MARK_STYLE: Record<MarkKind, { label: string; className: string }> = {
   hotspot: { label: "hotspot", className: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
 };
 
-// The agent's overlays for the node, rendered read-only. Agent text is UNTRUSTED:
-// every string here is a React child, so it is escaped — no dangerouslySetInnerHTML.
-function OverlaySection({ overlays }: { overlays?: NodeOverlays }): React.JSX.Element | null {
+// The agent's overlays for the node, rendered read-only. Mark/group labels are
+// React children (escaped); the note is UNTRUSTED Markdown rendered through the
+// shared <AgentMarkdown> (marked → DOMPurify strict allowlist + strict mermaid),
+// so bold/code/links/diagrams render while scripts and raw HTML are stripped.
+function OverlaySection({
+  overlays,
+  onJump,
+}: {
+  overlays?: NodeOverlays;
+  onJump: (address: string) => void;
+}): React.JSX.Element | null {
   if (!overlays) return null;
   const { note, marks, groups } = overlays;
   if (!note && marks.length === 0 && groups.length === 0) return null;
@@ -304,7 +313,12 @@ function OverlaySection({ overlays }: { overlays?: NodeOverlays }): React.JSX.El
           <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300/80">
             <NoteIcon /> Note
           </div>
-          <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{note.body}</p>
+          <AgentMarkdown
+            markdown={note.body}
+            onJump={onJump}
+            proseClassName="doc-prose doc-prose-sm"
+            testId="node-note-md"
+          />
         </div>
       )}
 
