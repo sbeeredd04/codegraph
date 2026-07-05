@@ -34,6 +34,11 @@ export function OnboardingPanel({ playbook, coverage, onDismiss }: OnboardingPan
   // never has to clip the legend or the graph. Position persists per-browser
   // (localStorage, NEVER the snapshot) and is cleared by Reset layout.
   const drag = useDraggable("codegraph:panel:onboard");
+  // The card's max-height reserves the bottom-left legend zone (~legend height +
+  // margins) so a full checklist (steps + FR-62 grounding coverage) can't grow tall
+  // enough to clip the legend at the default top-left spot — the body scrolls
+  // instead (it's already overflow-auto). The cap only bites on short viewports /
+  // tall content; on a roomy screen the panel shows in full, well clear of the legend.
 
   return (
     <section
@@ -41,7 +46,7 @@ export function OnboardingPanel({ playbook, coverage, onDismiss }: OnboardingPan
       aria-label="Onboarding progress"
       data-testid="onboarding-panel"
       style={drag.offset ? { left: drag.offset.x, top: drag.offset.y } : undefined}
-      className={`absolute z-20 flex max-h-[calc(100%-1.5rem)] w-[21rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#0c0d11]/97 shadow-2xl backdrop-blur ${
+      className={`absolute z-20 flex max-h-[calc(100%-10rem)] w-[21rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#0c0d11]/97 shadow-2xl backdrop-blur ${
         drag.offset ? "" : "left-3 top-3"
       }`}
     >
