@@ -19,6 +19,7 @@ import { docsByCategory } from "@core/docs/doc";
 import type { GraphNode } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
 import { ResizableDock } from "./resizable-dock";
+import { MermaidBlock } from "./mermaid-block";
 
 const NODE_LINK_PREFIX = "codegraph://node/";
 
@@ -145,9 +146,14 @@ export function DocsDrawer({ docs, byAddress, onJump, onClose }: DocsDrawerProps
   );
 }
 
+// A doc is rendered as an ordered list of blocks: prose runs (strictly sanitized)
+// and mermaid diagrams (rendered separately as strict SVGs, never through the prose
+// allowlist). Splitting at top-level ```mermaid fences is safe — a fenced code block
+// is always its own top-level token, so no Markdown construct spans the boundary.
+type Block = { readonly kind: "prose"; readonly html: string } | { readonly kind: "mermaid"; readonly source: string };
 type RenderState =
   | { readonly status: "rendering" }
-  | { readonly status: "ok"; readonly html: string }
+  | { readonly status: "ok"; readonly blocks: readonly Block[] }
   | { readonly status: "error"; readonly message: string };
 
 // Parses + sanitizes one doc's Markdown to HTML and renders it. Mounted fresh per
@@ -168,14 +174,31 @@ function DocRender({
       try {
         const [{ marked }, DOMPurifyMod] = await Promise.all([import("marked"), import("dompurify")]);
         const DOMPurify = DOMPurifyMod.default;
-        const dirty = await marked.parse(markdown, { gfm: true, breaks: false });
-        const clean = DOMPurify.sanitize(dirty, {
-          ALLOWED_TAGS,
-          ALLOWED_ATTR,
-          ALLOWED_URI_REGEXP,
-          ALLOW_DATA_ATTR: false,
-        });
-        if (!cancelled) setState({ status: "ok", html: clean });
+        const sanitizeProse = async (md: string): Promise<string> => {
+          const dirty = await marked.parse(md, { gfm: true, breaks: false });
+          return DOMPurify.sanitize(dirty, { ALLOWED_TAGS, ALLOWED_ATTR, ALLOWED_URI_REGEXP, ALLOW_DATA_ATTR: false });
+        };
+        // Walk top-level tokens, grouping consecutive non-mermaid tokens into a prose
+        // run (re-parsed + sanitized as one) and lifting each ```mermaid fence into
+        // its own diagram block. The prose path is byte-for-byte the old behaviour.
+        const tokens = marked.lexer(markdown, { gfm: true, breaks: false });
+        const blocks: Block[] = [];
+        let proseRaw = "";
+        const flushProse = async (): Promise<void> => {
+          if (!proseRaw) return;
+          blocks.push({ kind: "prose", html: await sanitizeProse(proseRaw) });
+          proseRaw = "";
+        };
+        for (const t of tokens) {
+          if (t.type === "code" && (t.lang ?? "").trim().toLowerCase() === "mermaid") {
+            await flushProse();
+            blocks.push({ kind: "mermaid", source: t.text });
+          } else {
+            proseRaw += t.raw;
+          }
+        }
+        await flushProse();
+        if (!cancelled) setState({ status: "ok", blocks });
       } catch (e: unknown) {
         if (!cancelled) setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
       }
@@ -213,14 +236,19 @@ function DocRender({
     );
   }
   return (
-    // The HTML is DOMPurify-sanitized against a strict allowlist (no scripts) —
-    // safe to inject and CSP-clean (no eval).
-    <div
-      className="doc-prose mt-3"
-      data-testid="doc-html"
-      onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: state.html }}
-    />
+    // Prose runs are DOMPurify-sanitized against a strict allowlist (no scripts, no
+    // svg); mermaid blocks are strict, self-sanitized SVGs rendered separately. The
+    // container's onClick catches codegraph://node deep-links bubbling up from any
+    // prose block.
+    <div className="mt-3" data-testid="doc-html" onClick={onClick}>
+      {state.blocks.map((b, i) =>
+        b.kind === "prose" ? (
+          <div key={`p${i}`} className="doc-prose" dangerouslySetInnerHTML={{ __html: b.html }} />
+        ) : (
+          <MermaidBlock key={`m${i}`} source={b.source} />
+        ),
+      )}
+    </div>
   );
 }
 

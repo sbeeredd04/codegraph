@@ -41,6 +41,12 @@ test("FR-29: the docs drawer renders sanitized Markdown and deep-links into the 
   const html = drawer.locator('[data-testid="doc-html"]');
   // The Markdown rendered structured prose (a table from the GFM source).
   await expect(html.locator("table")).toBeVisible({ timeout: 15_000 });
+  // T13.2: an inline ```mermaid fence in the SAME agent doc renders as a strict SVG,
+  // proving sanitized prose (the GFM table) and a diagram coexist in one doc — and
+  // the SVG is passive (no scripts) even though the prose allowlist forbids <svg>.
+  const diagram = html.locator('[data-testid="doc-mermaid"]');
+  await expect(diagram.locator("svg")).toBeVisible({ timeout: 15_000 });
+  expect(await diagram.locator("script").count()).toBe(0);
   await page.screenshot({ path: `${SHOT}/docs-drawer.png` });
 
   // A `codegraph://node/` deep-link in the prose jumps into the graph: the drawer

@@ -30,6 +30,10 @@ test("sanitized Markdown renders under the strict nonce CSP with zero violations
   await page.getByRole("button", { name: /Docs/ }).click();
   // A GFM table proves marked parsed and DOMPurify kept the structured prose.
   await expect(page.locator('[data-testid="doc-html"] table')).toBeVisible({ timeout: 20_000 });
+  // T13.2: an inline ```mermaid fence in the same agent doc also renders to a strict
+  // SVG under the strict nonce CSP — mermaid dynamic-imports and renders with no eval
+  // and no un-nonced inline script, so zero CSP violations below.
+  await expect(page.locator('[data-testid="doc-mermaid"] svg')).toBeVisible({ timeout: 20_000 });
 
   expect(violations).toEqual([]);
   expect(errors).toEqual([]);
