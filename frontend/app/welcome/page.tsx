@@ -203,7 +203,7 @@ function Terminal({ label, lines }: { label: string; lines: readonly TermLine[] 
 }
 
 const QUICKSTART: readonly TermLine[] = [
-  { comment: "# 1 · clone and build codegraph (Node 18+)" },
+  { comment: "# 1 · clone and build codegraph (Node 20+)" },
   { cmd: "git clone https://github.com/sbeeredd04/codegraph" },
   { cmd: "cd codegraph && npm install && npm run build && npm link" },
   { comment: "" },
@@ -376,7 +376,7 @@ export default function Welcome() {
 
           {/* Quickstart — the path that works today */}
           <div className="mx-auto mt-10 max-w-2xl">
-            <Terminal label="quickstart · macOS / Linux · Node 18+" lines={QUICKSTART} />
+            <Terminal label="quickstart · macOS / Linux · Node 20+" lines={QUICKSTART} />
             <p className="mt-3 text-center text-xs leading-relaxed text-zinc-500">
               codegraph is pre-1.0 — the one-line installers{" "}
               <span className="font-mono text-zinc-400">npx codegraph</span>,{" "}
