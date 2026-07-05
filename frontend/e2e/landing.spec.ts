@@ -37,3 +37,33 @@ test("the primary CTA lands the visitor in the explorer", async ({ page }) => {
   await expect(page.locator("canvas").first()).toBeVisible();
   await expect(page.getByText(/\d[\d,]* nodes/).first()).toBeVisible();
 });
+
+test("T12.1: the Get started section explains install + setup across the three surfaces", async ({ page }) => {
+  await page.goto("/welcome");
+
+  // The nav offers a jump to the install section, and the section itself is headed.
+  await expect(page.getByRole("navigation").getByRole("link", { name: /get started/i })).toHaveAttribute(
+    "href",
+    "#get-started",
+  );
+  await expect(page.getByRole("heading", { name: /^get started$/i })).toBeVisible();
+
+  // The copy-pasteable quickstart shows the honest from-source path that works today.
+  const section = page.locator("#get-started");
+  await expect(section.getByText("git clone https://github.com/sbeeredd04/codegraph")).toBeVisible();
+  await expect(section.getByText(/npm install && npm run build && npm link/)).toBeVisible();
+
+  // All three surfaces (a terminal, the editor, the agent) are surfaced with a command.
+  for (const s of [/CLI \+ web board/i, /VS Code extension/i, /Connect your agent/i]) {
+    await expect(section.getByRole("heading", { name: s })).toBeVisible();
+  }
+  await expect(section.getByText("codegraph skill --install")).toBeVisible();
+
+  // It's honest that the one-line installers are still pre-release.
+  await expect(section.getByText(/pre-1\.0/i)).toBeVisible();
+
+  await page.screenshot({
+    path: "/private/tmp/claude-501/-Users-sriujjwal-github-codegraph/c61c1bf7-cdf8-4199-b01f-a9f9fd5c54c4/scratchpad/landing-get-started.png",
+    fullPage: true,
+  });
+});

@@ -103,6 +103,115 @@ const FEATURES: readonly Feature[] = [
   },
 ];
 
+// --- Get started: the three surfaces + a copy-pasteable quickstart ------------
+
+function TerminalIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" {...stroke}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M6.5 9.5 9.5 12l-3 2.5M12.5 15h4.5" />
+    </svg>
+  );
+}
+function EditorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" {...stroke}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M3.5 8.5h17M8 12l-2 2 2 2M13.5 12l2 2-2 2" />
+    </svg>
+  );
+}
+function AgentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" {...stroke}>
+      <rect x="4.5" y="7.5" width="15" height="10.5" rx="2.5" />
+      <path d="M12 7.5V4.8M9.2 12h.01M14.8 12h.01M9.5 15h5" />
+    </svg>
+  );
+}
+
+interface Surface {
+  readonly title: string;
+  readonly tag?: string;
+  readonly body: string;
+  readonly cmd: string;
+  readonly cmdLabel: string;
+  readonly icon: React.ReactNode;
+}
+
+// The three ways to run codegraph — each a distinct surface, one command to enter it.
+const SURFACES: readonly Surface[] = [
+  {
+    title: "CLI + web board",
+    tag: "fastest",
+    body: "One command in any repository: codegraph indexes the working directory, builds the graph, and opens the interactive board in your browser.",
+    cmdLabel: "in any repo",
+    cmd: "codegraph",
+    icon: <TerminalIcon />,
+  },
+  {
+    title: "VS Code extension",
+    body: "Open a repo, then run codegraph: Open from the Command Palette. The board opens in a side panel with every node deep-linked to its exact file and line in your editor.",
+    cmdLabel: "command palette",
+    cmd: "⌘⇧P  →  codegraph: Open",
+    icon: <EditorIcon />,
+  },
+  {
+    title: "Connect your agent",
+    body: "Point Claude Code or Codex at the codegraph MCP and ask it to map the repo — it indexes, writes back diagrams and docs, and can drive the live board for you.",
+    cmdLabel: "install the agent skill",
+    cmd: "codegraph skill --install",
+    icon: <AgentIcon />,
+  },
+];
+
+type TermLine = { readonly comment?: string; readonly cmd?: string };
+
+// A static, decorative terminal card (no client JS — CSP-safe). Command lines get a
+// violet prompt; comment lines are dimmed. Both tones clear WCAG AA on the near-black.
+function Terminal({ label, lines }: { label: string; lines: readonly TermLine[] }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-[#08080b] shadow-xl shadow-black/30">
+      <div className="flex items-center gap-2 border-b border-zinc-800/80 px-4 py-2.5">
+        <span aria-hidden className="flex gap-1.5">
+          <span className="size-2.5 rounded-full bg-zinc-700" />
+          <span className="size-2.5 rounded-full bg-zinc-700" />
+          <span className="size-2.5 rounded-full bg-zinc-700" />
+        </span>
+        <span className="ml-1 font-mono text-[11px] text-zinc-500">{label}</span>
+      </div>
+      <pre className="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed">
+        <code>
+          {lines.map((l, i) => (
+            <div key={`${i}-${l.cmd ?? l.comment ?? ""}`} className={l.cmd ? "text-zinc-50" : "text-zinc-400"}>
+              {l.cmd ? (
+                <>
+                  <span aria-hidden className="select-none text-violet-400">
+                    ${" "}
+                  </span>
+                  {l.cmd}
+                </>
+              ) : (
+                l.comment || " "
+              )}
+            </div>
+          ))}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+const QUICKSTART: readonly TermLine[] = [
+  { comment: "# 1 · clone and build codegraph (Node 18+)" },
+  { cmd: "git clone https://github.com/sbeeredd04/codegraph" },
+  { cmd: "cd codegraph && npm install && npm run build && npm link" },
+  { comment: "" },
+  { comment: "# 2 · map the repo you’re in — opens the board in your browser" },
+  { cmd: "cd ~/your-project" },
+  { cmd: "codegraph" },
+];
+
 function Wordmark() {
   return (
     <span className="flex items-center gap-2.5">
@@ -131,6 +240,12 @@ export default function Welcome() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Wordmark />
         <nav aria-label="Primary" className="flex items-center gap-5 text-sm">
+          <a
+            href="#get-started"
+            className="text-zinc-400 transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] rounded"
+          >
+            Get started
+          </a>
           <Link
             href="/docs"
             prefetch={false}
@@ -243,6 +358,80 @@ export default function Welcome() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* Get started — install & setup */}
+      <section aria-labelledby="get-started-heading" className="scroll-mt-20 border-t border-zinc-900/80 bg-zinc-950/30 py-20">
+        <div className="mx-auto max-w-5xl px-6" id="get-started">
+          <h2
+            id="get-started-heading"
+            className="text-center font-display text-2xl font-semibold tracking-tight text-zinc-100 sm:text-3xl"
+          >
+            Get started
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-relaxed text-zinc-400">
+            Clone it, build it, and point it at any repository — you’ll have the board open in your browser in about a
+            minute. No account, no API key, no code ever leaves your machine.
+          </p>
+
+          {/* Quickstart — the path that works today */}
+          <div className="mx-auto mt-10 max-w-2xl">
+            <Terminal label="quickstart · macOS / Linux · Node 18+" lines={QUICKSTART} />
+            <p className="mt-3 text-center text-xs leading-relaxed text-zinc-500">
+              codegraph is pre-1.0 — the one-line installers{" "}
+              <span className="font-mono text-zinc-400">npx codegraph</span>,{" "}
+              <span className="font-mono text-zinc-400">pip install codegraph</span>, and the VS Code Marketplace
+              listing are on the way. Until then, build from source above.
+            </p>
+          </div>
+
+          {/* The three surfaces */}
+          <h3 className="mt-16 text-center font-display text-lg font-semibold text-zinc-100">Three ways to use it</h3>
+          <p className="mx-auto mt-2 max-w-lg text-center text-sm text-zinc-500">
+            One graph, three doors in — a terminal, your editor, or the AI agent you already talk to.
+          </p>
+          <ul className="mt-8 grid gap-5 md:grid-cols-3">
+            {SURFACES.map((s) => (
+              <li key={s.title} className="flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+                <span
+                  aria-hidden
+                  className="inline-flex size-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-violet-300"
+                >
+                  {s.icon}
+                </span>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <h4 className="font-display text-base font-semibold text-zinc-100">{s.title}</h4>
+                  {s.tag && (
+                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-emerald-300">
+                      {s.tag}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-400">{s.body}</p>
+                <div className="mt-4">
+                  <span className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                    {s.cmdLabel}
+                  </span>
+                  <code className="block overflow-x-auto whitespace-nowrap rounded-lg border border-zinc-800 bg-[#08080b] px-3 py-2 font-mono text-xs text-zinc-200">
+                    {s.cmd}
+                  </code>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mx-auto mt-10 max-w-xl text-center text-sm leading-relaxed text-zinc-400">
+            Full setup — installing the extension, connecting your agent over MCP, and every CLI flag — lives in the{" "}
+            <Link
+              href="/docs"
+              prefetch={false}
+              className="font-medium text-violet-300 underline-offset-4 transition-colors hover:text-violet-200 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] rounded"
+            >
+              documentation
+            </Link>
+            .
+          </p>
+        </div>
       </section>
 
       {/* Closing CTA */}
