@@ -40,3 +40,22 @@ test("a guide page boots offline under a non-root mount with no console errors",
   await expect(page.getByRole("heading", { level: 1, name: /getting started/i })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+// T13.1 — an embedded ```mermaid diagram must render to an SVG in the BUILT export,
+// offline, under the non-root mount: the DocsMermaid enhancer hydrates and the
+// dynamically-imported mermaid chunk resolves against document.baseURI (not the
+// origin root), with no console errors. Proves Mermaid-in-Markdown works everywhere
+// the static docs are served (web sub-path + VS Code webview origin).
+test("an embedded Mermaid diagram renders to an SVG in the export", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error" && !isIgnorableError(m.text())) errors.push(m.text());
+  });
+  page.on("pageerror", (e) => errors.push(e.message));
+
+  await page.goto("./how-it-works.html");
+
+  const diagram = page.locator(".cg-mermaid").first();
+  await expect(diagram.locator("svg")).toBeVisible({ timeout: 20_000 });
+  expect(errors).toEqual([]);
+});

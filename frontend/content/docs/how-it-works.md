@@ -21,6 +21,17 @@ codegraph runs in two planes:
   absolute host path. A shared map carries knowledge *about* your code, not the
   code itself.
 
+```mermaid
+flowchart LR
+  subgraph Local["Local plane · your host"]
+    src["Source files"] --> core["Pure core: parse + graph"]
+  end
+  subgraph Cloud["Cloud plane · source-blind"]
+    board["Shared board + snapshot"]
+  end
+  core -->|"structure + relative paths only"| board
+```
+
 This is why a snapshot is shareable: it is a portable description of structure and
 the agent's knowledge, with the source deliberately left behind.
 

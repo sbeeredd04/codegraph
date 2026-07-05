@@ -195,3 +195,13 @@ body {
 .docs-prose td { border: 1px solid #27272a; padding: 0.45rem 0.65rem; text-align: left; }
 .docs-prose th { background: #18181b; font-weight: 600; color: #e4e4e7; }
 .docs-prose strong { color: #f4f4f5; font-weight: 600; }
+
+/* Mermaid diagrams embedded in Markdown (first-party docs + agent docs, T13.1).
+   The build-time renderer emits a `.cg-mermaid` placeholder; its `.cg-mermaid-src`
+   <pre> holds the source and the client enhancer swaps in a strict, CSP-safe SVG.
+   Center the rendered diagram and keep it responsive; before hydration / with JS
+   off the fallback source stays readable via the normal prose <pre> styling. */
+.cg-mermaid { margin: 1.5em 0; overflow-x: auto; }
+.cg-mermaid[data-cg-mermaid-done] { display: flex; justify-content: center; }
+.cg-mermaid svg { max-width: 100%; height: auto; }
+.cg-mermaid-src { margin: 0; }

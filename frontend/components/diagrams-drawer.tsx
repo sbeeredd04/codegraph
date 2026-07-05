@@ -17,6 +17,7 @@ import type { Diagram } from "@core/diagrams/diagram";
 import { diagramsByCategory } from "@core/diagrams/diagram";
 import type { GraphNode } from "@core/graph/types";
 import { displayLabel } from "@adapters/surfaces/webview/render-model";
+import { renderMermaid } from "@/lib/render-mermaid";
 import { ResizableDock } from "./resizable-dock";
 
 interface DiagramsDrawerProps {
@@ -27,10 +28,6 @@ interface DiagramsDrawerProps {
   readonly onJump: (address: string) => void;
   readonly onClose: () => void;
 }
-
-// Monotonic id source for mermaid.render targets (must be DOM-id safe + unique
-// per render). A module counter is deterministic enough and avoids needing a key.
-let renderSeq = 0;
 
 type RenderState =
   | { readonly status: "rendering" }
@@ -172,14 +169,7 @@ function DiagramRender({ source }: { source: string }): React.JSX.Element {
     let cancelled = false;
     void (async () => {
       try {
-        const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          theme: "dark",
-          fontFamily: "var(--font-sans, ui-sans-serif), system-ui, sans-serif",
-        });
-        const { svg } = await mermaid.render(`dg-${renderSeq++}`, source);
+        const svg = await renderMermaid(source);
         if (!cancelled) setState({ status: "ok", svg });
       } catch (e: unknown) {
         if (!cancelled) {

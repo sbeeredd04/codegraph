@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { marked } from "marked";
+import { Marked } from "marked";
 
 // Build-time docs loader (server-only). Reads the first-party guide Markdown under
 // content/docs/, parses a tiny frontmatter block, and renders the body to HTML with
@@ -13,6 +13,30 @@ import { marked } from "marked";
 // untrusted and DOMPurify-sanitized at runtime (see components/docs-drawer.tsx).
 
 const CONTENT_DIR = join(process.cwd(), "content", "docs");
+
+// Escape for safe embedding of the raw diagram source inside the placeholder <pre>.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// One configured Marked instance for the first-party guides (T13.1 — Mermaid in
+// Markdown). GFM on; a single renderer override special-cases ```mermaid fences:
+// instead of a code block they emit a `.cg-mermaid` placeholder carrying the
+// (escaped) source, which the client DocsMermaid enhancer upgrades to a strict,
+// CSP-safe SVG after hydration (JS off → it degrades to a readable code block).
+// Every OTHER language returns false, so marked falls back to its DEFAULT code
+// renderer — non-mermaid blocks stay byte-identical to before, no regression.
+const docMarked = new Marked({ gfm: true, breaks: false });
+docMarked.use({
+  renderer: {
+    code({ text, lang }) {
+      if ((lang ?? "").trim().toLowerCase() === "mermaid") {
+        return `<div class="cg-mermaid" data-cg-mermaid><pre class="cg-mermaid-src">${escapeHtml(text)}</pre></div>\n`;
+      }
+      return false;
+    },
+  },
+});
 
 export interface DocMeta {
   readonly slug: string;
@@ -68,7 +92,7 @@ export async function getDoc(slug: string): Promise<DocPage | null> {
   if (!slugsFromDisk().includes(slug)) return null;
   const raw = readFileSync(join(CONTENT_DIR, `${slug}.md`), "utf8");
   const { data, body } = parseFrontmatter(raw);
-  const html = await marked.parse(body, { gfm: true, breaks: false });
+  const html = await docMarked.parse(body);
   return {
     slug,
     title: data.title ?? slug,

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDoc, listDocs } from "@/lib/docs-content";
+import { DocsMermaid } from "@/components/docs-mermaid";
 
 // One guide page at the export root (`/getting-started`, `/how-it-works`,
 // `/how-to-use`). The `[slug]` segment sits in the `(docs)` route group, so the
@@ -43,6 +44,9 @@ export default async function DocPage({
   return (
     <article>
       <div className="docs-prose" dangerouslySetInnerHTML={{ __html: doc.html }} />
+      {/* Upgrades any ```mermaid placeholders in the prose to strict, CSP-safe SVGs
+          after hydration (T13.1). No-op on guides without diagrams. */}
+      <DocsMermaid />
 
       <nav aria-label="Docs" className="mt-12 border-t border-zinc-900 pt-6">
         <Link
