@@ -22,8 +22,10 @@ const SNAPSHOT = {
       name: "addNumbers",
       location: { file: "src/math.ts", line: 3, character: 0 },
       // A JSDoc block with a wrapped summary and trailing @tags — the extractor
-      // should surface only the first paragraph, delimiters stripped.
-      doc: "/**\n * Adds two numbers together and\n * returns their sum.\n * @param a the first addend\n * @returns the sum\n */",
+      // should surface only the first paragraph, delimiters stripped. The inline
+      // `sum` code span exercises T13.4: the fallback renders sanitized Markdown,
+      // so the text content is unchanged but a <code> appears.
+      doc: "/**\n * Adds two numbers together and\n * returns their `sum`.\n * @param a the first addend\n * @returns the sum\n */",
       signature: "addNumbers(a: number, b: number): number",
     },
     {
@@ -86,6 +88,11 @@ test("FR-60: a node with no agent note shows its docstring as a cleaned fallback
   await expect(fallback).toContainText("From docstring");
   await expect(fallback).not.toContainText("/**");
   await expect(fallback).not.toContainText("@param");
+
+  // T13.4: the docstring renders as sanitized Markdown through the shared
+  // <AgentMarkdown> — the inline `sum` code span shows as a <code> (text unchanged).
+  const md = fallback.getByTestId("node-doc-fallback-md");
+  await expect(md.locator("code")).toContainText("sum");
 
   // It is NOT the agent's note (no violet authored-note element here).
   await expect(page.getByTestId("node-note")).toHaveCount(0);

@@ -348,7 +348,10 @@ function OverlaySection({
 // The docstring-derived fallback (FR-60). Deliberately styled UNLIKE the agent's
 // violet "Note" — a neutral slate card labelled "From docstring" — so it never
 // reads as agent grounding: it's the code documenting itself until the agent
-// weighs in. The body is source-derived (untrusted) → a React child, so escaped.
+// weighs in. The body is source-derived (untrusted); docstrings are often markdown-
+// flavoured (JSDoc backticks, bold, lists), so it renders through the SAME shared
+// <AgentMarkdown> as the agent note — sanitized (DOMPurify strict allowlist), no
+// node deep-links. (T13.4)
 function DocFallbackNote({
   note,
 }: {
@@ -363,7 +366,7 @@ function DocFallbackNote({
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
         <DocstringIcon /> From docstring
       </div>
-      <p className="text-xs leading-relaxed text-zinc-300">{note.body}</p>
+      <AgentMarkdown markdown={note.body} proseClassName="doc-prose doc-prose-sm" testId="node-doc-fallback-md" />
     </div>
   );
 }
