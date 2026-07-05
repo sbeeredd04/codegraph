@@ -212,6 +212,11 @@ const QUICKSTART: readonly TermLine[] = [
   { cmd: "codegraph" },
 ];
 
+// What you need on the host before the quickstart runs. Kept honest and minimal —
+// each is a real dependency of the from-source build (git clone → npm → link),
+// with Python marked optional since it only powers the (unpublished) pip shim.
+const PREREQS: readonly string[] = ["Node 20+", "git", "Python · optional"];
+
 function Wordmark() {
   return (
     <span className="flex items-center gap-2.5">
@@ -232,6 +237,13 @@ const secondaryCta =
   "inline-flex items-center justify-center rounded-lg border border-zinc-700 px-5 py-2.5 text-sm font-semibold " +
   "text-zinc-100 transition-colors hover:border-zinc-500 hover:text-white focus:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]";
+// Tertiary, by design: the hero already carries one primary + one secondary CTA, so
+// a third loud button would blur the next step. This is a quiet link that keeps the
+// from-source install reachable above the fold (it anchors to #get-started far below).
+const installJumpLink =
+  "mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-zinc-400 transition-colors " +
+  "hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 " +
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] rounded";
 
 export default function Welcome() {
   return (
@@ -304,6 +316,14 @@ export default function Welcome() {
               Get the VS Code extension
             </a>
           </div>
+          <div>
+            <a href="#get-started" className={installJumpLink}>
+              Install &amp; setup
+              <svg aria-hidden viewBox="0 0 24 24" className="size-4" {...stroke}>
+                <path d="M12 5.5v13M6.5 12l5.5 6 5.5-6" />
+              </svg>
+            </a>
+          </div>
         </div>
       </section>
 
@@ -374,8 +394,25 @@ export default function Welcome() {
             minute. No account, no API key, no code ever leaves your machine.
           </p>
 
+          {/* Prerequisites — set expectations before the commands run. Quiet, scannable
+              pills; each is a real dependency of the from-source build. */}
+          <div
+            data-testid="prerequisites"
+            className="mx-auto mt-7 flex max-w-2xl flex-wrap items-center justify-center gap-2"
+          >
+            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">Requirements</span>
+            {PREREQS.map((p) => (
+              <span
+                key={p}
+                className="inline-flex items-center rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 font-mono text-xs text-zinc-300"
+              >
+                {p}
+              </span>
+            ))}
+          </div>
+
           {/* Quickstart — the path that works today */}
-          <div className="mx-auto mt-10 max-w-2xl">
+          <div className="mx-auto mt-8 max-w-2xl">
             <Terminal label="quickstart · macOS / Linux · Node 20+" lines={QUICKSTART} />
             <p className="mt-3 text-center text-xs leading-relaxed text-zinc-500">
               codegraph is pre-1.0 — the one-line installers{" "}

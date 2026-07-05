@@ -67,3 +67,19 @@ test("T12.1: the Get started section explains install + setup across the three s
     fullPage: true,
   });
 });
+
+test("T12.3: the hero offers a jump to install, and prerequisites precede the quickstart", async ({ page }) => {
+  await page.goto("/welcome");
+
+  // A tertiary hero affordance keeps the from-source install reachable above the fold,
+  // anchoring to the install section far below (no third loud CTA in the button row).
+  const heroInstall = page.getByRole("link", { name: /install & setup/i });
+  await expect(heroInstall).toHaveAttribute("href", "#get-started");
+
+  // Prerequisites are stated before the quickstart so expectations are set up front.
+  const reqs = page.getByTestId("prerequisites");
+  await expect(reqs.getByText(/^Requirements$/)).toBeVisible();
+  await expect(reqs.getByText("Node 20+")).toBeVisible();
+  await expect(reqs.getByText("git", { exact: true })).toBeVisible();
+  await expect(reqs.getByText(/python/i)).toBeVisible();
+});
