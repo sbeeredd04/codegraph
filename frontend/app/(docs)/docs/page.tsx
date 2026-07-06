@@ -22,24 +22,44 @@ export default function DocsIndex(): React.JSX.Element {
         graph to the AI agent you already use. These guides take you from install to a fully driven board.
       </p>
 
-      <ul className="mt-10 grid gap-4 sm:grid-cols-2">
-        {docs.map((d) => (
-          <li key={d.slug}>
-            <Link
-              href={`/${d.slug}`}
-              prefetch={false}
-              className="block h-full rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 transition-colors hover:border-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-            >
-              <h2 className="font-display text-base font-semibold text-zinc-100">{d.title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">{d.summary}</p>
-              <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-violet-300">
-                Read
-                <span aria-hidden>→</span>
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      {/* Signpost the reading order for a first-run visitor (they often arrive from the
+          board's first-run hint) — the guides are meant to be read in sequence. */}
+      <ol className="mt-10 grid gap-4 sm:grid-cols-2">
+        {docs.map((d, i) => {
+          const isFirst = i === 0;
+          return (
+            <li key={d.slug}>
+              <Link
+                href={`/${d.slug}`}
+                prefetch={false}
+                className="group block h-full rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 transition-colors hover:border-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span
+                    aria-hidden
+                    className={`grid size-6 shrink-0 place-items-center rounded-full font-mono text-xs font-semibold tabular-nums ${
+                      isFirst ? "bg-violet-500/20 text-violet-200" : "bg-zinc-800 text-zinc-400"
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <h2 className="font-display text-base font-semibold text-zinc-100">{d.title}</h2>
+                  {isFirst && (
+                    <span className="ml-auto rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-200">
+                      Start here
+                    </span>
+                  )}
+                </div>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-400">{d.summary}</p>
+                <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-violet-300">
+                  Read
+                  <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ol>
     </article>
   );
 }

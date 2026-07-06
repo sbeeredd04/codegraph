@@ -21,6 +21,13 @@ test("the docs index lists the guides and links into each", async ({ page }) => 
     "href",
     "/getting-started",
   );
+
+  // T7.5: the index signposts a reading order — an ordered list, with the first guide
+  // card badged "Start here" and numbered so a first-run visitor knows where to begin.
+  const firstCard = page.locator("ol > li").first();
+  await expect(firstCard.getByText("Start here")).toBeVisible();
+  await expect(firstCard.getByText("1", { exact: true })).toBeVisible();
+  await expect(firstCard.getByRole("heading", { name: /getting started/i })).toBeVisible();
 });
 
 test("a guide page renders its Markdown and the sidebar marks it active", async ({ page }) => {
