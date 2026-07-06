@@ -176,6 +176,149 @@ async function resolveCalls(
   return edges;
 }
 
+// --- override edges (cross-file inheritance) ------------------------------
+
+// FR-97 cross-file: a subclass method that redefines an inherited method emits an
+// `overrides` edge to the base method, even when the base class lives in ANOTHER file
+// (`class HTTPAdapter(BaseAdapter)` with BaseAdapter imported). The skeleton walker
+// already resolves SAME-FILE inheritance by name; this uses Pyright to resolve the base
+// class across files, then emits ONLY the cross-file edges (same-file are skipped so the
+// two layers don't duplicate).
+
+interface PyClass {
+  readonly address: string;
+  readonly line: number;
+  readonly methods: Map<string, string>;
+  readonly basePositions: readonly LspPosition[];
+}
+
+/** The position to resolve for a base-class expression: a bare `identifier`, or the last
+ *  name of a dotted `module.Base` attribute. Subscripts (`Generic[T]`) etc. are skipped. */
+function basePosition(base: TsNode): LspPosition | undefined {
+  if (base.type === "identifier") return { line: base.startPosition.row, character: base.startPosition.column };
+  if (base.type === "attribute") {
+    const name = base.childForFieldName("attribute") ?? base;
+    return { line: name.startPosition.row, character: name.startPosition.column };
+  }
+  return undefined;
+}
+
+function collectClasses(root: TsNode, rel: string): PyClass[] {
+  const out: PyClass[] = [];
+  for (const child of root.namedChildren) {
+    if (!child) continue;
+    const decl = unwrapDef(child);
+    if (decl.type !== "class_definition") continue;
+    const className = decl.childForFieldName("name")?.text;
+    const body = decl.childForFieldName("body");
+    if (!className || !body) continue;
+    const address = `py:${rel}#${className}`;
+    const methods = new Map<string, string>();
+    for (const member of body.namedChildren) {
+      if (!member) continue;
+      const m = unwrapDef(member);
+      if (m.type !== "function_definition") continue;
+      const methodName = m.childForFieldName("name")?.text;
+      if (methodName) methods.set(methodName, `${address}.${methodName}`);
+    }
+    const basePositions: LspPosition[] = [];
+    for (const base of decl.childForFieldName("superclasses")?.namedChildren ?? []) {
+      const pos = base ? basePosition(base) : undefined;
+      if (pos) basePositions.push(pos);
+    }
+    out.push({ address, line: decl.startPosition.row, methods, basePositions });
+  }
+  return out;
+}
+
+interface ClassInfo {
+  readonly methods: Map<string, string>;
+  readonly basePositions: readonly LspPosition[];
+  readonly uri: string;
+}
+
+/** The `py:file` prefix of a node address (everything before `#`), to tell same-file from cross-file. */
+const fileOf = (address: string): string => address.split("#")[0];
+
+/** Breadth-first up the resolved base chain (nearest first) for the first class that
+ *  defines a method named `methodName`; returns that base method's address. Cycle-safe. */
+function nearestBaseMethod(
+  classAddress: string,
+  methodName: string,
+  info: ReadonlyMap<string, ClassInfo>,
+  bases: ReadonlyMap<string, readonly string[]>,
+): string | undefined {
+  const seen = new Set<string>([classAddress]);
+  const queue = [...(bases.get(classAddress) ?? [])];
+  while (queue.length > 0) {
+    const b = queue.shift() as string;
+    if (seen.has(b)) continue;
+    seen.add(b);
+    const hit = info.get(b)?.methods.get(methodName);
+    if (hit) return hit;
+    queue.push(...(bases.get(b) ?? []));
+  }
+  return undefined;
+}
+
+async function resolveOverrides(
+  client: PyrightClient,
+  parser: { parse(s: string): { rootNode: unknown } | null },
+  rootDir: string,
+  pyFiles: readonly string[],
+): Promise<GraphEdge[]> {
+  // Pass 1: parse all files; index each class by (file:line) and record its methods + bases.
+  const classIndex = new Map<string, string>(); // "rel:line" -> classAddress
+  const info = new Map<string, ClassInfo>();
+  for (const file of pyFiles) {
+    const tree = parser.parse(fs.readFileSync(file, "utf8"));
+    if (!tree) continue;
+    const rel = toRel(rootDir, file);
+    const uri = uriOf(file);
+    for (const cls of collectClasses(tree.rootNode as TsNode, rel)) {
+      classIndex.set(`${rel}:${cls.line}`, cls.address);
+      info.set(cls.address, { methods: cls.methods, basePositions: cls.basePositions, uri });
+    }
+  }
+
+  // Pass 2: resolve each class's base-name positions to first-party base class addresses.
+  const bases = new Map<string, string[]>();
+  for (const [address, ci] of info) {
+    await client.waitForAnalysis(ci.uri);
+    const resolved: string[] = [];
+    for (const pos of ci.basePositions) {
+      for (const def of await client.definition(ci.uri, pos)) {
+        const t = locationTarget(def);
+        if (!t) continue;
+        let p: string;
+        try {
+          p = fileURLToPath(t.uri);
+        } catch {
+          continue;
+        }
+        const baseAddr = classIndex.get(`${toRel(rootDir, p)}:${t.line}`);
+        if (baseAddr && baseAddr !== address) resolved.push(baseAddr);
+      }
+    }
+    bases.set(address, resolved);
+  }
+
+  // Pass 3: emit CROSS-FILE override edges only (same-file are the skeleton walker's job).
+  const edges: GraphEdge[] = [];
+  const seen = new Set<string>();
+  for (const [address, ci] of info) {
+    for (const [methodName, methodAddress] of ci.methods) {
+      const baseMethod = nearestBaseMethod(address, methodName, info, bases);
+      if (!baseMethod || baseMethod === methodAddress || fileOf(baseMethod) === fileOf(methodAddress)) continue;
+      const key = `${methodAddress}->${baseMethod}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ from: methodAddress, to: baseMethod, type: "overrides" });
+    }
+  }
+  return edges;
+}
+
 // --- public entry points --------------------------------------------------
 
 async function withClient<T>(rootDir: string, pyFiles: readonly string[], fn: (c: PyrightClient) => Promise<T>): Promise<T> {
@@ -203,7 +346,15 @@ export async function resolvePythonCallEdges(rootDir: string, files: readonly st
   return withClient(rootDir, pyFiles, (c) => resolveCalls(c, parser, rootDir, pyFiles));
 }
 
-/** Both Python edge kinds with a single Pyright session (used by bootstrap). */
+/** FR-97 cross-file override edges only (same-file are the skeleton walker's job). */
+export async function resolvePythonOverrideEdges(rootDir: string, files: readonly string[], wasmDir: string): Promise<GraphEdge[]> {
+  const pyFiles = files.filter((f) => f.endsWith(".py"));
+  if (pyFiles.length === 0) return [];
+  const parser = await loadGrammar(wasmDir, "tree-sitter-python.wasm");
+  return withClient(rootDir, pyFiles, (c) => resolveOverrides(c, parser, rootDir, pyFiles));
+}
+
+/** All Python edge kinds with a single Pyright session (used by bootstrap). */
 export async function resolvePythonEdges(rootDir: string, files: readonly string[], wasmDir: string): Promise<GraphEdge[]> {
   const pyFiles = files.filter((f) => f.endsWith(".py"));
   if (pyFiles.length === 0) return [];
@@ -211,5 +362,6 @@ export async function resolvePythonEdges(rootDir: string, files: readonly string
   return withClient(rootDir, pyFiles, async (c) => [
     ...(await resolveImports(c, parser, rootDir, pyFiles)),
     ...(await resolveCalls(c, parser, rootDir, pyFiles)),
+    ...(await resolveOverrides(c, parser, rootDir, pyFiles)),
   ]);
 }
