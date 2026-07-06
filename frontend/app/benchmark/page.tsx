@@ -144,8 +144,8 @@ export default function Benchmark() {
           </h1>
           <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-zinc-400">
             We ran a real Claude agent over the{" "}
-            <span className="font-mono text-zinc-300">psf/requests</span> library twice — once with only file tools,
-            once with codegraph — and measured every run. Asked to describe the
+            <span className="font-mono text-zinc-300">psf/requests</span>{" "}library twice — once with only file
+            tools, once with codegraph — and measured every run. Asked to describe the
             codebase&apos;s structure, the agent <span className="text-zinc-200">without</span> codegraph got it{" "}
             <span className="text-amber-300">measurably wrong</span>. That is the hidden tax of an agent that reads a few
             files and infers the rest.
