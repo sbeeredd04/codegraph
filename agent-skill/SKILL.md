@@ -36,6 +36,7 @@ If NO graph exists, build one (see "Setup"), then continue.
 | What calls X? Who depends on X? | `dependencies` (direction: dependents) / `blast_radius` |
 | What does X call / import? | `dependencies` (direction: dependencies) |
 | How does data get from A to B? | `find_path` |
+| How does a call reach its real implementation through a base class / interface? | `find_path` — it resolves virtual dispatch (see below) |
 | What's directly around X? | `neighborhood` |
 | Where does execution start? | `entry_points` |
 | Blast radius of changing X? | `blast_radius` |
@@ -58,6 +59,13 @@ Node addresses are stable: `ts:src/auth.ts#login`, `py:app/api.py#Config.load`.
 Start from `find_symbol`/`find_file` to resolve an address, then `describe_node`
 for its signature + neighbours, or `find_path`/`dependencies`/`blast_radius` to
 trace relationships. `reveal_in_editor` points the human at the real file:line.
+
+**`find_path` resolves virtual dispatch** — the relationship grep can't follow. A call
+through a base class or interface statically lands on the abstract method, but at runtime
+dispatches to the concrete override; `find_path` continues past the base method to that
+override (`get → … → BaseAdapter.send ⟿ HTTPAdapter.send`), even when base and override
+live in different files or languages. This is codegraph's edge: a resolved cross-file,
+cross-language relationship you'd otherwise have to reconstruct by hand.
 
 The MCP also drives the interactive board for the human (`highlight_nodes`,
 `highlight_path`, `focus_camera`, `set_projection`, `open_panel`, `guided_tour`,
