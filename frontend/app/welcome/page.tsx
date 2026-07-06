@@ -265,6 +265,13 @@ export default function Welcome() {
           >
             Docs
           </Link>
+          <Link
+            href="/benchmark"
+            prefetch={false}
+            className="text-zinc-400 transition-colors hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] rounded"
+          >
+            Benchmark
+          </Link>
           <a
             href={REPO_URL}
             target="_blank"
