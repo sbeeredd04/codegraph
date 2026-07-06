@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { bootstrapRepo } from "./bootstrap.js";
+import { findPath } from "../../core/graph/path.js";
 
 // These are heavy polyglot integration tests: each bootstrapRepo spins up Pyright
 // over LSP (a cold start on the first) plus ts-morph. Under full-suite parallelism
@@ -134,6 +135,88 @@ describe("bootstrapRepo scans the JS/JSX family (FR-83)", () => {
       .allEdges()
       .find((e) => e.from === "ts:App.tsx#App" && e.to === "ts:App.tsx#Label");
     expect(render?.call).toBe("render");
+  });
+});
+
+// FR-97 CAPSTONE — the whole override arc, end-to-end through the REAL indexer. Each
+// per-layer unit (skeleton same-file, Pyright/ts-morph cross-file, findPath reverse-
+// traversal) is tested in isolation; nothing else proves they compose. Here the shipped
+// bootstrapRepo indexes a real cross-file class hierarchy — a caller that dispatches on
+// the BASE type, plus a concrete override in another file — and findPath resolves the
+// virtual dispatch: caller -> (calls) BaseAdapter.send -> (override) HTTPAdapter.send.
+// This is the honest demonstration; codegraph's OWN repo has no class inheritance to
+// dogfood (it's functional/hexagonal), so a purpose-built fixture stands in for it.
+describe("bootstrapRepo resolves FR-97 virtual dispatch end-to-end (find_path)", () => {
+  it("TypeScript: a base-typed call resolves to the concrete cross-file override", async () => {
+    const tsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-fr97-ts-"));
+    try {
+      fs.writeFileSync(path.join(tsDir, "base.ts"), "export class BaseAdapter {\n  send(req: string): string { return req; }\n}\n");
+      fs.writeFileSync(
+        path.join(tsDir, "http.ts"),
+        'import { BaseAdapter } from "./base";\nexport class HTTPAdapter extends BaseAdapter {\n  send(req: string): string { return req + "!"; }\n}\n',
+      );
+      fs.writeFileSync(
+        path.join(tsDir, "client.ts"),
+        'import { BaseAdapter } from "./base";\nexport function dispatch(a: BaseAdapter, req: string): string {\n  return a.send(req);\n}\n',
+      );
+      const { graph } = await bootstrapRepo(tsDir, wasmDir, { python: false });
+
+      // The cross-file override edge (ts-morph, T17.2) is in the produced graph.
+      expect(graph.allEdges()).toContainEqual({
+        from: "ts:http.ts#HTTPAdapter.send",
+        to: "ts:base.ts#BaseAdapter.send",
+        type: "overrides",
+      });
+      // The static call lands on the BASE method (the annotated type).
+      expect(graph.neighbors("ts:client.ts#dispatch")).toContain("ts:base.ts#BaseAdapter.send");
+
+      // find_path resolves the virtual dispatch through to the concrete override.
+      const r = findPath(graph, "ts:client.ts#dispatch", "ts:http.ts#HTTPAdapter.send");
+      expect(r?.found).toBe(true);
+      expect(r?.steps.at(-1)).toEqual({
+        from: "ts:base.ts#BaseAdapter.send",
+        to: "ts:http.ts#HTTPAdapter.send",
+        type: "overrides",
+      });
+      // The override edge is load-bearing: without dispatch resolution, no path exists.
+      expect(findPath(graph, "ts:client.ts#dispatch", "ts:http.ts#HTTPAdapter.send", { resolveOverrides: false })?.found).toBe(false);
+    } finally {
+      fs.rmSync(tsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("Python: a base-typed call resolves to the concrete cross-file override", async () => {
+    const pyDir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-fr97-py-"));
+    try {
+      fs.writeFileSync(path.join(pyDir, "base.py"), "class BaseAdapter:\n    def send(self, req):\n        return req\n");
+      fs.writeFileSync(
+        path.join(pyDir, "http.py"),
+        'from base import BaseAdapter\n\nclass HTTPAdapter(BaseAdapter):\n    def send(self, req):\n        return req + "!"\n',
+      );
+      fs.writeFileSync(
+        path.join(pyDir, "client.py"),
+        "from base import BaseAdapter\n\ndef dispatch(a: BaseAdapter, req):\n    return a.send(req)\n",
+      );
+      const { graph } = await bootstrapRepo(pyDir, wasmDir, { typescript: false });
+
+      // The cross-file override edge (Pyright, T16.2) is in the produced graph.
+      expect(graph.allEdges()).toContainEqual({
+        from: "py:http.py#HTTPAdapter.send",
+        to: "py:base.py#BaseAdapter.send",
+        type: "overrides",
+      });
+      expect(graph.neighbors("py:client.py#dispatch")).toContain("py:base.py#BaseAdapter.send");
+
+      const r = findPath(graph, "py:client.py#dispatch", "py:http.py#HTTPAdapter.send");
+      expect(r?.found).toBe(true);
+      expect(r?.steps.at(-1)).toEqual({
+        from: "py:base.py#BaseAdapter.send",
+        to: "py:http.py#HTTPAdapter.send",
+        type: "overrides",
+      });
+    } finally {
+      fs.rmSync(pyDir, { recursive: true, force: true });
+    }
   });
 });
 
