@@ -33,6 +33,12 @@ describe("injectSnapshot (FR-88)", () => {
     expect(injectSnapshot(HTML, snapshot())).not.toContain("editorRoot");
   });
 
+  it("includes sourceBase only when supplied (T14.3 host-local source channel)", () => {
+    expect(injectSnapshot(HTML, snapshot(), "/abs/repo", "__cgsrc")).toContain("sourceBase");
+    expect(injectSnapshot(HTML, snapshot(), "/abs/repo", "__cgsrc")).toContain("__cgsrc");
+    expect(injectSnapshot(HTML, snapshot(), "/abs/repo")).not.toContain("sourceBase");
+  });
+
   it("escapes </script> in node data so it cannot break out of the inline script", () => {
     const out = injectSnapshot(HTML, snapshot("</script><script>alert(1)</script>"));
     // The data's closing tag is escaped; only the boot script's own close remains.

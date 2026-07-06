@@ -38,6 +38,10 @@ export default function Home() {
   // Absolute repo root the host sends alongside a live snapshot, for "open in
   // editor" deep links (FR-32). Transport-only; never present on the web/cloud.
   const [editorRoot, setEditorRoot] = useState<string | null>(null);
+  // Host-local source channel the host sends alongside a live snapshot (T14.3).
+  // Set by `codegraph serve` so the inline viewer fetches real source; null in the
+  // VS Code webview (CSP blocks fetch → reveal-in-editor) and on the cloud plane.
+  const [liveSourceBase, setLiveSourceBase] = useState<string | null>(null);
 
   const current = useMemo(
     () => DATASETS.find((d) => d.id === datasetId) ?? DATASETS[0],
@@ -50,9 +54,10 @@ export default function Home() {
     // / event handlers below — never synchronously here (the React-compiler rule
     // forbids it, and a synchronous reset would cascade a render anyway).
     if (isWebviewHost()) {
-      return subscribeToSnapshot(({ snapshot, editorRoot: root }) => {
+      return subscribeToSnapshot(({ snapshot, editorRoot: root, sourceBase }) => {
         setSnap(snapshot);
         setEditorRoot(root ?? null);
+        setLiveSourceBase(sourceBase ?? null);
         setError(null);
         setLive(true);
       });
@@ -111,9 +116,11 @@ export default function Home() {
       // sample dataset switcher / source sidecar above).
       landingHref={live ? null : "/welcome"}
       title={`${snap.root ?? "snapshot"} · ${snap.nodeCount} nodes`}
-      // Live (webview) graphs carry no bundled source sidecar and have no sample
-      // datasets to switch between, so both affordances are withheld.
-      sourceBase={live ? null : current.sourceBase}
+      // Live graphs carry no bundled source sidecar, but `codegraph serve` exposes a
+      // host-local source channel (T14.3) — so use the live sourceBase when present
+      // (serve), else null (VS Code webview → reveal-in-editor; cloud → source-blind).
+      // Off-host, the sample dataset's bundled sidecar (or null) applies.
+      sourceBase={live ? liveSourceBase : current.sourceBase}
       datasets={live ? undefined : DATASETS}
       datasetId={current.id}
       onDataset={setDatasetId}

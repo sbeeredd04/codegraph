@@ -22,6 +22,14 @@ export interface SnapshotMessage {
    * (AD-14). Present only when the host has an open workspace.
    */
   readonly editorRoot?: string;
+  /**
+   * Base URL of a host-local source channel for the inline viewer (T14.3). Set by
+   * `codegraph serve`, which runs on the user's machine where the source lives
+   * (AD-16), so the board can fetch a node's file. Transport-only and absent on
+   * the cloud plane and inside the VS Code webview (whose CSP blocks fetch and
+   * which reveals in the editor instead) — so neither renders inline source.
+   */
+  readonly sourceBase?: string;
 }
 
 /** webview → host: "I'm mounted, send the graph." */
@@ -70,6 +78,9 @@ export interface LiveSnapshot {
   readonly snapshot: GraphSnapshot;
   /** Absolute repo root for editor deep links (FR-32); undefined off the host. */
   readonly editorRoot?: string;
+  /** Host-local source channel base for the inline viewer (T14.3); set only by
+   *  `codegraph serve`. Undefined in the VS Code webview and on the cloud plane. */
+  readonly sourceBase?: string;
 }
 
 /**
@@ -83,7 +94,8 @@ export function subscribeToSnapshot(onSnapshot: (live: LiveSnapshot) => void): (
   const onMessage = (e: MessageEvent): void => {
     if (isSnapshotMessage(e.data)) {
       const editorRoot = typeof e.data.editorRoot === "string" ? e.data.editorRoot : undefined;
-      onSnapshot({ snapshot: e.data.snapshot, editorRoot });
+      const sourceBase = typeof e.data.sourceBase === "string" ? e.data.sourceBase : undefined;
+      onSnapshot({ snapshot: e.data.snapshot, editorRoot, sourceBase });
     }
   };
   window.addEventListener("message", onMessage);

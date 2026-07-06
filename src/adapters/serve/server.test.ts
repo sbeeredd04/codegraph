@@ -98,4 +98,76 @@ describe("createBoardServer (FR-88)", () => {
     const res = await get(server, "/%E0%A4%A"); // truncated escape → decode throws
     expect(res.status).toBe(400);
   });
+
+  it("does NOT expose the source channel when no sourceRoot is set (cloud stays blind)", async () => {
+    // Without a sourceRoot, /__cgsrc/* is not a source request — it falls through to
+    // the SPA board, never leaking a host file. This is the cloud/source-blind default.
+    const res = await get(server, "/__cgsrc/app.js");
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("codegraph:snapshot"); // the board, not app.js
+    expect(res.body).not.toBe("console.log('app');");
+  });
+});
+
+describe("createBoardServer host-local source channel (T14.3)", () => {
+  let exportDir: string;
+  let sourceRoot: string;
+  let server: http.Server;
+
+  beforeAll(async () => {
+    exportDir = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-serve-exp-"));
+    fs.writeFileSync(path.join(exportDir, "index.html"), "<html><head></head><body>board</body></html>");
+    sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codegraph-serve-src-"));
+    fs.mkdirSync(path.join(sourceRoot, "src"), { recursive: true });
+    fs.writeFileSync(path.join(sourceRoot, "src", "auth.py"), "def login():\n    return True\n");
+    server = createBoardServer({ exportDir, snapshot: SNAPSHOT, editorRoot: sourceRoot, sourceRoot });
+    await new Promise<void>((r) => server.listen(0, r));
+  });
+
+  afterAll(() => {
+    server.close();
+    fs.rmSync(exportDir, { recursive: true, force: true });
+    fs.rmSync(sourceRoot, { recursive: true, force: true });
+  });
+
+  it("tells the board where to fetch source (sourceBase injected into index.html)", async () => {
+    const res = await get(server, "/");
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("sourceBase");
+    expect(res.body).toContain("__cgsrc");
+  });
+
+  it("serves a repo-relative source file as text/plain", async () => {
+    const res = await get(server, "/__cgsrc/src/auth.py");
+    expect(res.status).toBe(200);
+    expect(res.type).toContain("text/plain");
+    expect(res.body).toBe("def login():\n    return True\n");
+  });
+
+  it("404s a source file that does not exist", async () => {
+    const res = await get(server, "/__cgsrc/src/missing.py");
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses a traversal that escapes the source root", async () => {
+    const res = await get(server, "/__cgsrc/../../etc/hosts");
+    expect(res.status).toBe(403);
+    expect(res.body).not.toContain("localhost");
+  });
+
+  it("refuses a symlink inside the source root that escapes it", async () => {
+    const secret = path.join(os.tmpdir(), `codegraph-src-secret-${process.pid}.txt`);
+    fs.writeFileSync(secret, "TOP SECRET");
+    const link = path.join(sourceRoot, "leak.py");
+    try {
+      fs.symlinkSync(secret, link);
+    } catch {
+      return; // symlinks unavailable on this platform — skip
+    }
+    const res = await get(server, "/__cgsrc/leak.py");
+    fs.rmSync(link, { force: true });
+    fs.rmSync(secret, { force: true });
+    expect(res.status).toBe(403);
+    expect(res.body).not.toContain("TOP SECRET");
+  });
 });

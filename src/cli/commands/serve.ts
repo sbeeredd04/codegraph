@@ -59,7 +59,9 @@ async function runServe(root: string, opts: ServeOptions = {}): Promise<void> {
     summary = `${coverage.parsed}/${coverage.found} files · ${graph.order} nodes · ${graph.size} edges`;
   }
 
-  const server = createBoardServer({ exportDir: exportDir(), snapshot, editorRoot: root });
+  // Serve runs on the user's machine where the source lives (AD-16), so hand the
+  // repo root to the board's inline source viewer via the host-local channel (T14.3).
+  const server = createBoardServer({ exportDir: exportDir(), snapshot, editorRoot: root, sourceRoot: root });
   server.on("error", (err: NodeJS.ErrnoException) => {
     const hint = err.code === "EADDRINUSE" ? ` (port ${port} in use — set CODEGRAPH_PORT)` : "";
     process.stderr.write(`codegraph: server error${hint}: ${err.message}\n`);

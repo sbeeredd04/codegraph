@@ -73,6 +73,48 @@ export interface BoardServerOptions {
   readonly snapshot: GraphSnapshot;
   /** Absolute repo root for FR-32 editor deep links (local plane only). */
   readonly editorRoot?: string;
+  /**
+   * Absolute repo root to serve node source from for the inline viewer (T14.3).
+   * `codegraph serve` runs on the user's machine where the source lives (AD-16),
+   * so it can hand a node's file back over `/__cgsrc/<repo-relative-path>`. Omit
+   * to keep the board source-blind (the cloud plane never sets this).
+   */
+  readonly sourceRoot?: string;
+}
+
+/** URL prefix for the host-local source channel (T14.3). Matches the `sourceBase`
+ *  the board is told (see inject.ts) so the inline viewer's fetch lands here. */
+export const SOURCE_PREFIX = "/__cgsrc/";
+
+/**
+ * Serve one host-local source file for the inline viewer (T14.3). The path is
+ * UNTRUSTED (it arrives from the board over HTTP), so it is resolved inside
+ * `sourceRoot` and its realpath re-checked — a `..` segment or a symlink can never
+ * escape the scanned repo. Read-only (FR-9); returned as text/plain so the
+ * CodeMirror surface renders it as document content, never markup.
+ */
+function serveSource(
+  res: http.ServerResponse,
+  relRaw: string,
+  sourceRoot: string,
+  realSourceRoot: string,
+): void {
+  const abs = path.resolve(sourceRoot, relRaw.replace(/^\/+/, ""));
+  if (!isInside(abs, sourceRoot)) {
+    res.writeHead(403).end("Forbidden");
+    return;
+  }
+  if (!existsAsFile(abs)) {
+    res.writeHead(404).end("Not Found");
+    return;
+  }
+  const real = safeRealpath(abs);
+  if (!real || !isInside(real, realSourceRoot)) {
+    res.writeHead(403).end("Forbidden");
+    return;
+  }
+  res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+  res.end(fs.readFileSync(abs));
 }
 
 /**
@@ -88,6 +130,12 @@ export function createBoardServer(options: BoardServerOptions): http.Server {
   const realExportDir = safeRealpath(exportDir) ?? exportDir;
   const indexHtml = path.join(exportDir, "index.html");
   const { snapshot, editorRoot } = options;
+  // Host-local source channel (T14.3): resolve the repo root once, plus its realpath
+  // as the boundary every served source file must resolve inside. Present only when
+  // the caller opted in (codegraph serve) — the board is told to fetch source only then.
+  const sourceRoot = options.sourceRoot ? path.resolve(options.sourceRoot) : undefined;
+  const realSourceRoot = sourceRoot ? (safeRealpath(sourceRoot) ?? sourceRoot) : undefined;
+  const sourceBase = sourceRoot ? SOURCE_PREFIX.replace(/\/$/, "") : undefined;
 
   return http.createServer((req, res) => {
     try {
@@ -101,6 +149,13 @@ export function createBoardServer(options: BoardServerOptions): http.Server {
         res.writeHead(400).end("Bad Request"); // malformed percent-encoding
         return;
       }
+      // Host-local source channel (T14.3): before the static/SPA logic, intercept the
+      // source prefix and hand back the requested file from the scanned repo (guarded).
+      if (sourceRoot && realSourceRoot && decoded.startsWith(SOURCE_PREFIX)) {
+        serveSource(res, decoded.slice(SOURCE_PREFIX.length), sourceRoot, realSourceRoot);
+        return;
+      }
+
       const rel = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
       const abs = path.resolve(exportDir, rel);
 
@@ -123,7 +178,7 @@ export function createBoardServer(options: BoardServerOptions): http.Server {
       if (path.basename(candidate) === "index.html") {
         const html = fs.readFileSync(candidate, "utf8");
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(injectSnapshot(html, snapshot, editorRoot));
+        res.end(injectSnapshot(html, snapshot, editorRoot, sourceBase));
         return;
       }
 

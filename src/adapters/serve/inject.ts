@@ -39,13 +39,23 @@ function jsonForScript(value: unknown): string {
  *   2. replies to the board's `codegraph:ready` ping with the snapshot (the host
  *      handshake), with a post-mount fallback if the ping is ever missed.
  * `editorRoot` (the scanned absolute root) rides along so FR-32 "open in editor"
- * deep links work on the local plane. Returns the html unchanged-shaped otherwise.
+ * deep links work on the local plane. `sourceBase`, when the server exposes the
+ * host-local source channel (T14.3), tells the board where to fetch a node's file
+ * so the inline viewer renders code instead of the source-blind card. Both are
+ * transport-only — neither is folded into the portable snapshot (AD-14). Returns
+ * the html unchanged-shaped otherwise.
  */
-export function injectSnapshot(html: string, snapshot: GraphSnapshot, editorRoot?: string): string {
+export function injectSnapshot(
+  html: string,
+  snapshot: GraphSnapshot,
+  editorRoot?: string,
+  sourceBase?: string,
+): string {
   const message = {
     type: "codegraph:snapshot",
     snapshot,
     ...(editorRoot ? { editorRoot } : {}),
+    ...(sourceBase ? { sourceBase } : {}),
   };
   const boot = [
     "<script>(function(){",
