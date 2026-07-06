@@ -42,6 +42,17 @@ function markSeen(): void {
   listeners.forEach((l) => l());
 }
 
+/** Clear the seen-flag so the first-run hint shows again — wired to a "Show welcome tips
+ *  again" control (T18.2), so a user who dismissed it can bring the orientation back. */
+export function reopenFirstRunHint(): void {
+  try {
+    window.localStorage.removeItem(SEEN_KEY);
+  } catch {
+    /* storage unavailable — the notify below still reveals it this session */
+  }
+  listeners.forEach((l) => l());
+}
+
 interface FirstRunHintProps {
   /** Open the first-party guide (toolbar's Guide target). Omit to hide the guide link. */
   readonly onOpenGuide?: () => void;

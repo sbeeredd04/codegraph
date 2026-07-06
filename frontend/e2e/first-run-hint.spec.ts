@@ -53,3 +53,21 @@ test("FR-53: Escape dismisses the first-run hint", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(hint).toHaveCount(0);
 });
+
+test("T18.2: Settings › Show again brings the dismissed hint back", async ({ page }) => {
+  await page.goto("/");
+  await waitForGraph(page);
+
+  const hint = page.getByTestId("first-run-hint");
+  await hint.getByRole("button", { name: "Got it" }).click();
+  await expect(hint).toHaveCount(0);
+
+  // Reopen it from Settings — the only way back after a dismissal.
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("button", { name: "Show again" }).click();
+
+  // The Settings modal closes and the hint is back on the board.
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId("first-run-hint")).toBeVisible();
+});

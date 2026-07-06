@@ -23,6 +23,8 @@ interface SettingsPanelProps {
   readonly onChange: (patch: Partial<ExplorerSettings>) => void;
   readonly onReset: () => void;
   readonly onClose: () => void;
+  /** Re-show the first-run welcome hint (T18.2) — closes this panel so it's visible. */
+  readonly onReplayHint?: () => void;
 }
 
 const SURFACES: { value: RenderMode; label: string }[] = [
@@ -51,7 +53,7 @@ const DISPLAY_DENSITIES: { value: DisplayDensity; label: string }[] = [
   { value: "spacious", label: "Spacious" },
 ];
 
-export function SettingsPanel({ settings, onChange, onReset, onClose }: SettingsPanelProps): React.JSX.Element {
+export function SettingsPanel({ settings, onChange, onReset, onClose, onReplayHint }: SettingsPanelProps): React.JSX.Element {
   const headingId = useId();
   const firstRef = useRef<HTMLButtonElement>(null);
 
@@ -83,7 +85,7 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Settings
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
-        className="flex w-[min(34rem,90vw)] flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
+        className="flex max-h-[80vh] w-[min(34rem,90vw)] flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
           <h2 id={headingId} className="font-display text-sm font-semibold text-zinc-100">
@@ -99,7 +101,7 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Settings
           </button>
         </div>
 
-        <div className="flex flex-col gap-5 px-4 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-4">
           <Segmented
             label="Default surface"
             hint="Which graph surface the board opens on."
@@ -158,6 +160,24 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Settings
               />
             </button>
           </div>
+
+          {/* T18.2 — bring back the one-time first-run coach-mark (the only way back
+              after it's dismissed). Reset-type action, so it lives here in Settings. */}
+          {onReplayHint && (
+            <div className="flex items-start justify-between gap-4 border-t border-zinc-800/60 pt-4">
+              <div>
+                <div className="text-sm font-medium text-zinc-200">Welcome tips</div>
+                <div className="text-xs text-zinc-500">Re-show the first-run orientation on the board.</div>
+              </div>
+              <button
+                type="button"
+                onClick={onReplayHint}
+                className="mt-0.5 shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-100 transition-colors hover:bg-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+              >
+                Show again
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3">

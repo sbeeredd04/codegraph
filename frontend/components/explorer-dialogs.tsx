@@ -53,6 +53,8 @@ interface ExplorerDialogsProps {
   readonly closeCenter: () => void;
   readonly settingsOpen: boolean;
   readonly closeSettings: () => void;
+  /** Re-show the first-run welcome hint from Settings (T18.2). */
+  readonly onReplayHint: () => void;
   readonly diagramsOpen: boolean;
   readonly onCloseDiagrams: () => void;
   readonly docsOpen: boolean;
@@ -86,6 +88,7 @@ export function ExplorerDialogs({
   closeCenter,
   settingsOpen,
   closeSettings,
+  onReplayHint,
   diagramsOpen,
   onCloseDiagrams,
   docsOpen,
@@ -122,6 +125,7 @@ export function ExplorerDialogs({
           onChange={changeSetting}
           onReset={resetSettings}
           onClose={closeSettings}
+          onReplayHint={onReplayHint}
         />
       )}
 

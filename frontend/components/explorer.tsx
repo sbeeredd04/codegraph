@@ -37,7 +37,7 @@ import { useExplorerSettings } from "@/lib/use-explorer-settings";
 import { useAgentOverlays } from "@/lib/use-agent-overlays";
 import { buildExplorerActions } from "@/lib/explorer-actions";
 import { OnboardingPanel } from "./onboarding-panel";
-import { FirstRunHint } from "./first-run-hint";
+import { FirstRunHint, reopenFirstRunHint } from "./first-run-hint";
 import { TracePanel } from "./trace-panel";
 import { useIngest } from "@/lib/use-ingest";
 import { isWebviewHost } from "@/lib/webview-bridge";
@@ -755,6 +755,10 @@ export function Explorer({
           closeCenter={closeCenter}
           settingsOpen={settingsOpen}
           closeSettings={closeSettings}
+          onReplayHint={() => {
+            setSettingsOpen(false);
+            reopenFirstRunHint();
+          }}
           diagramsOpen={diagramsOpen}
           onCloseDiagrams={() => setDiagramsOpen(false)}
           docsOpen={docsOpen}
