@@ -147,6 +147,50 @@ describe("PythonAdapter (tree-sitter skeleton)", () => {
     expect(nodes.find((n) => n.address === "py:api.py#Config")?.signature).toBe("Config(name: str, count: int = 0)");
   });
 
+  // FR-97: same-file inheritance → `overrides` edges (subclass method → base method),
+  // closing the virtual-dispatch gap the agent benchmark surfaced. The subclass is
+  // declared BEFORE its base here to prove resolution runs after the whole file is walked.
+  const INHERIT_SRC = [
+    "class HTTPAdapter(BaseAdapter):",
+    "    def send(self, request):",
+    "        return 1",
+    "    def close(self):",
+    "        return 2",
+    "",
+    "class BaseAdapter:",
+    "    def send(self, request):",
+    "        raise NotImplementedError",
+    "",
+    "class Imported(some.module.Base):",
+    "    def send(self):",
+    "        return 3",
+  ].join("\n");
+
+  it("emits overrides edges for same-file inheritance only (FR-97)", () => {
+    const { edges } = adapter.parseFile("adapters.py", INHERIT_SRC);
+    const overrides = edges.filter((e) => e.type === "overrides").map((e) => `${e.from}=>${e.to}`).sort();
+    // send() overrides BaseAdapter.send (subclass precedes base → resolved post-walk).
+    // close() has no inherited counterpart; Imported's dotted base is cross-file → skipped.
+    expect(overrides).toEqual(["py:adapters.py#HTTPAdapter.send=>py:adapters.py#BaseAdapter.send"]);
+  });
+
+  it("resolves an override through a transitive same-file base chain (FR-97)", () => {
+    const src = [
+      "class A:",
+      "    def run(self):",
+      "        return 1",
+      "class B(A):",
+      "    pass",
+      "class C(B):",
+      "    def run(self):",
+      "        return 2",
+    ].join("\n");
+    const { edges } = adapter.parseFile("chain.py", src);
+    const overrides = edges.filter((e) => e.type === "overrides").map((e) => `${e.from}=>${e.to}`);
+    // C.run overrides A.run through B (B defines no run) — nearestBaseMethod walks the chain.
+    expect(overrides).toEqual(["py:chain.py#C.run=>py:chain.py#A.run"]);
+  });
+
   it("declares its language", () => {
     expect(adapter.language).toBe("python");
   });

@@ -54,6 +54,13 @@ describe("describeEdgeCall", () => {
     expect(describeEdgeCall(edge("hands-off-to")).inverseLabel).toBe("receives from");
   });
 
+  it("labels an `overrides` edge as override / overridden-by (FR-97)", () => {
+    const c = describeEdgeCall(edge("overrides"), node("b", "method"));
+    expect(c.kind).toBe("override");
+    expect(c.label).toBe("overrides");
+    expect(c.inverseLabel).toBe("overridden by");
+  });
+
   it("degrades gracefully to a type-only classification when the target node is unknown", () => {
     // No toNode: a `calls` edge can't be refined to construct/method, so it's a plain call.
     expect(describeEdgeCall(edge("calls")).kind).toBe("call");
@@ -86,6 +93,7 @@ describe("describeEdgeCall", () => {
       edge("contains", "contain"),
       edge("hands-off-to", "handoff"),
       edge("calls", "render"),
+      edge("overrides", "override"),
     ];
     for (const e of samples) {
       const c = describeEdgeCall(e);

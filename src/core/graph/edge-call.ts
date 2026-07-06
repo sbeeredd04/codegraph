@@ -74,6 +74,12 @@ const CALL: Record<EdgeCallKind, EdgeCall> = {
     inverseLabel: "rendered by",
     description: "Renders the target component in JSX.",
   },
+  override: {
+    kind: "override",
+    label: "overrides",
+    inverseLabel: "overridden by",
+    description: "Overrides the same-named base-class method it inherits.",
+  },
 };
 
 /**
@@ -100,6 +106,8 @@ function edgeCallKind(edge: GraphEdge, toNode?: GraphNode): EdgeCallKind {
       return "contain";
     case "hands-off-to":
       return "handoff";
+    case "overrides":
+      return "override";
     default:
       // A new EdgeType must be classified here — this line makes that a compile error.
       return assertNever(edge.type);

@@ -4,8 +4,12 @@
 /** Closed vocabulary (AD-10). */
 export type NodeKind = "module" | "class" | "function" | "method" | "workflow";
 
-/** Semantic relationships (AD-4). */
-export type EdgeType = "calls" | "depends-on" | "contains" | "hands-off-to";
+/** Semantic relationships (AD-4). `overrides` (FR-97): a subclass method overrides the
+ * same-named base-class method it inherits (`HTTPAdapter.send` → `BaseAdapter.send`).
+ * Structural — derived from class/method names, no source bytes — so cloud-safe like
+ * `contains`. It closes the virtual-dispatch gap: a call statically resolves to the
+ * abstract base method, and this edge names the concrete override reached at runtime. */
+export type EdgeType = "calls" | "depends-on" | "contains" | "hands-off-to" | "overrides";
 
 /** Closed vocabulary for an edge's precise call classification (FR-58). The
  * human labels + the from-endpoint derivation live in `edge-call.ts`. */
@@ -17,6 +21,9 @@ export type EdgeCallKind =
   | "depend"
   | "contain"
   | "handoff"
+  // FR-97: the semantic kind of an `overrides` edge — a subclass method overriding the
+  // base-class method it inherits. Structural (class/method names), so cloud-safe.
+  | "override"
   // FR-84: a `calls` edge that is a JSX render (`<Card/>` → the Card component). JSX
   // compiles to a `React.createElement(Card)` call, so it stays a `calls` edge; this
   // sub-kind just lets the surface say "renders" instead of "calls". Structural, so

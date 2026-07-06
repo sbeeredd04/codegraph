@@ -41,6 +41,7 @@ const EDGE_TYPES: ReadonlySet<string> = new Set<EdgeType>([
   "depends-on",
   "contains",
   "hands-off-to",
+  "overrides",
 ]);
 
 /** What an overlay attaches to: a node, or a directed edge between two nodes. */

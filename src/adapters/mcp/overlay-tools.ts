@@ -19,7 +19,7 @@ import { ok, fail, ADDRESS, type GraphTool } from "./mcp-tool.js";
 // (anchored by node/edge identity, never source bytes) and never touches source
 // files (FR-9). Appears only when the host injects an OverlayStore.
 
-const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to"]);
+const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to", "overrides"]);
 // Mirror the core MARK_KINDS / MARK_SEVERITIES enums (validateMark is the source of
 // truth; these only sharpen the MCP input schema). Cast because z.enum wants a
 // non-empty tuple and the core arrays are readonly.

@@ -23,6 +23,10 @@ const PY_CONFIG: LanguageConfig = {
   decorator: { wrapperType: "decorated_definition", nodeType: "decorator" },
   nestedFunctions: true,
   classFields: { statementType: "expression_statement", assignmentType: "assignment" },
+  // FR-97: same-file inheritance → `overrides` edges (subclass method → base method).
+  // Python's `class Sub(Base):` puts bases in the `superclasses` argument_list; only bare
+  // `identifier` bases are resolved here (dotted/imported bases need the LSP layer).
+  inheritance: { superclassesField: "superclasses", simpleBaseType: "identifier" },
 };
 
 export function createPythonAdapter(wasmDir: string): Promise<LanguageAdapter> {

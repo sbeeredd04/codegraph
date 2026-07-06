@@ -89,6 +89,18 @@ export interface LanguageConfig {
    * reuses the existing signature field. Omit to skip.
    */
   readonly classFields?: { readonly statementType: string; readonly assignmentType: string };
+  /**
+   * Capture class inheritance so a subclass method that redefines an inherited method
+   * emits an `overrides` edge to the base method (FR-97) — e.g. `HTTPAdapter.send` →
+   * `BaseAdapter.send`. This closes the virtual-dispatch gap the agent benchmark surfaced:
+   * a call statically resolves to the abstract base method, and the override edge names
+   * the concrete implementation reached at runtime. `superclassesField` is the class node's
+   * base-list field (Python `superclasses`, an `argument_list`); only bases of `simpleBaseType`
+   * (a bare same-file `identifier`) are resolved — dotted/generic/imported bases (`base.Thing`,
+   * `Generic[T]`) need cross-file type resolution and are deferred to the LSP edge layer. So
+   * this is SAME-FILE inheritance only, resolved purely from names (cloud-safe). Omit to skip.
+   */
+  readonly inheritance?: { readonly superclassesField: string; readonly simpleBaseType: string };
 }
 
 function loc(node: TsNode, file: string) {
@@ -221,12 +233,25 @@ export function extractSkeleton(
   nodes.push(withDoc({ address: moduleAddress, kind: "module", name: filePath, location: loc(root, filePath) }, moduleDoc));
 
   // Track the preceding sibling so the preceding-comment (JSDoc) strategy can reach it.
+  // `classes` accumulates each class's method set + base names for the FR-97 override pass,
+  // which runs once the whole file is walked (a subclass can precede its base in source).
+  const classes: ClassEntry[] = [];
   const kids = root.namedChildren;
   for (let i = 0; i < kids.length; i++) {
     const child = kids[i];
-    if (child) collect(child, kids[i - 1] ?? null, filePath, moduleAddress, nodes, edges, config);
+    if (child) collect(child, kids[i - 1] ?? null, filePath, moduleAddress, nodes, edges, config, classes);
   }
+  edges.push(...resolveOverrideEdges(classes, config));
   return { nodes, edges };
+}
+
+/** One class's shape for same-file override resolution (FR-97): its address, its own
+ *  methods (name → address), and the simple base-class names it declares. */
+interface ClassEntry {
+  readonly name: string;
+  readonly address: string;
+  readonly bases: readonly string[];
+  readonly methods: ReadonlyMap<string, string>;
 }
 
 /** Attach a captured doc-comment to a node, omitting the field when there's none. */
@@ -253,6 +278,7 @@ function collect(
   nodes: GraphNode[],
   edges: GraphEdge[],
   config: LanguageConfig,
+  classes: ClassEntry[],
 ): void {
   const decl = unwrap(node, config);
   const addr = (name: string) => `${config.prefix}:${filePath}#${name}`;
@@ -310,6 +336,9 @@ function collect(
     ));
     edges.push({ from: moduleAddress, to: classAddress, type: "contains" });
 
+    // FR-97: remember each method's address so the post-walk pass can wire a subclass
+    // method that redefines an inherited one to its base (same-file resolution only).
+    const methods = new Map<string, string>();
     const members = decl.childForFieldName(config.bodyField)?.namedChildren ?? [];
     for (let j = 0; j < members.length; j++) {
       const member = members[j];
@@ -324,10 +353,72 @@ function collect(
         extractDecorators(member, config),
       ));
       edges.push({ from: classAddress, to: methodAddress, type: "contains" });
+      methods.set(methodName, methodAddress);
       // FR-85: nested `def`s inside a method body, too.
       collectNested(m, methodAddress, filePath, nodes, edges, config, 1);
     }
+
+    if (config.inheritance) {
+      classes.push({ name, address: classAddress, bases: extractBases(decl, config), methods });
+    }
   }
+}
+
+/** FR-97: a class's simple same-file base names — bare `identifier` bases only (e.g.
+ *  `BaseAdapter`). Dotted (`base.Thing`) and generic (`Generic[T]`) bases are skipped:
+ *  resolving them needs cross-file type info, which the LSP edge layer owns. */
+function extractBases(classDecl: TsNode, config: LanguageConfig): string[] {
+  const inh = config.inheritance;
+  if (!inh) return [];
+  const supers = classDecl.childForFieldName(inh.superclassesField);
+  if (!supers) return [];
+  const names: string[] = [];
+  for (const child of supers.namedChildren) {
+    if (child?.type === inh.simpleBaseType) names.push(child.text);
+  }
+  return names;
+}
+
+/** FR-97: for every class with a same-file base, emit an `overrides` edge from each
+ *  method that redefines an inherited method to the nearest base method of that name
+ *  (`HTTPAdapter.send` → `BaseAdapter.send`). Cross-file bases are absent from the
+ *  registry, so they're silently skipped — that's the LSP layer's job. Cycle-safe. */
+function resolveOverrideEdges(classes: readonly ClassEntry[], config: LanguageConfig): GraphEdge[] {
+  if (!config.inheritance || classes.length === 0) return [];
+  const byName = new Map(classes.map((c) => [c.name, c]));
+  const edges: GraphEdge[] = [];
+  for (const cls of classes) {
+    if (cls.bases.length === 0) continue;
+    for (const [methodName, methodAddress] of cls.methods) {
+      const baseAddress = nearestBaseMethod(cls, methodName, byName);
+      if (baseAddress && baseAddress !== methodAddress) {
+        edges.push({ from: methodAddress, to: baseAddress, type: "overrides" });
+      }
+    }
+  }
+  return edges;
+}
+
+/** Breadth-first walk up `cls`'s base chain (nearest base first) for the first same-file
+ *  class that defines a method named `methodName`; returns that base method's address. */
+function nearestBaseMethod(
+  cls: ClassEntry,
+  methodName: string,
+  byName: ReadonlyMap<string, ClassEntry>,
+): string | undefined {
+  const seen = new Set<string>([cls.name]);
+  const queue = [...cls.bases];
+  while (queue.length > 0) {
+    const baseName = queue.shift() as string;
+    if (seen.has(baseName)) continue;
+    seen.add(baseName);
+    const base = byName.get(baseName);
+    if (!base) continue; // cross-file base — deferred to the LSP edge layer
+    const hit = base.methods.get(methodName);
+    if (hit) return hit;
+    queue.push(...base.bases);
+  }
+  return undefined;
 }
 
 /** FR-85: recurse a function/method body for nested `def`s, emitting each as a

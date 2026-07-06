@@ -24,7 +24,7 @@ import { answerQuestion } from "../../core/query/answer.js";
 // store, describe_node folds in the node's stored enrichment.
 
 const KIND = z.enum(["module", "class", "function", "method", "workflow"]);
-const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to"]);
+const EDGE_TYPE = z.enum(["calls", "depends-on", "contains", "hands-off-to", "overrides"]);
 
 export function readTools(getGraph: () => CodeGraph, annotations?: NodeAnnotations): GraphTool[] {
   return [
@@ -162,7 +162,8 @@ export function readTools(getGraph: () => CodeGraph, annotations?: NodeAnnotatio
         "data flow end to end — e.g. from an entry point to a database write — then turn the chain " +
         "into a sequence or flow diagram. Returns the ordered steps (each with its edge type) and " +
         "the node path, or found:false when no such route exists. Pass edgeTypes to trace other " +
-        "relations (e.g. include 'contains' to walk structure).",
+        "relations (e.g. include 'contains' to walk structure, or 'overrides' to see which " +
+        "base-class method a method overrides).",
       inputSchema: {
         from: z.string().min(1).describe("Start node address, e.g. ts:src/api.ts#handleRequest"),
         to: z.string().min(1).describe("Target node address to reach, e.g. ts:src/db.ts#write"),
