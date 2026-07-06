@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { Node, SyntaxKind } from "ts-morph";
-import type { Project } from "ts-morph";
+import type { Project, ClassDeclaration } from "ts-morph";
 import type { GraphEdge } from "../../../core/graph/types.js";
 
 // Accurate edge layer (AD-9): ts-morph resolves cross-file references the
@@ -114,6 +114,76 @@ export function resolveCallEdges(project: Project, rootDir: string): GraphEdge[]
           edges.push({ from, to, type: "calls" });
           break;
         }
+      }
+    }
+  }
+  return edges;
+}
+
+/** Address of a first-party class declaration (`ts:rel#Class`), matching the skeleton's
+ *  scheme. Undefined for anonymous classes or external files (lib/.d.ts/node_modules). */
+function classAddress(cls: ClassDeclaration, rootDir: string): string | undefined {
+  const rel = toRel(rootDir, cls.getSourceFile().getFilePath());
+  if (!isFirstParty(rel)) return undefined;
+  const name = cls.getName();
+  return name ? `ts:${rel}#${name}` : undefined;
+}
+
+/** The `ts:file` prefix of a node address (everything before `#`), to tell same-file
+ *  from cross-file — the guard that keeps this layer from duplicating the skeleton's. */
+const fileOf = (address: string): string => address.split("#")[0];
+
+/** `getBaseClass()` uses the type checker and can throw on unresolvable heritage
+ *  (mixin expressions, malformed extends); treat any failure as "no base". */
+function safeBaseClass(cls: ClassDeclaration): ClassDeclaration | undefined {
+  try {
+    return cls.getBaseClass();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Walk up `cls`'s resolved base chain (nearest base first) to the first base class that
+ *  declares a method named `methodName`; returns that base method's address. Bases resolve
+ *  across files via the type checker; external (node_modules/.d.ts) bases drop out via
+ *  classAddress. Cycle-safe on the resolved addresses. */
+function nearestBaseMethod(cls: ClassDeclaration, methodName: string, rootDir: string): string | undefined {
+  const seen = new Set<string>();
+  let base = safeBaseClass(cls);
+  while (base) {
+    const baseAddress = classAddress(base, rootDir);
+    if (!baseAddress || seen.has(baseAddress)) break;
+    seen.add(baseAddress);
+    if (base.getMethod(methodName)) return `${baseAddress}.${methodName}`;
+    base = safeBaseClass(base);
+  }
+  return undefined;
+}
+
+/**
+ * FR-97 cross-file: a subclass method that redefines an inherited method emits an
+ * `overrides` edge to the base method, even when the base class is imported from another
+ * file (`class HTTPAdapter extends BaseAdapter` with BaseAdapter imported). ts-morph's
+ * getBaseClass() resolves the base ClassDeclaration across files via the type checker —
+ * the TS analog of Pyright's definition lookup. The tree-sitter skeleton already resolves
+ * SAME-FILE inheritance (T17.1), so this emits ONLY the cross-file edges (base method in a
+ * different file) to avoid duplicating that layer — the same split as the Python two-layer.
+ */
+export function resolveOverrideEdges(project: Project, rootDir: string): GraphEdge[] {
+  const edges: GraphEdge[] = [];
+  const seen = new Set<string>();
+  for (const sourceFile of project.getSourceFiles()) {
+    for (const cls of sourceFile.getClasses()) {
+      const subAddress = classAddress(cls, rootDir);
+      if (!subAddress) continue;
+      for (const method of cls.getMethods()) {
+        const from = `${subAddress}.${method.getName()}`;
+        const to = nearestBaseMethod(cls, method.getName(), rootDir);
+        if (!to || to === from || fileOf(to) === fileOf(from)) continue;
+        const key = `${from}->${to}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({ from, to, type: "overrides" });
       }
     }
   }

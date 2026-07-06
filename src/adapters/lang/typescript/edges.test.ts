@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Project } from "ts-morph";
-import { resolveImportEdges, resolveCallEdges, resolveRenderEdges } from "./edges.js";
+import { resolveImportEdges, resolveCallEdges, resolveRenderEdges, resolveOverrideEdges } from "./edges.js";
 
 function projectWith(files: Record<string, string>): Project {
   const project = new Project({ useInMemoryFileSystem: true });
@@ -120,5 +120,67 @@ describe("resolveRenderEdges (FR-84)", () => {
   it("emits nothing when a component renders only lowercase host elements", () => {
     const project = projectWith({ "h.tsx": "export const H = () => <div><span/></div>;" });
     expect(resolveRenderEdges(project, "/")).toEqual([]);
+  });
+});
+
+describe("resolveOverrideEdges (FR-97 cross-file)", () => {
+  it("resolves a cross-file override to the imported base method", () => {
+    const project = projectWith({
+      "base.ts": "export class BaseAdapter {\n  send() { return 1; }\n  close() {}\n}",
+      "http.ts": [
+        "import { BaseAdapter } from './base';",
+        "export class HTTPAdapter extends BaseAdapter {",
+        "  send() { return 2; }", // overrides BaseAdapter.send across files
+        "  extra() {}", // not in the base — no edge
+        "}",
+      ].join("\n"),
+    });
+    const edges = resolveOverrideEdges(project, "/");
+    expect(edges).toContainEqual({
+      from: "ts:http.ts#HTTPAdapter.send",
+      to: "ts:base.ts#BaseAdapter.send",
+      type: "overrides",
+    });
+    // Only the redefined method produces an edge.
+    expect(edges).toHaveLength(1);
+  });
+
+  it("does NOT emit same-file overrides (left to the skeleton walker)", () => {
+    const project = projectWith({
+      "solo.ts": ["class A { m() {} }", "class B extends A { m() {} }"].join("\n"),
+    });
+    // Base and override share a file — the skeleton owns this edge; ts-morph must not dup it.
+    expect(resolveOverrideEdges(project, "/")).toEqual([]);
+  });
+
+  it("resolves a transitive cross-file override up the base chain", () => {
+    const project = projectWith({
+      "a.ts": "export class A {\n  run() {}\n}",
+      "b.ts": "import { A } from './a';\nexport class B extends A {}", // B adds nothing
+      "c.ts": [
+        "import { B } from './b';",
+        "export class C extends B {",
+        "  run() {}", // overrides A.run through B (B doesn't define run)
+        "}",
+      ].join("\n"),
+    });
+    expect(resolveOverrideEdges(project, "/")).toContainEqual({
+      from: "ts:c.ts#C.run",
+      to: "ts:a.ts#A.run",
+      type: "overrides",
+    });
+  });
+
+  it("skips a base class from node_modules / .d.ts (first-party graph only)", () => {
+    const project = projectWith({
+      "vendor.d.ts": "export declare class Vendor {\n  handle(): void;\n}",
+      "impl.ts": [
+        "import { Vendor } from './vendor';",
+        "export class Impl extends Vendor {",
+        "  handle() {}",
+        "}",
+      ].join("\n"),
+    });
+    expect(resolveOverrideEdges(project, "/")).toEqual([]);
   });
 });

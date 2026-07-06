@@ -3,7 +3,7 @@ import type { LanguageAdapter } from "../../core/ports.js";
 import type { GraphEdge } from "../../core/graph/types.js";
 import { createTypeScriptAdapter, createTsxAdapter } from "./typescript/index.js";
 import { createPythonAdapter } from "./python/index.js";
-import { resolveImportEdges, resolveCallEdges, resolveRenderEdges } from "./typescript/edges.js";
+import { resolveImportEdges, resolveCallEdges, resolveRenderEdges, resolveOverrideEdges } from "./typescript/edges.js";
 import { resolvePythonEdges } from "./python/pyright-edges.js";
 
 // FR-86: the language registry — the single data table that drives which files the
@@ -74,6 +74,7 @@ export const EDGE_RESOLVERS: readonly EdgeResolver[] = [
         ...resolveImportEdges(project, rootDir),
         ...resolveCallEdges(project, rootDir),
         ...resolveRenderEdges(project, rootDir),
+        ...resolveOverrideEdges(project, rootDir),
       ]);
     },
   },
