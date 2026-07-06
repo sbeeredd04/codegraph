@@ -47,7 +47,7 @@ const TASKS: readonly TaskRow[] = [
   { task: "graph-stats", asks: "count the whole codebase's structure", baseTurns: 6, baseOk: false, cgTurns: 4, cgOk: true, verdict: "codegraph" },
   { task: "callers", asks: "who calls HTTPAdapter.send", baseTurns: 3, baseOk: true, cgTurns: 6, cgOk: true, verdict: "overhead" },
   { task: "auth-subclasses", asks: "all AuthBase subclasses", baseTurns: 3, baseOk: true, cgTurns: 4, cgOk: true, verdict: "overhead" },
-  { task: "call-path", asks: "path requests.get → adapter.send", baseTurns: 7, baseOk: true, cgTurns: 10, cgOk: true, verdict: "overhead" },
+  { task: "call-path", asks: "path requests.get → adapter.send", baseTurns: 7, baseOk: true, cgTurns: 8, cgOk: true, verdict: "tie" },
   { task: "dependencies", asks: "first-party imports of sessions.py", baseTurns: 3, baseOk: true, cgTurns: 3, cgOk: true, verdict: "tie" },
   { task: "api-surface", asks: "public verbs in api.py", baseTurns: 4, baseOk: true, cgTurns: 3, cgOk: true, verdict: "tie" },
 ];
@@ -256,10 +256,13 @@ export default function Benchmark() {
               What we&apos;re still fixing
             </h3>
             <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-              The benchmark caught a real gap in codegraph, and we&apos;re keeping it in view: tracing a call through a
-              polymorphic interface (an abstract method with concrete overrides) isn&apos;t resolved yet, so path-finding
-              can miss the last hop. Modelling inheritance and override edges is next — that turns the navigation tasks
-              from overhead into wins. A benchmark you can&apos;t lose isn&apos;t telling you anything.
+              The benchmark caught a real gap — tracing a call through a polymorphic interface (an abstract method with
+              concrete overrides) — and we fixed it. codegraph now models override edges and resolves virtual dispatch,
+              so <span className="font-mono text-zinc-300">requests.get → HTTPAdapter.send</span> traces end to end where
+              it used to return <span className="text-zinc-200">no path</span> — and call-path dropped from 10 to 8
+              turns. What&apos;s left is honest: this resolves inheritance <span className="text-zinc-200">within a
+              file</span>; a base class imported from another module needs cross-file type resolution, the next slice.
+              A benchmark you can&apos;t lose isn&apos;t telling you anything.
             </p>
           </div>
         </section>

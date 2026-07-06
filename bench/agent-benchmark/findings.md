@@ -17,7 +17,7 @@ repo (file tools only) vs. an **indexed** copy with the codegraph MCP. Full data
 |---|---|---|---|---|
 | callers | 3 → 6 | $0.23 → $0.44 | ✓ / ✓ | codegraph overhead |
 | auth-subclasses | 3 → 4 | $0.18 → $0.26 | ✓ / ✓ | codegraph overhead |
-| call-path | 7 → 10 | $0.31 → $0.55 | ✓ / ✓ | overhead — `find_path` missed the edge |
+| call-path | 7 → 10 | $0.31 → $0.55 | ✓ / ✓ | overhead — `find_path` missed the edge (FIXED in T15, see below) |
 | **graph-stats** | **6 → 4** | **$0.43 → $0.23** | **✗ / ✓** | **codegraph wins decisively** |
 | dependencies | 3 → 3 | $0.18 → $0.18 | ✓ / ✓ | tie |
 | api-surface | 4 → 3 | $0.19 → $0.19 | ✓ / ✓ | tie |
@@ -49,6 +49,33 @@ repo (file tools only) vs. an **indexed** copy with the codegraph MCP. Full data
    fell back to files anyway. Fixing override-edge resolution is the highest-value
    codegraph change this benchmark justifies: navigation is the #1 agent use case.
 
+## Update (T15): the `find_path` bug is fixed
+
+The benchmark's finding #4 drove a real product change (commits `2c26f6c`, `3b72da1`):
+
+1. **Model overrides.** A new `overrides` edge type; the Python indexer now captures
+   same-file class inheritance and emits `HTTPAdapter.send` → `BaseAdapter.send`.
+2. **Resolve virtual dispatch.** `find_path` traverses `overrides` edges in reverse, so a
+   path that reaches the abstract base method continues to the concrete override.
+
+**Deterministic, tool-level proof** (no LLM variance): on the re-indexed `requests`,
+`find_path(requests.get → HTTPAdapter.send)` went from `found:false` to `found:true`,
+tracing `get → request → Session.request → Session.send → BaseAdapter.send ⟿
+HTTPAdapter.send`. The tool that whiffed now nails the path it exists to answer.
+
+**Agent-level re-run** (`call-path`, single real `claude -p` A/B, `results/runs-t15.3-callpath.jsonl`):
+codegraph dropped from **10 → 8 turns** and **49s → 32s** — now *faster* than the
+file-only baseline (7 turns / 38s) with fewer output tokens, and the agent's answer
+explicitly traces the virtual dispatch instead of noting the tool returned no match.
+Verdict moves from *overhead* toward a *tie* (still 1 turn more than plain grep on this
+37-file repo; cost ~flat). Single-run, so treat the turn delta as directional, not
+precise — the deterministic tool-level result above is the durable claim.
+
+**Scope, honestly.** This resolves **same-file** inheritance (base + override in one
+file — the requests `BaseAdapter`/`HTTPAdapter` and the `AuthBase` hierarchy). Dotted /
+imported / generic bases (`class X(base.Thing)`, `Generic[T]`) need cross-file type
+resolution and are deferred to the LSP (Pyright) edge layer — the next override slice.
+
 ## Honest caveats (why this understates codegraph)
 
 - **Scale.** `requests` is tiny and famous. codegraph's whole reason to exist is the
@@ -70,6 +97,8 @@ A/B with a codegraph-free baseline.
 
 - Ship the honest story: **codegraph makes an agent's structural understanding correct,
   not just faster** — decisive on whole-codebase questions, neutral on local ones.
-- Fix `find_path` override-edge resolution (turns the navigation losses into wins).
+- ~~Fix `find_path` override-edge resolution~~ **DONE (T15)** for same-file inheritance —
+  `find_path` now resolves virtual dispatch (`found:false` → `found:true`), and call-path
+  dropped 10 → 8 turns. Cross-file inheritance via the LSP layer is the next slice.
 - Re-run on a large, unfamiliar repo for the demonstration that matches codegraph's
   actual target — that is where "codes in a completely new way" earns the claim.
