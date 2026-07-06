@@ -37,6 +37,7 @@ import { useExplorerSettings } from "@/lib/use-explorer-settings";
 import { useAgentOverlays } from "@/lib/use-agent-overlays";
 import { buildExplorerActions } from "@/lib/explorer-actions";
 import { OnboardingPanel } from "./onboarding-panel";
+import { FirstRunHint } from "./first-run-hint";
 import { TracePanel } from "./trace-panel";
 import { useIngest } from "@/lib/use-ingest";
 import { isWebviewHost } from "@/lib/webview-bridge";
@@ -630,6 +631,10 @@ export function Explorer({
         {onboardOpen && (
           <OnboardingPanel playbook={playbook} coverage={coverage} onDismiss={() => setOnboardOpen(false)} />
         )}
+
+        {/* FR-53 (T8.5): one-time first-run orientation for a new human — self-hides
+            after the first dismissal (localStorage). Bottom-centre, non-modal. */}
+        <FirstRunHint onOpenGuide={() => router.push("/docs")} />
 
         {/* FR-61: manual execution trace — lists the ordered route the user is
             assembling by clicking nodes, with undo / clear / cinematic playback.
