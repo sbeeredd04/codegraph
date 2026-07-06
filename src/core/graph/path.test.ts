@@ -122,6 +122,40 @@ describe("findPath", () => {
   });
 });
 
+describe("findPath — virtual dispatch (FR-97 override edges)", () => {
+  // The requests shape: a caller reaches the ABSTRACT base method (the static resolution),
+  // two concrete adapters override it. Override edges are stored override→base.
+  const build97 = () =>
+    build(
+      ["caller", "Base.send", "HTTP.send", "Other.send"],
+      [
+        ["caller", "Base.send", "calls"], // static resolution lands on the base
+        ["HTTP.send", "Base.send", "overrides"],
+        ["Other.send", "Base.send", "overrides"],
+      ],
+    );
+
+  it("resolves a call that lands on a base method to the concrete override", () => {
+    const r = findPath(build97(), "caller", "HTTP.send");
+    expect(r!.found).toBe(true);
+    expect(r!.nodes).toEqual(["caller", "Base.send", "HTTP.send"]);
+    // The last hop is the reverse-override dispatch step: base -> override, type "overrides".
+    expect(r!.steps.at(-1)).toEqual({ from: "Base.send", to: "HTTP.send", type: "overrides" });
+  });
+
+  it("does NOT hop between sibling overrides through the shared base", () => {
+    // HTTP.send -> Base.send would need a FORWARD override traversal, which is never added,
+    // so there is no HTTP.send -> Base.send -> Other.send path between unrelated siblings.
+    const r = findPath(build97(), "HTTP.send", "Other.send");
+    expect(r!.found).toBe(false);
+  });
+
+  it("traces strictly static edges when resolveOverrides is disabled", () => {
+    const r = findPath(build97(), "caller", "HTTP.send", { resolveOverrides: false });
+    expect(r!.found).toBe(false); // without dispatch resolution the override is unreachable
+  });
+});
+
 describe("findPathInEdges (raw-array entry)", () => {
   const nodes: GraphNode[] = ["a", "b", "c"].map((a) => node(a));
   const edges: { from: string; to: string; type: EdgeType }[] = [

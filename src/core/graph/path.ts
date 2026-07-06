@@ -20,6 +20,9 @@ export interface PathNodeRef {
 export interface PathStep {
   readonly from: NodeAddress;
   readonly to: NodeAddress;
+  /** The edge type of this hop. A `type: "overrides"` step is the ONE case where the step
+   * direction can be the reverse of the stored edge: it means virtual dispatch — from the
+   * abstract base method (`from`) to the concrete override reached at runtime (`to`). */
   readonly type: EdgeType;
 }
 
@@ -40,6 +43,17 @@ export interface FindPathOptions {
   /** Edge types to traverse. Default: dependency edges (calls/depends-on/hands-off-to);
    * structural `contains` is excluded since containment is not a flow. */
   readonly edgeTypes?: ReadonlySet<EdgeType>;
+  /**
+   * Resolve virtual dispatch (FR-97). A call through a polymorphic interface statically
+   * resolves to the ABSTRACT base method (`adapter.send` → `BaseAdapter.send`), but at
+   * runtime dispatches to the CONCRETE override (`HTTPAdapter.send`). When true (default),
+   * a path that reaches a base method continues to its overriders by traversing `overrides`
+   * edges in REVERSE (override→base becomes a base→override dispatch step). The `overrides`
+   * edge is NOT added forward, so a path can't hop override→base→sibling between unrelated
+   * implementations — only base→override, the true dispatch direction. Set false to trace
+   * strictly static edges.
+   */
+  readonly resolveOverrides?: boolean;
 }
 
 const NOT_FOUND = (from: NodeAddress, to: NodeAddress): PathResult => ({
@@ -83,15 +97,23 @@ export function findPathInEdges(
   if (!addresses.has(from) || !addresses.has(to)) return undefined;
 
   const allowed = opts.edgeTypes ?? DEPENDENCY_EDGES;
+  const resolveOverrides = opts.resolveOverrides ?? true;
 
   // Typed forward adjacency: from -> the steps leaving it (keeping the edge type).
   const fwd = new Map<NodeAddress, PathStep[]>();
-  for (const e of edges) {
-    if (!allowed.has(e.type)) continue;
-    const step: PathStep = { from: e.from, to: e.to, type: e.type };
-    const list = fwd.get(e.from);
+  const addStep = (from: NodeAddress, step: PathStep): void => {
+    const list = fwd.get(from);
     if (list) list.push(step);
-    else fwd.set(e.from, [step]);
+    else fwd.set(from, [step]);
+  };
+  for (const e of edges) {
+    if (allowed.has(e.type)) addStep(e.from, { from: e.from, to: e.to, type: e.type });
+    // FR-97 virtual dispatch: reverse-traverse an `overrides` edge (stored override→base)
+    // so a path that reached the abstract base method continues to the concrete override.
+    // The step is recorded in the WALK/dispatch direction (base→override) — correct for a
+    // flow trace — while the edge itself stays override→base for describe_node/rendering.
+    // Added independently of `allowed`: it's dispatch resolution, not an edge-type filter.
+    if (resolveOverrides && e.type === "overrides") addStep(e.to, { from: e.to, to: e.from, type: "overrides" });
   }
 
   // BFS, recording the edge that first reached each node so the path can be rebuilt.

@@ -161,9 +161,10 @@ export function readTools(getGraph: () => CodeGraph, annotations?: NodeAnnotatio
         "(calls, depends-on, hands-off-to) from `from` to `to`. Use it to follow a request or " +
         "data flow end to end — e.g. from an entry point to a database write — then turn the chain " +
         "into a sequence or flow diagram. Returns the ordered steps (each with its edge type) and " +
-        "the node path, or found:false when no such route exists. Pass edgeTypes to trace other " +
-        "relations (e.g. include 'contains' to walk structure, or 'overrides' to see which " +
-        "base-class method a method overrides).",
+        "the node path, or found:false when no such route exists. Virtual dispatch is resolved: a " +
+        "call that statically lands on an abstract base method continues to the concrete override " +
+        "reached at runtime. Pass edgeTypes to trace other relations (e.g. include 'contains' to " +
+        "walk structure, or 'overrides' to see which base-class method a method overrides).",
       inputSchema: {
         from: z.string().min(1).describe("Start node address, e.g. ts:src/api.ts#handleRequest"),
         to: z.string().min(1).describe("Target node address to reach, e.g. ts:src/db.ts#write"),
