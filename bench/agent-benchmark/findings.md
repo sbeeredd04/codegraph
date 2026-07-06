@@ -3,6 +3,25 @@
 Honest write-up of what the benchmark measured. No spin: the result is **nuanced**,
 not a blanket win, and it points at a concrete codegraph improvement.
 
+## ⚠ CORRECTION (T16) — the `graph-stats` "win" was a scope artifact
+
+Read `results/scale-probe-t16.md` for the full re-examination. Short version: the
+**"codegraph wins decisively — agent miscounted the codebase ~2×"** claim below (item 1,
+and the graph-stats row) **does not survive scrutiny and is retracted.** The v2 baseline
+agent answered `19 / 52 / 91 / 177`, which is the *exact* independent AST count of the
+`src/requests` **source package** — the agent counted the source correctly. codegraph's
+`37 / 72 / 173 / 475` counted the **whole repo including tests**. Different denominators,
+not an accuracy gap. A scale probe on `Textualize/rich` (100-file package) confirmed it:
+the codegraph-free agent script-counted `100 / 181 / 161 / 751`, exact. **Counting
+structure is not codegraph's advantage** — a capable agent does it accurately alone.
+
+What holds up: codegraph's edge is **relational certainty** — a resolved cross-file graph
+for queries grep/extrapolation can't cheaply answer (virtual-dispatch paths, callers,
+blast radius, dependency closure). The clean demonstration is the `find_path` fix (T15):
+`find_path(requests.get → HTTPAdapter.send)` went `found:false → found:true`, deterministic.
+The rest of this doc is kept for the record; weigh item 1 and the graph-stats row against
+this correction.
+
 ## Setup
 
 `psf/requests` (37 files, 757 graph nodes), model `sonnet`, 6 comprehension tasks,
@@ -18,7 +37,7 @@ repo (file tools only) vs. an **indexed** copy with the codegraph MCP. Full data
 | callers | 3 → 6 | $0.23 → $0.44 | ✓ / ✓ | codegraph overhead |
 | auth-subclasses | 3 → 4 | $0.18 → $0.26 | ✓ / ✓ | codegraph overhead |
 | call-path | 7 → 10 | $0.31 → $0.55 | ✓ / ✓ | overhead — `find_path` missed the edge (FIXED in T15, see below) |
-| **graph-stats** | **6 → 4** | **$0.43 → $0.23** | **✗ / ✓** | **codegraph wins decisively** |
+| ~~graph-stats~~ | 6 → 4 | $0.43 → $0.23 | ✗ / ✓ | ~~codegraph wins~~ → RETRACTED (scope artifact, see correction above) |
 | dependencies | 3 → 3 | $0.18 → $0.18 | ✓ / ✓ | tie |
 | api-surface | 4 → 3 | $0.19 → $0.19 | ✓ / ✓ | tie |
 | **Aggregate** | **26 → 30** | **$1.51 → $1.84** | **5/6 → 6/6** | mixed + 1 accuracy gain |

@@ -33,9 +33,9 @@ test("the benchmark page boots offline under a non-root mount, honest content in
 
   await page.goto("./benchmark.html");
 
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(/makes it certain/i);
-  // The honest non-wins survive the export too.
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/resolves it/i);
+  // The honest framing survives the export: the retracted counting claim + a real overhead verdict.
+  await expect(page.getByText(/scope artifact/i)).toBeVisible();
   await expect(page.getByText("overhead").first()).toBeVisible();
-  await expect(page.getByText("tie").first()).toBeVisible();
   expect(errors).toEqual([]);
 });
