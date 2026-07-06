@@ -90,10 +90,34 @@ Verdict moves from *overhead* toward a *tie* (still 1 turn more than plain grep 
 37-file repo; cost ~flat). Single-run, so treat the turn delta as directional, not
 precise — the deterministic tool-level result above is the durable claim.
 
-**Scope, honestly.** This resolves **same-file** inheritance (base + override in one
-file — the requests `BaseAdapter`/`HTTPAdapter` and the `AuthBase` hierarchy). Dotted /
-imported / generic bases (`class X(base.Thing)`, `Generic[T]`) need cross-file type
-resolution and are deferred to the LSP (Pyright) edge layer — the next override slice.
+**Scope, honestly.** At T15 this resolved **same-file** inheritance only (base + override
+in one file — the requests `BaseAdapter`/`HTTPAdapter` and the `AuthBase` hierarchy).
+Dotted / imported bases (`class X(base.Thing)`) need cross-file type resolution and were
+deferred to the language type layer — now delivered (see the T16–T17 update below).
+
+## Update (T16–T17): cross-file inheritance delivered, both languages
+
+FR-97 override resolution is now complete for same-file **and** cross-file inheritance
+across both languages codegraph parses — a subclass method that redefines an inherited
+method emits an `overrides` edge to the base method even when the base class lives in
+another file:
+
+1. **Python cross-file** (commit `863a0c1`, T16.2). A Pyright/LSP pass resolves each
+   imported / dotted base class to its declaration across files (`client.definition`),
+   walks the base chain to the nearest same-named method, and emits the edge — only when
+   the base is in a *different* file, so it never duplicates the same-file skeleton edges.
+2. **TypeScript** (commits `0e5798f` T17.1 same-file, `0e20978` T17.2 cross-file). The
+   tree-sitter skeleton resolves same-file heritage; a ts-morph pass uses `getBaseClass()`
+   (the type checker) to resolve an imported base across files, with the same cross-file
+   -only guard.
+3. **Proven end-to-end** (commit `8b24527`, T17.3). An integration test drives the real
+   `bootstrapRepo` indexer over a cross-file class hierarchy in *both* languages, then
+   asserts `find_path` resolves the virtual dispatch caller → `BaseAdapter.send` →
+   `HTTPAdapter.send` — and that the override edge is load-bearing (disable it, no path).
+
+This is a capability-completion note: it extends the relational-certainty story (resolved
+cross-file structure grep/extrapolation can't cheaply answer), not the retracted counting
+claim — the T16 correction above still stands.
 
 ## Honest caveats (why this understates codegraph)
 
@@ -116,8 +140,9 @@ A/B with a codegraph-free baseline.
 
 - Ship the honest story: **codegraph makes an agent's structural understanding correct,
   not just faster** — decisive on whole-codebase questions, neutral on local ones.
-- ~~Fix `find_path` override-edge resolution~~ **DONE (T15)** for same-file inheritance —
-  `find_path` now resolves virtual dispatch (`found:false` → `found:true`), and call-path
-  dropped 10 → 8 turns. Cross-file inheritance via the LSP layer is the next slice.
+- ~~Fix `find_path` override-edge resolution~~ **DONE** — same-file (T15) *and* cross-file
+  (T16–T17, both languages) inheritance now resolve virtual dispatch (`found:false` →
+  `found:true`), proven end-to-end through the real indexer. `find_path` nails the path it
+  exists to answer.
 - Re-run on a large, unfamiliar repo for the demonstration that matches codegraph's
   actual target — that is where "codes in a completely new way" earns the claim.
