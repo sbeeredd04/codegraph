@@ -30,7 +30,7 @@
       },
       {
         "command": "codegraph.openWorkspace",
-        "title": "codegraph: Open Workspace Graph"
+        "title": "codegraph: Open Graph Dashboard (workspace)"
       },
       {
         "command": "codegraph.refresh",
@@ -54,7 +54,7 @@
       },
       {
         "command": "codegraph.openExplorer",
-        "title": "codegraph: Open Unified Explorer (preview)"
+        "title": "codegraph: Open Graph Dashboard (current graph)"
       },
       {
         "command": "codegraph.indexRepo",

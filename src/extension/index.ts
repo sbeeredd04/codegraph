@@ -10,7 +10,7 @@ import { rankedChangeFeed } from "../core/graph/change-feed.js";
 import { createCoalescer, type Coalescer } from "../core/watch/coalescer.js";
 import { baselineGraph } from "../adapters/git/baseline.js";
 import { mcpConfigSnippet } from "../adapters/mcp/config.js";
-import { exportGraphSnapshot } from "../core/graph/export.js";
+import { exportGraphSnapshot, type GraphSnapshot } from "../core/graph/export.js";
 import { buildMarkdownReport } from "../core/report/report.js";
 import { createNodeAnnotations } from "../core/semantic/annotations.js";
 import { diskEnrichmentCache } from "../adapters/semantic/disk-cache.js";
@@ -103,8 +103,18 @@ async function readOverlays(folderPath: string): Promise<readonly Overlay[]> {
   return (await diskOverlayStore(cachePath).all()).overlays;
 }
 
-// Repaint the board for a workspace graph, folding in the agent's annotations and
-// any Mermaid diagrams the agent has authored.
+// Repaint the board for a workspace graph, folding in the agent's annotations,
+// Mermaid diagrams, long-form docs, and knowledge overlays.
+//
+// The unified Next explorer is now the PRIMARY board (the "PARITY WATCH" ended —
+// it renders the diagrams drawer / knowledge index / change feed / enrichment
+// card, and adds floating panels, View source → reveal-in-editor, Ask, live
+// Diff, and 2D/3D that the bespoke GraphPanel never had). It is the SAME app the
+// website serves, so the extension and the web show one board from one codebase.
+// The bespoke GraphPanel remains only as the fallback for a core-only build that
+// ships without the bundled export. Read-only throughout (FR-9); only the
+// portable snapshot (+ host-local docstrings for the FR-60 fallback) crosses to
+// the webview — never source bytes or an absolute host path (AD-14/AD-16).
 async function showGraph(
   context: vscode.ExtensionContext,
   folderPath: string,
@@ -112,11 +122,39 @@ async function showGraph(
   delta?: GraphDelta,
   feed?: readonly RankedChange[],
 ): Promise<void> {
+  if (ExplorerPanel.isAvailable(context)) {
+    const snapshot = await buildLiveSnapshot(folderPath, graph);
+    ExplorerPanel.show(context, snapshot, presentationCommandsPath(folderPath));
+    return;
+  }
   const [enrichments, diagrams] = await Promise.all([
     readEnrichments(folderPath, graph),
     readDiagrams(folderPath),
   ]);
   GraphPanel.show(context, graph.allNodes(), graph.allEdges(), delta, feed, enrichments, diagrams);
+}
+
+// Build the portable snapshot the unified explorer consumes, folding in every
+// per-repo cache the agent writes (enrichments, diagrams, docs, overlays). Kept
+// host-local (keepHostLocal) so the FR-60 docstring fallback renders in the
+// webview; the file/report exports strip it. One helper so the live watcher,
+// the index trigger, and the open commands all paint the SAME board.
+async function buildLiveSnapshot(folderPath: string, graph: CodeGraph): Promise<GraphSnapshot> {
+  const [enrichments, diagramSet, docs, overlays] = await Promise.all([
+    readEnrichments(folderPath, graph),
+    readDiagrams(folderPath),
+    readDocs(folderPath),
+    readOverlays(folderPath),
+  ]);
+  return exportGraphSnapshot(graph.allNodes(), graph.allEdges(), {
+    enrichments,
+    diagrams: diagramSet.diagrams,
+    docs,
+    overlays,
+    generatedAt: new Date().toISOString(),
+    root: folderPath,
+    keepHostLocal: true,
+  });
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -467,23 +505,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     const active = current;
-    const [enrichments, diagramSet, docs, overlays] = await Promise.all([
-      readEnrichments(active.folderPath, active.graph),
-      readDiagrams(active.folderPath),
-      readDocs(active.folderPath),
-      readOverlays(active.folderPath),
-    ]);
-    const snapshot = exportGraphSnapshot(active.graph.allNodes(), active.graph.allEdges(), {
-      enrichments,
-      diagrams: diagramSet.diagrams,
-      docs,
-      overlays,
-      generatedAt: new Date().toISOString(),
-      root: active.folderPath,
-      // The webview is the LOCAL plane (runs on the host) — keep each node's docstring
-      // so the FR-60 fallback note renders; the file/report exports still strip it.
-      keepHostLocal: true,
-    });
+    const snapshot = await buildLiveSnapshot(active.folderPath, active.graph);
     // Pass the transient command-queue path so the panel tails the agent's live
     // presentation directives (FR-39) — the MCP server emits onto the same path
     // for this repo root. A view-only channel: never persisted, never source.
