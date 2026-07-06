@@ -366,7 +366,20 @@ export function activate(context: vscode.ExtensionContext): void {
           const baseline = await baselineGraph(active.folderPath, ref, wasmDir(), active.options);
           const delta = diffGraphs(baseline, active.graph);
           const feed = rankedChangeFeed(delta, baseline, active.graph);
-          await showGraph(context, active.folderPath, active.graph, delta, feed);
+          // On the unified board, hand the webview the baseline GRAPH (source-blind
+          // — identities + structure only, AD-14) and let its client diff light the
+          // Diff lens against the live graph (T14.4). The bespoke fallback board
+          // (core-only build) still tints from the host-computed delta/feed.
+          if (ExplorerPanel.isAvailable(context)) {
+            const baselineSnapshot = exportGraphSnapshot(baseline.allNodes(), baseline.allEdges(), {
+              generatedAt: new Date().toISOString(),
+              root: active.folderPath,
+            });
+            ExplorerPanel.armBaseline(baselineSnapshot);
+            await showGraph(context, active.folderPath, active.graph);
+          } else {
+            await showGraph(context, active.folderPath, active.graph, delta, feed);
+          }
           void vscode.window.showInformationMessage(
             deltaSummary(delta, `codegraph: working tree matches ${ref}.`),
           );

@@ -6,10 +6,12 @@ import {
   OPEN_FILE_TYPE,
   INGEST_TYPE,
   INDEX_REQUEST_TYPE,
+  BASELINE_TYPE,
   isReadyMessage,
   parseOpenFileMessage,
   snapshotMessage,
   commandMessage,
+  baselineMessage,
   ingestMessage,
   parseIngestEvent,
   isIndexRequestMessage,
@@ -143,6 +145,17 @@ describe("explorer-protocol — the host↔export message contract", () => {
     expect(isIndexRequestMessage({ type: READY_TYPE })).toBe(false);
     expect(isIndexRequestMessage(null)).toBe(false);
     expect(isIndexRequestMessage("codegraph:indexRepo")).toBe(false);
+  });
+
+  it("wraps a git-ref baseline graph in the envelope the frontend accepts (T14.4)", () => {
+    const msg = baselineMessage(SNAPSHOT);
+    // The frontend bridge's isBaselineMessage matches exactly this shape — guard drift.
+    expect(BASELINE_TYPE).toBe("codegraph:baseline");
+    expect(msg).toEqual({ type: "codegraph:baseline", snapshot: SNAPSHOT });
+    // Source-blind: the baseline carries only the portable snapshot (identities +
+    // structure), never a source field or an absolute host path (AD-14).
+    expect(Array.isArray(msg.snapshot.nodes)).toBe(true);
+    expect(Array.isArray(msg.snapshot.edges)).toBe(true);
   });
 
   it("guarantees a single trailing slash on the base href, idempotently", () => {

@@ -26,7 +26,7 @@ import { layeredNeighbourhood } from "@core/graph/layers";
 import { neighborsOf } from "@core/graph/focus";
 import { useManualTrace } from "@/lib/use-manual-trace";
 import type { PresentationCommand } from "@core/presentation/command";
-import { subscribeToPresentationCommands } from "@/lib/webview-bridge";
+import { subscribeToPresentationCommands, subscribeToBaseline } from "@/lib/webview-bridge";
 import { PresentingBanner } from "./presenting-banner";
 import { NodeSourceViewer } from "./node-source-viewer";
 import { DetailPanel } from "./detail-panel";
@@ -361,6 +361,16 @@ export function Explorer({
   // webview the handler never fires. Re-subscribes when the graph changes so a
   // path-trace resolves against the current edges.
   useEffect(() => subscribeToPresentationCommands(dispatchCommand), [dispatchCommand]);
+
+  // T14.4: the host's git-ref baseline (codegraph.diffBaseline) arrives as a
+  // source-blind snapshot; arm the Diff lens against it so "Diff Against Git Ref"
+  // visualises in the unified board (the bespoke board used to tint the delta).
+  // applyExternalBaseline is useCallback-stable, so this subscribes once.
+  const { applyExternalBaseline } = diff;
+  useEffect(
+    () => subscribeToBaseline((snap) => applyExternalBaseline({ nodes: snap.nodes, edges: snap.edges })),
+    [applyExternalBaseline],
+  );
 
   // ⌘Space command center (FR-49) · ⌘⇧P actions (FR-50) · ⌘K node search — one
   // listener, mutually exclusive so the launcher modals never stack.

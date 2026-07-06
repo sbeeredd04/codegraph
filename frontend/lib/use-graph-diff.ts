@@ -26,6 +26,9 @@ export interface GraphDiffController {
   /** Pin a realistic synthetic "previous version" of the current graph so the lens
    * shows a believable delta where there's no live re-index channel (web plane). */
   readonly applySampleBaseline: () => void;
+  /** Arm the lens against a baseline the HOST supplied (T14.4) — the extension's
+   * "Diff Against Git Ref" posts the baseline graph over the webview bridge. */
+  readonly applyExternalBaseline: (baseline: GraphSnapshotInput) => void;
   /** Drop the baseline back to the empty state. */
   readonly clearBaseline: () => void;
   /** The computed delta (tint map + counts + ranked feed), or null when not armed
@@ -57,6 +60,13 @@ export function useGraphDiff(
     setBaseline(sampleBaseline({ nodes, edges }));
   }, [nodes, edges]);
   const clearBaseline = useCallback(() => setBaseline(null), []);
+  // Arm the lens against a host-supplied baseline (the git-ref graph the extension
+  // posts over the bridge — T14.4). Same shape as a captured baseline, so it flows
+  // straight into computeGraphDiff; turning on diffMode surfaces the panel + tint.
+  const applyExternalBaseline = useCallback((b: GraphSnapshotInput) => {
+    setDiffModeState(true);
+    setBaseline(b);
+  }, []);
 
   // E2E hook (dev only — `process.env.NODE_ENV` is statically "production" in the
   // static export, so this is tree-shaken from shipped builds like the 2D __sigma /
@@ -85,6 +95,7 @@ export function useGraphDiff(
     hasBaseline: baseline != null,
     captureBaseline,
     applySampleBaseline,
+    applyExternalBaseline,
     clearBaseline,
     result,
   };

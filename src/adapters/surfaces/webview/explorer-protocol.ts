@@ -29,6 +29,13 @@ export const INGEST_TYPE = "codegraph:ingest" as const;
 /** webview → host: "(re)index this workspace" (FR-55 user trigger). Carries no
  * payload — the host already owns the workspace root and scan options. */
 export const INDEX_REQUEST_TYPE = "codegraph:indexRepo" as const;
+/** host → webview: a BASELINE graph to diff the live graph against (T14.4 / FR-69).
+ * The extension's "Diff Against Git Ref" builds the baseline graph on the host
+ * (baselineGraph) and posts it here so the webview's client diff (computeGraphDiff)
+ * lights the Diff lens in the unified board. Source-blind — graph identities +
+ * structure + relative-path metadata only, never source bytes / an absolute host
+ * path (AD-14) — the same portable shape as SNAPSHOT_TYPE, minus host-local docs. */
+export const BASELINE_TYPE = "codegraph:baseline" as const;
 
 export interface SnapshotMessage {
   readonly type: typeof SNAPSHOT_TYPE;
@@ -105,6 +112,19 @@ export interface CommandMessage {
 /** Wrap a validated presentation command in its host → webview envelope. */
 export function commandMessage(command: PresentationCommand): CommandMessage {
   return { type: COMMAND_TYPE, command };
+}
+
+/** host → webview: the baseline-graph envelope for the git-ref diff (T14.4). The
+ *  snapshot is a source-blind graph (identities + structure), so it is cloud-safe
+ *  (AD-14) and read-only (FR-9); the webview diffs the live graph against it. */
+export interface BaselineMessage {
+  readonly type: typeof BASELINE_TYPE;
+  readonly snapshot: GraphSnapshot;
+}
+
+/** Wrap a baseline graph snapshot in its host → webview envelope. */
+export function baselineMessage(snapshot: GraphSnapshot): BaselineMessage {
+  return { type: BASELINE_TYPE, snapshot };
 }
 
 /** The host → webview snapshot envelope the export's bridge expects. The

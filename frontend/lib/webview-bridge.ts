@@ -112,6 +112,38 @@ export function subscribeToPresentationCommands(
   return () => window.removeEventListener("message", onMessage);
 }
 
+/** Host → webview: a baseline graph to diff the live graph against (T14.4). */
+interface BaselineMessage {
+  readonly type: "codegraph:baseline";
+  readonly snapshot: GraphSnapshot;
+}
+
+function isBaselineMessage(data: unknown): data is BaselineMessage {
+  if (typeof data !== "object" || data === null) return false;
+  const m = data as { type?: unknown; snapshot?: unknown };
+  if (m.type !== "codegraph:baseline" || typeof m.snapshot !== "object" || m.snapshot === null) {
+    return false;
+  }
+  const s = m.snapshot as { nodes?: unknown; edges?: unknown };
+  return Array.isArray(s.nodes) && Array.isArray(s.edges);
+}
+
+/**
+ * Subscribe to a host-supplied baseline graph for the git-ref diff (T14.4). The
+ * extension's "Diff Against Git Ref" posts the baseline graph here; the callback
+ * arms the client diff lens against it. Inbound host data is treated as untrusted,
+ * so the shape is guarded (nodes/edges arrays) before it drives the diff. Returns
+ * an unsubscribe fn; safe off the webview (the handler simply never fires). The
+ * baseline is graph identities + structure only — never source (AD-14).
+ */
+export function subscribeToBaseline(onBaseline: (snapshot: GraphSnapshot) => void): () => void {
+  const onMessage = (e: MessageEvent): void => {
+    if (isBaselineMessage(e.data)) onBaseline(e.data.snapshot);
+  };
+  window.addEventListener("message", onMessage);
+  return () => window.removeEventListener("message", onMessage);
+}
+
 /**
  * Ask the host to (re)index the workspace (FR-55 user trigger). Carries no
  * payload — the host owns the workspace root + scan options (AD-16) — and the

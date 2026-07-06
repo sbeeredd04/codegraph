@@ -7,6 +7,7 @@ import type { PresentationCommand } from "../../../core/presentation/command.js"
 import { readCommandsFrom } from "../../presentation/disk-sink.js";
 import { prepareExportHtml } from "./export-html.js";
 import {
+  baselineMessage,
   commandMessage,
   ingestMessage,
   isIndexRequestMessage,
@@ -32,6 +33,12 @@ import type { IngestEvent } from "../../../core/ingest/progress.js";
 export class ExplorerPanel {
   private static panel: vscode.WebviewPanel | undefined;
   private static snapshot: GraphSnapshot | undefined;
+  // T14.4: a pending git-ref BASELINE to diff the live graph against. Armed by
+  // codegraph.diffBaseline just before it repaints the board; delivered ON THE
+  // NEXT `ready` (the webview re-mounts on every show(), so posting eagerly would
+  // race the client's message listener) and then cleared — a one-shot so a later
+  // reload/open never re-arms a stale git-ref diff. Source-blind (AD-14).
+  private static baseline: GraphSnapshot | undefined;
   // FR-39 slice B: the live presentation command bus. The standalone MCP server
   // (a separate process) APPENDS the agent's ephemeral view directives to a
   // host-local transient queue; while this panel is open we TAIL that queue and
@@ -83,6 +90,7 @@ export class ExplorerPanel {
         this.indexHandler = undefined;
         this.panel = undefined;
         this.snapshot = undefined;
+        this.baseline = undefined;
       });
       // The Next app announces readiness (webview-bridge.ts), then we hand it the
       // live graph — mirroring the bespoke panel's ready/render handshake.
@@ -191,6 +199,16 @@ export class ExplorerPanel {
     this.revealInEditor(node.location.file, node.location.line, node.location.character);
   }
 
+  /**
+   * Arm a git-ref baseline for the next repaint (T14.4). codegraph.diffBaseline
+   * builds the baseline graph on the host, then calls this and repaints; the
+   * baseline is delivered on the webview's next `ready` and the client diffs the
+   * live graph against it. Source-blind (AD-14) — a graph snapshot, never source.
+   */
+  static armBaseline(snapshot: GraphSnapshot): void {
+    this.baseline = snapshot;
+  }
+
   private static send(): void {
     if (!this.panel || !this.snapshot) return;
     // The host owns the source (AD-16), so it — and only it — knows the absolute
@@ -198,6 +216,12 @@ export class ExplorerPanel {
     // Passed at the transport layer, never baked into the portable snapshot.
     const editorRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     void this.panel.webview.postMessage(snapshotMessage(this.snapshot, editorRoot));
+    // Deliver any armed git-ref baseline AFTER the snapshot, then clear it — a
+    // one-shot so a later reload never re-arms a stale diff (T14.4).
+    if (this.baseline) {
+      void this.panel.webview.postMessage(baselineMessage(this.baseline));
+      this.baseline = undefined;
+    }
   }
 
   /**
