@@ -26,7 +26,7 @@ const PY_CONFIG: LanguageConfig = {
   // FR-97: same-file inheritance → `overrides` edges (subclass method → base method).
   // Python's `class Sub(Base):` puts bases in the `superclasses` argument_list; only bare
   // `identifier` bases are resolved here (dotted/imported bases need the LSP layer).
-  inheritance: { superclassesField: "superclasses", simpleBaseType: "identifier" },
+  inheritance: { kind: "field-list", superclassesField: "superclasses", simpleBaseType: "identifier" },
 };
 
 export function createPythonAdapter(wasmDir: string): Promise<LanguageAdapter> {

@@ -27,6 +27,17 @@ const TS_CONFIG: LanguageConfig = {
     valueField: "value",
     valueTypes: ["arrow_function", "function_expression"],
   },
+  // FR-97: same-file inheritance → `overrides` edges (subclass method → base method).
+  // TS/JS put the base under a `class_heritage` child → `extends_clause` → `value` field;
+  // only a bare `identifier` value (`class HTTP extends Base`) is resolved same-file —
+  // dotted `mod.Base` (member_expression) needs the type layer.
+  inheritance: {
+    kind: "heritage-clause",
+    heritageType: "class_heritage",
+    clauseType: "extends_clause",
+    valueField: "value",
+    simpleBaseType: "identifier",
+  },
 };
 
 // FR-83: the TSX/JSX grammar (a superset of TS + JSX + plain JS) so `.tsx`, `.jsx`,

@@ -102,4 +102,39 @@ describe("TypeScriptAdapter (tree-sitter skeleton)", () => {
     expect(nodes.find((n) => n.address === "ts:src/svc.ts#bare")?.signature).toBe("bare(x)");
     expect(nodes.find((n) => n.address === "ts:src/svc.ts#Svc.noAnnotations")?.signature).toBe("noAnnotations(a, b)");
   });
+
+  // FR-97: same-file inheritance → `overrides` edge from a subclass method that redefines
+  // an inherited method to the base method (virtual-dispatch resolution). TS bases live in
+  // a `class_heritage` → `extends_clause` → `value`, distinct from Python's `superclasses`.
+  it("emits an overrides edge for a same-file subclass method (FR-97)", () => {
+    const src = [
+      "class Base {",
+      "  send() { return 1; }",
+      "  close() {}",
+      "}",
+      "export class HTTP extends Base {", // exported subclass — unwrap must reach it
+      "  send() { return 2; }", // overrides Base.send
+      "  extra() {}", // not in the base — no override edge
+      "}",
+    ].join("\n");
+    const { edges } = adapter.parseFile("src/net.ts", src);
+    const overrides = edges.filter((e) => e.type === "overrides").map((e) => `${e.from}=>${e.to}`);
+    expect(overrides).toContain("ts:src/net.ts#HTTP.send=>ts:src/net.ts#Base.send");
+    // A subclass-only method and an unrelated base method do not produce override edges.
+    expect(overrides).not.toContain("ts:src/net.ts#HTTP.extra=>ts:src/net.ts#Base.close");
+    expect(overrides.some((o) => o.startsWith("ts:src/net.ts#HTTP.extra"))).toBe(false);
+  });
+
+  // FR-97 boundary: a dotted/imported base (`extends mod.Base`, a member_expression) is
+  // NOT resolved same-file — that needs the type layer, so no override edge is emitted.
+  it("does NOT emit overrides for a dotted (cross-module) base (FR-97)", () => {
+    const src = [
+      "import * as mod from './mod';",
+      "class Sub extends mod.Base {",
+      "  send() {}",
+      "}",
+    ].join("\n");
+    const { edges } = adapter.parseFile("src/sub.ts", src);
+    expect(edges.filter((e) => e.type === "overrides")).toEqual([]);
+  });
 });

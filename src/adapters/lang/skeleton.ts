@@ -94,14 +94,28 @@ export interface LanguageConfig {
    * emits an `overrides` edge to the base method (FR-97) — e.g. `HTTPAdapter.send` →
    * `BaseAdapter.send`. This closes the virtual-dispatch gap the agent benchmark surfaced:
    * a call statically resolves to the abstract base method, and the override edge names
-   * the concrete implementation reached at runtime. `superclassesField` is the class node's
-   * base-list field (Python `superclasses`, an `argument_list`); only bases of `simpleBaseType`
-   * (a bare same-file `identifier`) are resolved — dotted/generic/imported bases (`base.Thing`,
-   * `Generic[T]`) need cross-file type resolution and are deferred to the LSP edge layer. So
-   * this is SAME-FILE inheritance only, resolved purely from names (cloud-safe). Omit to skip.
+   * the concrete implementation reached at runtime. Two grammar shapes are supported:
+   *   - `field-list` (Python): bases sit in a single class-node field (`superclasses`, an
+   *     `argument_list`) whose children are the base expressions.
+   *   - `heritage-clause` (TS/JS): bases sit under a `class_heritage` child → `extends_clause`
+   *     → the clause's `value` field.
+   * In both, only a bare same-file `simpleBaseType` (`identifier`) base is resolved — dotted /
+   * generic / imported bases (`base.Thing`, `Generic[T]`, `mod.Base`, `Array<T>`) need cross-file
+   * type resolution and are deferred to the LSP edge layer. So this is SAME-FILE inheritance
+   * only, resolved purely from names (cloud-safe). Omit to skip.
    */
-  readonly inheritance?: { readonly superclassesField: string; readonly simpleBaseType: string };
+  readonly inheritance?: InheritanceConfig;
 }
+
+export type InheritanceConfig =
+  | { readonly kind: "field-list"; readonly superclassesField: string; readonly simpleBaseType: string }
+  | {
+      readonly kind: "heritage-clause";
+      readonly heritageType: string;
+      readonly clauseType: string;
+      readonly valueField: string;
+      readonly simpleBaseType: string;
+    };
 
 function loc(node: TsNode, file: string) {
   return { file, line: node.startPosition.row, character: node.startPosition.column };
@@ -365,16 +379,34 @@ function collect(
 }
 
 /** FR-97: a class's simple same-file base names — bare `identifier` bases only (e.g.
- *  `BaseAdapter`). Dotted (`base.Thing`) and generic (`Generic[T]`) bases are skipped:
- *  resolving them needs cross-file type info, which the LSP edge layer owns. */
+ *  `BaseAdapter`). Dotted (`base.Thing`), generic (`Generic[T]`, `Array<T>` — value is a
+ *  member_expression / has type_arguments) and imported bases are skipped: resolving them
+ *  needs cross-file type info, which the LSP edge layer owns. Handles both grammar shapes:
+ *  Python's single `superclasses` field, and TS/JS's `class_heritage` → `extends_clause`. */
 function extractBases(classDecl: TsNode, config: LanguageConfig): string[] {
   const inh = config.inheritance;
   if (!inh) return [];
-  const supers = classDecl.childForFieldName(inh.superclassesField);
-  if (!supers) return [];
   const names: string[] = [];
-  for (const child of supers.namedChildren) {
-    if (child?.type === inh.simpleBaseType) names.push(child.text);
+  if (inh.kind === "field-list") {
+    const supers = classDecl.childForFieldName(inh.superclassesField);
+    for (const child of supers?.namedChildren ?? []) {
+      if (child?.type === inh.simpleBaseType) names.push(child.text);
+    }
+    return names;
+  }
+  // heritage-clause (TS/JS): the class node has a `class_heritage` child holding one or
+  // more `extends_clause`s; each clause's `value` field is the base. A bare `identifier`
+  // value is a same-file base name (kept even when the clause carries `type_arguments` —
+  // `extends Base<T>` still names `Base`); a `member_expression` (dotted `mod.Base`) is
+  // left for the LSP layer. Non-same-file names (e.g. `Array`) are harmlessly dropped when
+  // no same-file class matches.
+  for (const child of classDecl.namedChildren) {
+    if (child?.type !== inh.heritageType) continue;
+    for (const clause of child.namedChildren) {
+      if (clause?.type !== inh.clauseType) continue;
+      const value = clause.childForFieldName(inh.valueField);
+      if (value?.type === inh.simpleBaseType) names.push(value.text);
+    }
   }
   return names;
 }
