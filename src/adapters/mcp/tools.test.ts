@@ -212,6 +212,58 @@ describe("MCP structural read tools (agent navigation)", () => {
   });
 });
 
+// The FR-97 payoff at the agent-facing seam: an agent asking find_path "how does this call
+// reach its real implementation?" must get the concrete override, not stall on the abstract
+// base method. path.test.ts covers the findPath algorithm and bootstrap.test.ts covers the
+// real indexer→findPath pipeline, but nothing exercised virtual-dispatch resolution THROUGH
+// the MCP handler — the exact path the agent SKILL.md now advertises. The handler passes no
+// resolveOverrides (so it defaults on); these tests pin that default and the no-sibling-hop
+// guard at the tool boundary. Shape mirrors path.test.ts's build97 (the requests scenario).
+describe("MCP find_path resolves virtual dispatch through the handler (FR-97)", () => {
+  // A caller reaches the ABSTRACT base method statically; two concrete adapters override it.
+  // Override edges are stored override→base (find_path reverses them at dispatch time).
+  const dispatchFixture = (): CodeGraph => {
+    const g = new CodeGraph();
+    [
+      node("ts:client.ts#dispatch", "function", "dispatch"),
+      node("ts:base.ts#BaseAdapter.send", "method", "send"),
+      node("ts:http.ts#HTTPAdapter.send", "method", "send"),
+      node("ts:sock.ts#SocketAdapter.send", "method", "send"),
+    ].forEach((n) => g.addNode(n));
+    const edge = (from: string, to: string, type: GraphEdge["type"]): GraphEdge => ({ from, to, type });
+    [
+      edge("ts:client.ts#dispatch", "ts:base.ts#BaseAdapter.send", "calls"), // static resolution
+      edge("ts:http.ts#HTTPAdapter.send", "ts:base.ts#BaseAdapter.send", "overrides"),
+      edge("ts:sock.ts#SocketAdapter.send", "ts:base.ts#BaseAdapter.send", "overrides"),
+    ].forEach((e) => g.addEdge(e));
+    return g;
+  };
+  const findPathVia = (g: CodeGraph, from: string, to: string) =>
+    parse(toolMap(g).get("find_path")!.handler({ from, to }).content[0].text);
+
+  it("continues past the abstract base method to the concrete override (the agent's win)", () => {
+    const path = findPathVia(dispatchFixture(), "ts:client.ts#dispatch", "ts:http.ts#HTTPAdapter.send");
+    expect(path.found).toBe(true);
+    expect(path.nodes).toEqual([
+      "ts:client.ts#dispatch",
+      "ts:base.ts#BaseAdapter.send",
+      "ts:http.ts#HTTPAdapter.send",
+    ]);
+    // Last hop is the reverse-override dispatch step: base -> override, type "overrides".
+    expect(path.steps.at(-1)).toEqual({
+      from: "ts:base.ts#BaseAdapter.send",
+      to: "ts:http.ts#HTTPAdapter.send",
+      type: "overrides",
+    });
+  });
+
+  it("does NOT hop between sibling overrides through the shared base", () => {
+    // A forward override traversal is never added, so unrelated siblings stay disconnected.
+    const path = findPathVia(dispatchFixture(), "ts:http.ts#HTTPAdapter.send", "ts:sock.ts#SocketAdapter.send");
+    expect(path.found).toBe(false);
+  });
+});
+
 describe("MCP recent_changes tool", () => {
   const recentFixture = {
     ref: "HEAD",
