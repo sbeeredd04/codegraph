@@ -150,6 +150,68 @@ describe("MCP graph tools", () => {
   });
 });
 
+// The structural navigation tools — the surface an agent uses to ORIENT in an unfamiliar
+// codebase (the "agent advantage" core). They were only asserted to EXIST; this exercises
+// each handler's real output + the neighborhood error path, so a wiring regression fails
+// the gate. On the fixture: m.ts contains foo, foo calls util.
+describe("MCP structural read tools (agent navigation)", () => {
+  const call = (name: string, args: Record<string, unknown> = {}) =>
+    parse(toolMap(fixture()).get(name)!.handler(args).content[0].text);
+
+  it("dependencies returns a node's forward closure over dependency edges", () => {
+    const r = call("dependencies", { address: "ts:m.ts#foo" });
+    expect(r.dependsOn).toEqual(["ts:m.ts#util"]); // foo -> util (calls); contains is not a dependency
+    expect(r.count).toBe(1);
+  });
+
+  it("neighborhood returns the local map (both directions) around a node", () => {
+    const r = call("neighborhood", { address: "ts:m.ts#foo", radius: 1 });
+    expect(r.center).toBe("ts:m.ts#foo");
+    const addrs = r.nodes.map((n: { address: string }) => n.address);
+    expect(addrs).toContain("ts:m.ts#util"); // callee
+    expect(addrs).toContain("ts:m.ts"); // container (reverse contains)
+  });
+
+  it("neighborhood errors cleanly on an unknown address", () => {
+    const r = toolMap(fixture()).get("neighborhood")!.handler({ address: "ts:nope#ghost" });
+    expect(r.isError).toBe(true);
+  });
+
+  it("list_orphans lists nodes with no inbound edge (dead-code candidates)", () => {
+    const r = call("list_orphans");
+    expect(r).toContain("ts:m.ts"); // the module has no inbound edge
+    expect(r).not.toContain("ts:m.ts#util"); // util is called by foo
+  });
+
+  // entry_points + list_packages need real directory paths (a bare `m.ts` has neither a
+  // conventional entry-point basename nor an enclosing package), so use a packaged graph.
+  const packaged = () => {
+    const g = new CodeGraph();
+    [
+      node("ts:packages/app/main.ts", "module", "main.ts"),
+      node("ts:packages/app/main.ts#run", "function", "run"),
+      node("ts:packages/lib/util.ts", "module", "util.ts"),
+    ].forEach((n) => g.addNode(n));
+    return g;
+  };
+  const callPackaged = (name: string, args: Record<string, unknown> = {}) =>
+    parse(toolMap(packaged()).get(name)!.handler(args).content[0].text);
+
+  it("entry_points ranks where execution starts, each with a reason", () => {
+    const r = callPackaged("entry_points");
+    expect(r.length).toBeGreaterThan(0);
+    const main = r.find((e: { address: string }) => e.address === "ts:packages/app/main.ts");
+    expect(main.reason).toMatch(/main/i); // main.ts is a conventional entry point
+    expect(r.every((e: { reason: string }) => typeof e.reason === "string" && e.reason.length > 0)).toBe(true);
+  });
+
+  it("list_packages partitions the graph into subsystems with node counts", () => {
+    const r = callPackaged("list_packages");
+    expect(r.map((p: { label: string }) => p.label).sort()).toEqual(["app", "lib"]);
+    expect(r.reduce((sum: number, p: { count: number }) => sum + p.count, 0)).toBe(3);
+  });
+});
+
 describe("MCP recent_changes tool", () => {
   const recentFixture = {
     ref: "HEAD",
